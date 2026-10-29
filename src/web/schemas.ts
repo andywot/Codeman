@@ -1608,7 +1608,7 @@ export const SettingsUpdateSchema = z
      * 'ledger'  = the flat list on an aligned column grid with a status bar
      *             per cell (option B). Header strip on desktop only. Opt-in.
      */
-    tabArrangement: z.enum(['state', 'case', 'ledger', 'classic']).optional(),
+    tabArrangement: z.enum(['state', 'case', 'ledger', 'machine', 'classic']).optional(),
     /**
      * Which end the state groups start from when `tabArrangement` is 'state'.
      * Display key (per-device). 'urgent-first' = needs you on top (the

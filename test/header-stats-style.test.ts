@@ -97,12 +97,12 @@ describe('resolveHeaderStatsStyle', () => {
 });
 
 describe('resolveTabArrangement', () => {
-  it("defaults to 'classic' and honours only the four known layouts", () => {
+  it("defaults to 'machine' and honours only the five known layouts", () => {
     // Lives here because this file already loads settings-ui.js's resolvers.
     const app = makeApp();
-    expect(app.resolveTabArrangement({})).toBe('classic');
-    expect(app.resolveTabArrangement(undefined)).toBe('classic');
-    for (const value of ['state', 'case', 'ledger', 'classic']) {
+    expect(app.resolveTabArrangement({})).toBe('machine');
+    expect(app.resolveTabArrangement(undefined)).toBe('machine');
+    for (const value of ['state', 'case', 'ledger', 'machine', 'classic']) {
       expect(app.resolveTabArrangement({ tabArrangement: value })).toBe(value);
     }
     expect(app.resolveTabArrangement({ tabArrangement: 'neon' })).toBe('classic');

@@ -646,7 +646,7 @@ Object.assign(CodemanApp.prototype, {
     document.getElementById('appSettingsTabTwoRows').checked = settings.tabTwoRows ?? defaults.tabTwoRows ?? false;
     document.getElementById('appSettingsShowTabCliLogos').checked = this.tabCliLogosEnabled(settings);
     document.getElementById('appSettingsTabOrientation').value =
-      settings.tabOrientation ?? defaults.tabOrientation ?? 'horizontal';
+      settings.tabOrientation ?? defaults.tabOrientation ?? 'vertical';
     const tabRailWidth = window.CodemanTabRail?.resolveWidth({
       // Same default resolution as applyTabRailWidth(): a rail that has never
       // been sized shows the width it is actually rendering at, which for
@@ -659,7 +659,7 @@ Object.assign(CodemanApp.prototype, {
     }) ?? 256;
     this.syncTabRailWidthSetting?.(tabRailWidth);
     document.getElementById('appSettingsTabRailDetail').value =
-      settings.tabRailDetail ?? defaults.tabRailDetail ?? 'rich';
+      settings.tabRailDetail ?? defaults.tabRailDetail ?? 'simple';
     document.getElementById('appSettingsTabRailSort').value =
       settings.tabRailSort ?? defaults.tabRailSort ?? 'activity';
     document.getElementById('appSettingsTabArrangement').value = this.resolveTabArrangement(settings);
@@ -4387,8 +4387,8 @@ Object.assign(CodemanApp.prototype, {
    * (Discussion #426, option C), 'case' and 'ledger' are opt-in.
    */
   resolveTabArrangement(settings) {
-    const value = settings?.tabArrangement ?? this.getDefaultSettings().tabArrangement;
-    return value === 'state' || value === 'case' || value === 'ledger' ? value : 'classic';
+    const value = settings?.tabArrangement ?? this.getDefaultSettings().tabArrangement ?? 'machine';
+    return value === 'state' || value === 'case' || value === 'ledger' || value === 'machine' ? value : 'classic';
   },
 
   /**
@@ -4657,7 +4657,7 @@ Object.assign(CodemanApp.prototype, {
       !this.isSoloWindow && !sidebarOwnsTabs && window.CodemanTabOverflow?.resolveTabOrientation
         ? window.CodemanTabOverflow.resolveTabOrientation({
             deviceType: MobileDetection.getDeviceType(),
-            setting: settings.tabOrientation ?? defaults.tabOrientation ?? 'horizontal',
+            setting: settings.tabOrientation ?? defaults.tabOrientation ?? 'vertical',
           })
         : 'horizontal';
 
@@ -4674,7 +4674,7 @@ Object.assign(CodemanApp.prototype, {
     // styles.css keeps matching both variants untouched, and the gate in app.js
     // reads one attribute instead of re-parsing localStorage per tab.
     const previousDetail = root.dataset.tabRailDetail || 'rich';
-    const detail = (settings.tabRailDetail ?? defaults.tabRailDetail ?? 'rich') === 'simple' ? 'simple' : 'rich';
+    const detail = (settings.tabRailDetail ?? defaults.tabRailDetail ?? 'simple') === 'rich' ? 'rich' : 'simple';
     root.dataset.tabRailDetail = detail;
 
     // Row ORDER rides on a third attribute, for the same reason detail rides on

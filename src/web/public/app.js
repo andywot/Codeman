@@ -5675,7 +5675,8 @@ class CodemanApp {
 
   /** True when the tab list is clustered by case (`tabArrangement: 'case'`, Discussion #426 option A). */
   isTabClusters() {
-    return document.documentElement.dataset.tabArrangement === 'case';
+    const arrangement = document.documentElement.dataset.tabArrangement;
+    return arrangement === 'case' || arrangement === 'machine';
   }
 
   /**
@@ -5694,12 +5695,23 @@ class CodemanApp {
    * home screens' own match), else the directory itself, else the session alone.
    */
   _tabClusterIdentity(session, id) {
+    if (document.documentElement.dataset.tabArrangement === 'machine') {
+      // Group by where the agent runs: its remote host, else this server.
+      const remote = session.remote;
+      if (remote?.hostId) return { key: `host:${remote.hostId}`, label: remote.label || remote.hostId };
+      return { key: 'host:local', label: this._localMachineLabel() };
+    }
     const dir = (session.workingDir || '').replace(/\/+$/, '');
     const match =
       dir && typeof this._mobileOverviewCaseFor === 'function' ? this._mobileOverviewCaseFor(dir, this.cases) : null;
     if (match) return { key: match.path, label: match.name || '' };
     if (dir) return { key: dir, label: dir.split('/').pop() || dir };
     return { key: `session:${id}`, label: '' };
+  }
+
+  /** Name of the machine Codeman itself runs on, for the machine grouping. */
+  _localMachineLabel() {
+    return window.__codemanHostname || 'This server';
   }
 
   /**

@@ -23367,3 +23367,170 @@ html[data-header-stats='tiles'] .header-plan-usage:not(:has(.pu-row)) {
 body.keyboard-visible .terminal-container .xterm-screen {
   transform: translateY(calc(-1 * var(--kb-clip, 0px)));
 }
+
+/* ── Workbench (fork default, Monokai Pro Light) ─────────────────────────────
+   Codeman as an editor window: a title bar, an explorer of machines and
+   sessions on the left, the terminal as the editor, and a status bar. Scoped
+   to the skin so the upstream skins keep their own chrome. Flat surfaces,
+   1px rules, colour only for state and selection. */
+html[data-skin="monokai-pro-light"] {
+  --header-height: 36px;
+  --toolbar-height: 32px;
+  --tab-rail-width: 264px;
+  scrollbar-color: #cbc1be transparent;
+}
+html[data-skin="monokai-pro-light"] ::selection {
+  background: rgba(112, 88, 190, 0.2);
+}
+html[data-skin="monokai-pro-light"] body {
+  background: var(--bg-dark);
+}
+
+/* Title bar */
+html[data-skin="monokai-pro-light"] header.header {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+}
+html[data-skin="monokai-pro-light"] header.header .logo,
+html[data-skin="monokai-pro-light"] header.header .brand {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Explorer */
+html[data-skin="monokai-pro-light"][data-tab-orientation="vertical"] #tabRail {
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  box-shadow: none;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-rail-search input {
+  height: 26px;
+  border-radius: 4px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-rail-search input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+/* Machine (or case) sections read as explorer folders, not boxed cards. */
+html[data-skin="monokai-pro-light"] #tabRail .tab-cluster {
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0 0 6px;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-cluster-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-cluster-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--text-muted);
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-cluster-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+/* Session rows: one line, a fixed state column, the number as its shortcut. */
+html[data-skin="monokai-pro-light"] #tabRail .session-tab {
+  min-height: 28px;
+  height: auto;
+  margin: 0 6px;
+  padding: 3px 8px;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+}
+html[data-skin="monokai-pro-light"] #tabRail .session-tab:hover {
+  background: var(--control-bg-hover);
+}
+html[data-skin="monokai-pro-light"] #tabRail .session-tab.active {
+  background: rgba(112, 88, 190, 0.13);
+  border: 0;
+  box-shadow: none;
+}
+html[data-skin="monokai-pro-light"] #tabRail .session-tab.active .tab-name {
+  color: var(--accent-d);
+  font-weight: 600;
+}
+html[data-skin="monokai-pro-light"] #tabRail .session-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-number {
+  min-width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+html[data-skin="monokai-pro-light"] #tabRail .session-tab.active,
+html[data-skin="monokai-pro-light"] #tabRail .session-tab.active[data-color] {
+  /* Upstream draws the active tab as an outlined pill; in the explorer the
+     selection is the row tint alone. */
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-info {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+html[data-skin="monokai-pro-light"] #tabRail .tab-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Editor: the terminal sits flush on the ground, its scrollbar quiet. */
+html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .shadow {
+  box-shadow: none;
+}
+html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar {
+  background: transparent;
+}
+html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar > .slider {
+  background: rgba(41, 36, 42, 0.18);
+  border-radius: 4px;
+}
+
+/* Status bar */
+html[data-skin="monokai-pro-light"] footer.toolbar {
+  min-height: var(--toolbar-height);
+  height: var(--toolbar-height);
+  padding: 0 8px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  box-shadow: none;
+}
+html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
+  height: 24px;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  box-shadow: none;
+  background-image: none;
+}

@@ -508,6 +508,8 @@
     'By case (clusters)': '按案例（分组框）',
     'Ledger (aligned columns)': '台账（对齐的列）',
     'Classic (default)': '经典（默认）',
+    'By machine (default)': '按机器（默认）',
+    Classic: '经典',
     'State Order': '状态顺序',
     'For Tab Layout by state. At the bottom flips the rows, so needs you sits right above the terminal.':
       '用于按状态的标签页布局。选择在底部会倒转各行，让“需要你”紧挨在终端上方。',

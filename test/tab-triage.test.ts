@@ -615,7 +615,9 @@ describe('tab grouping wiring (static)', () => {
   const mobileCss = read('mobile.css');
 
   it('stamps data-tab-arrangement and data-tab-state-order before first paint', () => {
-    expect(html).toContain("dataset.tabArrangement=(T==='state'||T==='case'||T==='ledger')?T:'classic'");
+    // Fork default: an unset layout groups the explorer by machine.
+    expect(html).toContain("var T=A.tabArrangement===undefined?'machine':A.tabArrangement;");
+    expect(html).toContain("dataset.tabArrangement=(T==='state'||T==='case'||T==='ledger'||T==='machine')?T:'classic'");
     expect(html).toContain("dataset.tabStateOrder=(A.tabStateOrder==='urgent-last')?'urgent-last':'urgent-first'");
     // The catch branch (localStorage threw) must set both too.
     expect(html).toContain(
@@ -623,11 +625,11 @@ describe('tab grouping wiring (static)', () => {
     );
   });
 
-  it('offers the four layouts with "Classic" as the default, and the state order', () => {
-    // Classic (the single strip, as before) is the default: the owner's pick on
-    // the 1.36.0 beta. By state, By case and Ledger are opt-in.
+  it('offers the five layouts with "By machine" as the default, and the state order', () => {
+    // Fork default: the workbench explorer groups sessions by machine. By state,
+    // By case, Ledger and Classic (the upstream single strip) are opt-in.
     expect(html).toMatch(
-      /<select id="appSettingsTabArrangement"[^>]*>\s*<option value="state">By state \(rows per state\)<\/option>\s*<option value="case">[^<]+<\/option>\s*<option value="ledger">[^<]+<\/option>\s*<option value="classic">Classic \(default\)<\/option>/
+      /<select id="appSettingsTabArrangement"[^>]*>\s*<option value="state">By state \(rows per state\)<\/option>\s*<option value="machine">By machine \(default\)<\/option>\s*<option value="case">[^<]+<\/option>\s*<option value="ledger">[^<]+<\/option>\s*<option value="classic">Classic<\/option>/
     );
     expect(html).toMatch(
       /<select id="appSettingsTabStateOrder"[^>]*>\s*<option value="urgent-first">Needs you on top \(default\)<\/option>\s*<option value="urgent-last">/

@@ -989,7 +989,7 @@ describe('the card styles', () => {
   it('darkens the amber ink on the light skins only', () => {
     expect(block).toContain('--notice-ink: var(--yellow);');
     expect(block).toMatch(
-      /html:is\(\[data-skin="paper-gray"\], \[data-skin="solarized-light"\], \[data-skin="catppuccin-latte"\], \[data-skin="rose-pine-dawn"\]\) \.security-notice \{\s*--notice-ink: color-mix\(in srgb, var\(--yellow\) 85%, black\);/
+      /html:is\(\[data-skin="paper-gray"\], \[data-skin="solarized-light"\], \[data-skin="catppuccin-latte"\], \[data-skin="rose-pine-dawn"\], \[data-skin="monokai-pro-light"\]\) \.security-notice \{\s*--notice-ink: color-mix\(in srgb, var\(--yellow\) 85%, black\);/
     );
   });
 });

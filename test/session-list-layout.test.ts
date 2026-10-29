@@ -852,9 +852,16 @@ describe('detailed rows in the vertical tab rail', () => {
     return booted;
   };
 
-  it('defaults the rail to detailed rows, since a docked column is not a tab strip', () => {
+  it('defaults the rail to compact explorer rows (fork default)', () => {
     const { win, app } = railBoot({ tabOrientation: 'vertical' });
     expect(win.document.documentElement.dataset.tabOrientation).toBe('vertical');
+    expect(win.document.documentElement.dataset.tabRailDetail).toBe('simple');
+    expect(app.isTabRailRich()).toBe(false);
+    expect(app.isRichTabRows()).toBe(false);
+  });
+
+  it("honors the 'rich' opt-in", () => {
+    const { win, app } = railBoot({ tabOrientation: 'vertical', tabRailDetail: 'rich' });
     expect(win.document.documentElement.dataset.tabRailDetail).toBe('rich');
     expect(app.isTabRailRich()).toBe(true);
     expect(app.isRichTabRows()).toBe(true);
@@ -862,7 +869,7 @@ describe('detailed rows in the vertical tab rail', () => {
     expect(app._sidebarRichClock).toBeTruthy();
   });
 
-  it("honors the 'simple' opt-out", () => {
+  it("honors the 'simple' setting", () => {
     const { win, app } = railBoot({ tabOrientation: 'vertical', tabRailDetail: 'simple' });
     expect(win.document.documentElement.dataset.tabRailDetail).toBe('simple');
     expect(app.isTabRailRich()).toBe(false);
@@ -876,7 +883,7 @@ describe('detailed rows in the vertical tab rail', () => {
     // Below 240px the rail already hides the row actions; three lines of stamps
     // in a ~208px column ellipsize into noise. _setTabRailWidth() re-renders
     // whenever this class flips, so the gate is re-read at the right moment.
-    const { win, app } = railBoot({ tabOrientation: 'vertical' });
+    const { win, app } = railBoot({ tabOrientation: 'vertical', tabRailDetail: 'rich' });
     expect(app.isTabRailRich()).toBe(true);
     win.document.documentElement.classList.add('tab-rail-compact');
     expect(app.isTabRailRich()).toBe(false);
@@ -929,7 +936,9 @@ describe('detailed rows in the vertical tab rail', () => {
     // applyTabWrapSettings() renders only when it has a previous value to
     // compare, so reading "the value changed" as "it rendered" skipped BOTH
     // renders and left the rows stale.
-    const { win, app } = boot({ stored: { sessionListLayout: 'header', tabOrientation: 'vertical' } });
+    const { win, app } = boot({
+      stored: { sessionListLayout: 'header', tabOrientation: 'vertical', tabRailDetail: 'rich' },
+    });
     expect(app._tallTabsEnabled).toBeUndefined();
     expect(win.document.documentElement.getAttribute('data-tab-orientation')).toBeNull();
 
@@ -966,7 +975,7 @@ describe('detailed rows in the vertical tab rail', () => {
     expect(INDEX_HTML).toContain('<option value="rich">Detailed</option>');
     // Pre-paint stamps it with the rest of the layout keys, or a detailed rail
     // paints as a simple one for the first frame and then jumps a row taller.
-    expect(INDEX_HTML).toContain("dataset.tabRailDetail=(A.tabRailDetail==='simple')?'simple':'rich'");
+    expect(INDEX_HTML).toContain("dataset.tabRailDetail=(A.tabRailDetail==='rich')?'rich':'simple'");
     expect(SETTINGS_UI).toContain("document.getElementById('appSettingsTabRailDetail').value");
     const displayKeys = SETTINGS_UI.slice(SETTINGS_UI.indexOf('const displayKeys = new Set(['));
     expect(displayKeys.slice(0, 1800)).toContain("'tabRailDetail'");
