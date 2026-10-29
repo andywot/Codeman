@@ -420,6 +420,11 @@
       <aside class="tab-rail" id="tabRail" aria-label="Session navigation">
         <!-- Session-name search (app.js setTabRailSearch): a view filter over the
              rows below, in memory only. Shown with the rail, never elsewhere. -->
+        <!-- Workbench: the Overview board (overview-board.js) is the explorer's first entry. -->
+        <button type="button" class="tab-rail-overview" id="tabRailOverview" onclick="app.goHome()" title="Overview of every session">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Overview</span>
+        </button>
         <div class="session-sidebar-filter tab-rail-search">
           <input type="search" id="tabRailSearch" class="session-sidebar-filter-input"
             placeholder="Search sessions" aria-label="Search sessions"
@@ -4521,6 +4526,7 @@
   <script defer src="webview-tabs.js"></script>
   <script defer src="mobile-overview.js"></script>
   <script defer src="home-sessions.js"></script>
+  <script defer src="overview-board.js"></script>
   <script defer src="git-status-ui.js"></script>
   <script defer src="entrance-animations.js"></script>
   <script defer src="ralph-wizard.js"></script>

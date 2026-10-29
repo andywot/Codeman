@@ -5223,6 +5223,10 @@ class CodemanApp {
         // actually tapped (see the userInitiated note in selectSession).
         if (restoreId && this.sessions.has(restoreId)) {
           this.selectSession(restoreId, { auto: true });
+        } else if (this.shouldShowOverviewBoard?.()) {
+          // Workbench: with nothing remembered, land on the Overview board
+          // rather than opening an arbitrary first session.
+          this.showWelcome();
         } else {
           this.selectSession(this.sessionOrder[0], { auto: true });
         }

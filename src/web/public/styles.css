@@ -23534,3 +23534,233 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   box-shadow: none;
   background-image: none;
 }
+
+/* ── Overview board (overview-board.js) ──────────────────────────────────────
+   The desktop home screen: every session grouped by machine, "Needs you"
+   first. State reads by mark SHAPE as well as colour (filled working, ringed
+   waiting, diamond needs-you, square error, dash done), so it survives any
+   colour vision. Base rules work on every skin; the workbench skin only tunes. */
+.overview-board[hidden] {
+  display: none;
+}
+.welcome-overlay.has-overview-board {
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+.welcome-overlay.has-overview-board > :not(.overview-board) {
+  display: none;
+}
+.overview-board {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 32px 48px;
+  font-family: var(--ui-font);
+  color: var(--text);
+}
+.ob-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.ob-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.ob-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ob-new {
+  margin-left: auto;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ob-new:hover {
+  background: var(--accent-hover);
+}
+.ob-new:focus-visible,
+.ob-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ob-section {
+  margin-top: 26px;
+}
+.ob-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.ob-section--attention .ob-section-title {
+  color: var(--red);
+}
+.ob-section-kind {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+.ob-section-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+.ob-rows {
+  border-top: 1px solid var(--border);
+}
+.ob-row {
+  display: grid;
+  grid-template-columns: 18px 12px minmax(140px, 1.1fr) minmax(0, 2fr) minmax(0, 150px) 150px;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ob-row:hover {
+  background: var(--control-bg-hover);
+}
+.ob-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+.ob-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ob-dir,
+.ob-model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ob-model {
+  color: var(--text-muted);
+}
+.ob-state {
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ob-mark {
+  width: 9px;
+  height: 9px;
+  justify-self: center;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--text-muted);
+}
+.ob-row[data-state='working'] .ob-mark {
+  border-color: var(--green);
+  background: var(--green);
+}
+.ob-row[data-state='working'] .ob-state {
+  color: var(--green);
+}
+.ob-row[data-state='waiting'] .ob-mark {
+  border-color: var(--yellow);
+}
+.ob-row[data-state='waiting'] .ob-state {
+  color: var(--yellow);
+}
+.ob-row[data-state='needs'] .ob-mark {
+  border: 0;
+  border-radius: 1px;
+  background: var(--red);
+  transform: rotate(45deg) scale(0.9);
+}
+.ob-row:is([data-state='needs'], [data-state='error']) .ob-state {
+  color: var(--red);
+  font-weight: 600;
+}
+.ob-row[data-state='error'] .ob-mark {
+  border: 0;
+  border-radius: 1px;
+  background: var(--red);
+}
+.ob-row:is([data-state='done'], [data-state='exited']) .ob-mark {
+  height: 2px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--text-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ob-row[data-state='working'] .ob-mark {
+    animation: ob-working 1.6s ease-in-out infinite;
+  }
+}
+@keyframes ob-working {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Explorer's Overview entry: active while the board is the home screen. */
+.tab-rail-overview {
+  display: none;
+}
+html[data-tab-orientation="vertical"] .tab-rail-overview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 6px 4px;
+  padding: 0 10px;
+  height: 30px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+html[data-tab-orientation="vertical"] .tab-rail-overview:hover {
+  background: var(--control-bg-hover);
+}
+html[data-tab-orientation="vertical"] body:has(.welcome-overlay.visible.has-overview-board) .tab-rail-overview {
+  background: rgba(var(--accent-rgb), 0.13);
+  color: var(--accent-d);
+}
+/* The overlay covers all of <main>, the explorer included; start the board
+   where the editor area starts. */
+html[data-tab-orientation='vertical'] .welcome-overlay.has-overview-board {
+  left: var(--tab-rail-width);
+}
