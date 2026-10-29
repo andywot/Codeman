@@ -24577,4 +24577,89 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   .ns-recent {
     min-height: 44px;
   }
+/* ── Fork: machine state (machine-status-ui.js) ─────────────────────────────
+   One dot language for the status bar and the New session chips: green
+   online, amber online but not usable (key refused, tools missing), a hollow
+   ring asleep, red offline, a pulsing accent ring while waking. */
+:is(.rc-machine, .ns-chip)[data-mstate]::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: var(--text-muted);
+}
+:is(.rc-machine, .ns-chip)[data-mstate='ok']::before {
+  background: var(--green);
+}
+:is(.rc-machine, .ns-chip)[data-mstate='issue']::before {
+  background: var(--yellow);
+}
+:is(.rc-machine, .ns-chip)[data-mstate='asleep']::before {
+  background: none;
+  border: 1.5px solid var(--text-muted);
+}
+:is(.rc-machine, .ns-chip)[data-mstate='offline']::before {
+  background: var(--red);
+}
+.rc-machine[data-mstate='waking']::before {
+  background: none;
+  border: 1.5px solid var(--accent);
+  animation: rc-machine-wake 1.2s ease-in-out infinite;
+}
+@keyframes rc-machine-wake {
+  50% {
+    opacity: 0.3;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rc-machine[data-mstate='waking']::before {
+    animation: none;
+  }
+}
+.rc-machine {
+  gap: 4px !important;
+}
+.rc-machine .rc-ring {
+  margin-left: 3px;
+}
+.ns-machine-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.ns-machine-note[hidden] {
+  display: none;
+}
+.ns-machine-note > span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ns-machine-note[data-mstate='issue'] > span {
+  color: var(--notice-ink, var(--yellow));
+}
+.ns-wake {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--accent-ink, #fff);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ns-wake:hover {
+  background: var(--accent-hover);
+}
+.ns-wake:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

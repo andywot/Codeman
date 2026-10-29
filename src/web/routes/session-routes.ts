@@ -95,6 +95,7 @@ import {
   REMOTE_WAKE_REQUEST_READY_TIMEOUT_MS,
   createDefaultRemoteWakeDeps,
   isProbeable,
+  resolveWakeTarget,
   type WakeableRemote,
 } from '../../remote-wake.js';
 import { clampWaitMs, MAX_BUFFER_SCAN_BYTES } from '../../config/agent-wait.js';
@@ -2005,6 +2006,25 @@ export function registerSessionRoutes(
         wakeConfigured: await remoteWake.wakeConfigured(session),
       },
     };
+  });
+
+  // Fork: Wake from the machine list (machine-status-ui.js), for a machine with no
+  // session open. A click, never the status poll. Answers at once; the wake and its
+  // readiness poll run on, and the browser re-reads GET /api/fleet/status meanwhile.
+  app.post('/api/fleet/hosts/:id/wake', async (req, reply) => {
+    if (isMultiUserMode() && !isAdmin(req)) {
+      reply.code(403);
+      return createErrorResponse(ApiErrorCode.FORBIDDEN, 'Admin only in multi-user mode');
+    }
+    const { id } = req.params as { id: string };
+    const host = (await readRemoteHosts(CODEMAN_CONFIG_DIR)).find((item) => item.id === id);
+    if (!host) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Machine not found');
+    const remote = wakeableHost(host);
+    if (!resolveWakeTarget(remote)) {
+      return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'No Wake-on-LAN MAC or wake command for this machine');
+    }
+    void remoteWake.ensureHostAwake(remote, { requestedBy: 'Machines' }).catch(() => 'failed');
+    return { success: true, data: { waking: true } };
   });
 
   // ========== Send Input ==========
