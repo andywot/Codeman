@@ -373,6 +373,8 @@ describe('ws-routes', () => {
         await vi.waitFor(() => {
           expect(session.resize).toHaveBeenCalledWith(48, 28, { viewportType: 'mobile', force: false });
         });
+        // Fork: opening a session on a phone is active use, so it takes the width.
+        expect(session.noteSmallViewportActivity).toHaveBeenCalledWith({ cols: 48, rows: 28, viewportType: 'mobile' });
       } finally {
         ws.close();
       }

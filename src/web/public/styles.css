@@ -24887,6 +24887,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   .ns-recent {
     min-height: 44px;
   }
+}
 /* ── Fork: machine state (machine-status-ui.js) ─────────────────────────────
    One dot language for the status bar and the New session chips: green
    online, amber online but not usable (key refused, tools missing), a hollow
