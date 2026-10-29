@@ -24174,6 +24174,10 @@ html[data-focus='on'] main {
 .ns-browse {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* Rows clip their text (overflow: hidden), which lets a height-capped grid squeeze
+     them to fit; a content-sized row keeps each name whole and the box scrolls. */
+  grid-auto-rows: max-content;
+  align-content: start;
   max-height: 168px;
   overflow-y: auto;
   border: 1px solid var(--border);
