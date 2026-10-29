@@ -7,7 +7,7 @@
  * never read back (the list shows only whether one is saved).
  *
  * @mixin Extends CodemanApp.prototype via Object.assign
- * @dependency new-session.js (_fetchJson, openNewSessionFlow)
+ * @dependency new-session.js (_fetchJson, openNewSessionFlow), shared-config.js (openSharedConfig)
  * @loadorder after new-session.js
  */
 
@@ -219,7 +219,19 @@ Object.assign(CodemanApp.prototype, {
     );
     key.appendChild(keyRow);
 
-    body.replaceChildren(machines, accounts, key);
+    // ── Shared config (shared-config.js) ──
+    const shared = el('section', 'fm-section');
+    const sHead = el('div', 'fm-section-head');
+    sHead.append(
+      el('h3', 'fm-h', 'Shared config'),
+      button('Open', () => this.openSharedConfig(dialog))
+    );
+    shared.append(
+      sHead,
+      el('p', 'fm-muted', 'Skills, memory, agents, commands and settings keys, copied to the machines you pick.')
+    );
+
+    body.replaceChildren(machines, accounts, shared, key);
   },
 
   _fleetMachineForm(dialog, machine, fleet) {
