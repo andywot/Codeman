@@ -110,7 +110,7 @@ export function registerFleetRoutes(app: FastifyInstance): void {
     const no = denied(req, reply);
     if (no) return no;
     const [fleet, hosts] = await Promise.all([readFleet(CONFIG_DIR), readRemoteHosts(CONFIG_DIR)]);
-    const usage = await readFleetUsage(fleet).catch(() => new Map());
+    const usage = await readFleetUsage(fleet, hosts).catch(() => new Map());
     return {
       success: true,
       data: {

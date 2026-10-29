@@ -31,10 +31,13 @@
  * fields (ids match `[a-z0-9-]`, models a fixed shape, URLs `https?://` without quotes)
  * and shell-quoted; the browser never supplies command text.
  *
- * Usage (5-hour and 7-day windows) of a `token` account is read by the server itself:
- * a one-token request with that account's token returns the windows in its
- * `anthropic-ratelimit-unified-*` response headers. (The OAuth usage endpoint needs the
- * `user:profile` scope, which a `claude setup-token` token does not have; measured.)
+ * Usage (5-hour and 7-day windows) comes from the sessions themselves, at no cost: a
+ * WSL/Linux session launched with an account gets a statusLine command that saves
+ * Claude's statusline JSON (it carries `rate_limits`) to
+ * `~/.config/claude-rc/status/<account>.json` on its machine and prints nothing; the
+ * server reads those files over the pooled shell. The newest reading per account wins,
+ * so an account shows usage once one of its sessions has run. (The OAuth usage endpoint
+ * refuses `claude setup-token` tokens, which lack the `user:profile` scope; measured.)
  */
 
 import { execFile } from 'node:child_process';
@@ -84,6 +87,8 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const MODEL_RE = /^[a-z0-9][a-z0-9.-]{0,60}(\[1m\])?$/;
 const URL_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~/-]*)?$/;
 const SECRET_DIR = '~/.config/claude-rc';
+/** Relative to $HOME on each machine: the statusline JSON per account (usage readings). */
+const STATUS_DIR = '.config/claude-rc/status';
 const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:[\]=-]+){0,6}$/;
 
 export function fleetPath(configDir: string): string {
@@ -189,7 +194,15 @@ export function buildLaunch(
   }
 
   // An api account fixes the model through the env above; --model would be a Claude name.
-  const args = model && account?.kind !== 'api' && MODEL_RE.test(model) ? ` --model '${model}'` : '';
+  let args = model && account?.kind !== 'api' && MODEL_RE.test(model) ? ` --model '${model}'` : '';
+  // Usage reporting (see the file header). Windows claude runs statusLine commands
+  // outside WSL's shell, so only WSL/Linux sessions report. The command contains no
+  // quote characters, so it sits safely inside the single-quoted JSON.
+  if (account && account.kind !== 'api' && account.kind !== 'shell' && !windows && ID_RE.test(account.id)) {
+    const dir = `$HOME/${STATUS_DIR}`;
+    const save = `mkdir -p ${dir} && cat > ${dir}/.${account.id}.$$ && mv -f ${dir}/.${account.id}.$$ ${dir}/${account.id}.json`;
+    args += ` --settings '${JSON.stringify({ statusLine: { type: 'command', command: save } })}'`;
+  }
   return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args };
 }
 
@@ -296,87 +309,103 @@ export async function listHostFolders(host: RemoteHost, path: string): Promise<F
 
 // ── Usage ──────────────────────────────────────────────────────────────────
 
-/** A small, cheap model for the one-token usage check. */
-const USAGE_PROBE_MODEL = 'claude-haiku-5-5';
-const USAGE_TTL_MS = 180_000;
-const usageCache = new Map<string, { at: number; usage: FleetUsage | null }>();
-const usageInFlight = new Map<string, Promise<FleetUsage | null>>();
+const USAGE_TTL_MS = 120_000;
+/** A machine that did not answer is not asked again for this long. */
+const USAGE_FAIL_BACKOFF_MS = 10 * 60_000;
+const hostReadings = new Map<string, { at: number; ok: boolean; byAccount: Map<string, FleetUsage> }>();
+const hostInFlight = new Map<string, Promise<void>>();
 
-/** The 5-hour and 7-day windows from a response's unified rate-limit headers, or null. */
-export function parseUnifiedRateLimitHeaders(headers: Headers, fetchedAt: string): FleetUsage | null {
-  const pct = (name: string) => {
-    const v = Number.parseFloat(headers.get(`anthropic-ratelimit-unified-${name}-utilization`) ?? '');
-    return Number.isFinite(v) ? Math.round(v * 1000) / 10 : null;
-  };
-  const at = (name: string) => {
-    const v = Number.parseInt(headers.get(`anthropic-ratelimit-unified-${name}-reset`) ?? '', 10);
-    return Number.isFinite(v) && v > 0 ? new Date(v * 1000).toISOString() : null;
-  };
-  const usage = {
-    fiveHour: pct('5h'),
-    fiveHourResetsAt: at('5h'),
-    sevenDay: pct('7d'),
-    sevenDayResetsAt: at('7d'),
-    fetchedAt,
-  };
-  return usage.fiveHour === null && usage.sevenDay === null ? null : usage;
-}
-
-/**
- * Ask Anthropic for one token account's windows: a one-token request (about 35 tokens
- * on the smallest model) whose response headers carry them. Never throws.
- */
-async function probeTokenUsage(account: FleetAccount): Promise<FleetUsage | null> {
-  if (process.env.VITEST || !account.secret) return null;
+/** One account's windows from a saved statusline JSON (`rate_limits`), or null. */
+export function parseStatuslineUsage(text: string, fetchedAt: string): FleetUsage | null {
+  let data: { rate_limits?: Record<string, { used_percentage?: unknown; resets_at?: unknown } | undefined> };
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${account.secret}`,
-        'anthropic-beta': 'oauth-2025-04-20',
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: USAGE_PROBE_MODEL,
-        max_tokens: 1,
-        system: "You are Claude Code, Anthropic's official CLI for Claude.",
-        messages: [{ role: 'user', content: 'hi' }],
-      }),
-      signal: AbortSignal.timeout(20_000),
-      redirect: 'error',
-    });
-    // A 429 still carries the windows (that is how a full limit looks).
-    const usage = parseUnifiedRateLimitHeaders(res.headers, new Date().toISOString());
-    await res.body?.cancel().catch(() => {});
-    return usage;
+    data = JSON.parse(text);
   } catch {
     return null;
   }
+  const window = (key: string) => {
+    const w = data?.rate_limits?.[key];
+    const pct = typeof w?.used_percentage === 'number' && Number.isFinite(w.used_percentage) ? w.used_percentage : null;
+    const at = typeof w?.resets_at === 'number' && w.resets_at > 0 ? new Date(w.resets_at * 1000).toISOString() : null;
+    return { pct, at };
+  };
+  const five = window('five_hour');
+  const seven = window('seven_day');
+  if (five.pct === null && seven.pct === null) return null;
+  return {
+    fiveHour: five.pct,
+    fiveHourResetsAt: five.at,
+    sevenDay: seven.pct,
+    sevenDayResetsAt: seven.at,
+    fetchedAt,
+  };
 }
 
-/** Usage per token account id, read with each account's own token; cached three minutes. */
-export async function readFleetUsage(config: FleetConfig): Promise<Map<string, FleetUsage>> {
-  const out = new Map<string, FleetUsage>();
+/** Prints every saved statusline on a machine: `\n@@<account> <mtime>\n` then its JSON. */
+export const STATUS_READ_SCRIPT =
+  `cd "$HOME/${STATUS_DIR}" 2>/dev/null || exit 0; for f in *.json; do [ -f "$f" ] || continue; ` +
+  `printf '\\n@@%s %s\\n' "\${f%.json}" "$(stat -c %Y "$f" 2>/dev/null || echo 0)"; head -c 65536 "$f"; done`;
+
+/** {@link STATUS_READ_SCRIPT}'s output as readings per account id. */
+export function parseStatusReadOutput(stdout: string): Map<string, FleetUsage> {
+  const byAccount = new Map<string, FleetUsage>();
+  for (const block of stdout.split('\n@@').slice(1)) {
+    const nl = block.indexOf('\n');
+    const [id, mtime] = block.slice(0, nl).split(' ');
+    if (!ID_RE.test(id)) continue;
+    const at = Number(mtime) > 0 ? new Date(Number(mtime) * 1000).toISOString() : new Date().toISOString();
+    const usage = parseStatuslineUsage(block.slice(nl + 1), at);
+    if (usage) byAccount.set(id, usage);
+  }
+  return byAccount;
+}
+
+async function readHostStatus(host: RemoteHost): Promise<void> {
+  const result = await runOnHost(host, STATUS_READ_SCRIPT, undefined, 20_000);
+  const byAccount = result.code === 0 ? parseStatusReadOutput(result.stdout) : new Map<string, FleetUsage>();
+  hostReadings.set(host.id, { at: Date.now(), ok: result.code === 0, byAccount });
+}
+
+/**
+ * Usage per account id: the newest statusline reading for that account on any WSL or
+ * Linux machine. Machines are re-read every two minutes at most (a dead one every ten).
+ */
+export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): Promise<Map<string, FleetUsage>> {
+  if (process.env.VITEST) return new Map();
+  // A machine's Windows system shares its WSL files; ask each address once.
+  const seen = new Set<string>();
+  const targets = hosts.filter((h) => {
+    if (h.system === 'windows') return false;
+    const key = `${h.username}@${h.host}:${h.port ?? 22}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   await Promise.all(
-    config.accounts
-      .filter((a) => a.kind === 'token' && a.secret)
-      .map(async (account) => {
-        const cached = usageCache.get(account.id);
-        let usage: FleetUsage | null;
-        if (cached && Date.now() - cached.at < USAGE_TTL_MS) usage = cached.usage;
-        else {
-          let pending = usageInFlight.get(account.id);
-          if (!pending) {
-            pending = probeTokenUsage(account).finally(() => usageInFlight.delete(account.id));
-            usageInFlight.set(account.id, pending);
-          }
-          usage = await pending;
-          usageCache.set(account.id, { at: Date.now(), usage });
-        }
-        if (usage) out.set(account.id, usage);
-      })
+    targets.map((host) => {
+      const last = hostReadings.get(host.id);
+      const ttl = last && !last.ok ? USAGE_FAIL_BACKOFF_MS : USAGE_TTL_MS;
+      if (last && Date.now() - last.at < ttl) return undefined;
+      let pending = hostInFlight.get(host.id);
+      if (!pending) {
+        pending = readHostStatus(host)
+          .catch(() => hostReadings.set(host.id, { at: Date.now(), ok: false, byAccount: new Map() }))
+          .then(() => undefined)
+          .finally(() => hostInFlight.delete(host.id));
+        hostInFlight.set(host.id, pending);
+      }
+      // Never hold the page for a slow machine: its reading lands on a later refresh.
+      return Promise.race([pending, new Promise((r) => setTimeout(r, 1500))]);
+    })
   );
+  const out = new Map<string, FleetUsage>();
+  for (const account of config.accounts) {
+    for (const host of targets) {
+      const usage = hostReadings.get(host.id)?.byAccount.get(account.id);
+      const best = out.get(account.id);
+      if (usage && (!best || usage.fetchedAt > best.fetchedAt)) out.set(account.id, usage);
+    }
+  }
   return out;
 }
 
