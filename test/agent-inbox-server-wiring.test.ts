@@ -29,6 +29,7 @@ function bareServer(live: string[] = [], persisted: string[] = []): CleanupServe
   Object.assign(server, {
     sessions: new Map(live.map((id) => [id, {}])),
     keepWarmService: { remove: () => {} },
+    remoteTelemetry: { remove: () => {} },
     gitFetchScheduler: { remove: () => {} },
     store: {
       getSession: () => null,
