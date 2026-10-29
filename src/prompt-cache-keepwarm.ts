@@ -75,7 +75,10 @@ export interface KeepWarmFacts {
   appDefault: boolean;
   /** Spawned by another session (`parentSessionId`); see `keepWarmOn`. */
   spawnedByAgent: boolean;
-  /** Whether this launch carries the statusLine exporter; undefined when unknown. */
+  /**
+   * Whether this launch carries the statusLine exporter; undefined when unknown. `transcript`
+   * (fork): a remote session whose cache state is read from its conversation log instead.
+   */
   statusLine?: StatusLineExporter;
   cache: PromptCacheStatus | null | undefined;
   /** Idle by Codeman's own probe and not mid-turn. */
@@ -92,6 +95,8 @@ export interface KeepWarmFacts {
   composerEmpty: boolean | null;
   /** Last keystroke a person sent, epoch ms; 0 when none seen. */
   lastHumanInputAt: number;
+  /** The window a nudge opened is still open (`beginKeepAliveTurn`): that turn has not reported back yet. */
+  keepAliveTurnActive?: boolean;
   /** Start of the keep-warm window: the last real (non-keep-alive) prompt, else the session start. */
   budgetAnchorAt: number;
   maxKeepWarmMs: number;
@@ -120,7 +125,8 @@ export function decideKeepWarm(f: KeepWarmFacts): KeepWarmDecision {
   }
   // Only a launch that carries the exporter ever reports `prompt_cache`; the readout names the
   // cause from `statusLineExporter`. This is also what stops a CLI without cache telemetry.
-  if (f.statusLine !== 'injected') return stop(`no cache reports on this launch (${f.statusLine ?? 'unknown'})`);
+  // Fork: a remote session's report is derived from its conversation log (`transcript`).
+  if (!reportsCache(f.statusLine)) return stop(`no cache reports on this launch (${f.statusLine ?? 'unknown'})`);
   const c = f.cache;
   if (!c) return stop('no cache report yet');
   if (!c.warm || !c.expiresAt) return stop('cache is cold; the next prompt rebuilds it');
@@ -142,6 +148,9 @@ export function decideKeepWarm(f: KeepWarmFacts): KeepWarmDecision {
   const retryAt = Math.min(f.now + KEEP_WARM_RETRY_MS, lastChance);
   if (!f.idle) return wait(retryAt, 'session is working');
   if (f.pendingApproval) return wait(retryAt, 'a dialog is open');
+  // The last nudge's own turn has not reported its new expiry yet: the cache read here is the one
+  // it is refreshing, and acting on it would send a second keep-alive into the first one's turn.
+  if (f.keepAliveTurnActive) return wait(retryAt, 'the keep-alive turn has not reported back yet');
   // Transient, and nothing else re-triggers an idle session: an agent's long-poll waiter ends
   // without a turn, and so does a capture that failed once.
   if (f.automationActive) return wait(retryAt, 'respawn, Ralph or an agent is driving the session');
@@ -153,6 +162,11 @@ export function decideKeepWarm(f: KeepWarmFacts): KeepWarmDecision {
   return { action: 'nudge' };
 }
 
+/** Launches whose sessions get `prompt_cache` reports: the exporter's, or (fork) a remote session's log. */
+function reportsCache(statusLine: StatusLineExporter | undefined): boolean {
+  return statusLine === 'injected' || statusLine === 'transcript';
+}
+
 /**
  * Whether a session could be nudged once the settings are known: its own switch is not off, its
  * launch reports the cache, and the last report is warm. Only such a session has anything to
@@ -161,7 +175,7 @@ export function decideKeepWarm(f: KeepWarmFacts): KeepWarmDecision {
 function couldNudge(s: KeepWarmSessionView): boolean {
   return (
     s.keepWarmEnabled !== false &&
-    s.statusLineExporter === 'injected' &&
+    reportsCache(s.statusLineExporter) &&
     !!s.promptCache?.warm &&
     !!s.promptCache.expiresAt
   );
@@ -183,6 +197,8 @@ export interface KeepWarmSessionView {
   readonly isWorking: boolean;
   readonly isLimitPaused: boolean;
   readonly lastHumanInputAt: number;
+  /** Whether the window `beginKeepAliveTurn()` opened is still open. */
+  readonly keepAliveTurnActive?: boolean;
   /** Last submit that was not the keep-alive's own (persisted): the cap's clock. */
   readonly lastRealPromptAt: number;
   isIdle(): boolean;
@@ -213,6 +229,12 @@ export interface KeepWarmPorts {
   readPane(session: KeepWarmSessionView): { composerEmpty: boolean | null; limitShown: boolean };
   /** Store and broadcast the status (the server dedupes against the session's last one). */
   publish(id: string, status: KeepWarmStatus): void;
+  /**
+   * Fork: re-read a `transcript` session's cache state (its conversation log on the remote host) once
+   * a nudge is otherwise due, so a reading taken before a turn the screen never showed as work, or
+   * before Claude Code compacted the conversation, does not send one. Must not re-schedule.
+   */
+  refreshCache?(session: KeepWarmSessionView): Promise<void>;
   log?(message: string): void;
 }
 
@@ -354,7 +376,7 @@ export class PromptCacheKeepWarmService implements KeepWarmScheduler {
       this.settingsFailure = undefined;
       if (cancelled()) return;
       const tally = this.tallies.get(id) ?? { nudges: 0 };
-      const facts: KeepWarmFacts = {
+      let facts: KeepWarmFacts = {
         now: Date.now(),
         choice: session.keepWarmEnabled,
         appDefault: settings.keepWarmDefault,
@@ -369,10 +391,17 @@ export class PromptCacheKeepWarmService implements KeepWarmScheduler {
         // Optimistic until everything else says "due": the pane read is the one costly fact.
         composerEmpty: true,
         lastHumanInputAt: session.lastHumanInputAt,
+        keepAliveTurnActive: session.keepAliveTurnActive ?? false,
         budgetAnchorAt: session.lastRealPromptAt || session.createdAt,
         maxKeepWarmMs: settings.maxHours * 3_600_000,
       };
       let decision = decideKeepWarm(facts);
+      if (decision.action === 'nudge' && session.statusLineExporter === 'transcript' && this.ports.refreshCache) {
+        await this.ports.refreshCache(session);
+        if (cancelled()) return;
+        facts = { ...facts, now: Date.now(), cache: session.promptCache };
+        decision = decideKeepWarm(facts);
+      }
       if (decision.action === 'nudge') {
         const pane = this.ports.readPane(session);
         decision = decideKeepWarm({

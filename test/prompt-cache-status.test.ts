@@ -58,8 +58,25 @@ describe('Prompt cache readout', () => {
     expect(format(null, NOW, 'collection-off')).toContain('App Settings → Header & Panels, then start a new session');
     expect(format({ warm: true, expiresAt: NOW + 60_000 }, NOW, 'collection-off')).toMatch(/^Not collected/);
     expect(format(null, NOW, 'workspace-statusline')).toMatch(/settings\.local\.json sets its own statusLine/);
-    expect(format(null, NOW, 'remote')).toBe('Not collected for remote and Docker sessions.');
+    // A remote (ssh) session reads `transcript` (fork), so only Docker is left on `remote`.
+    expect(format(null, NOW, 'remote')).toBe('Not collected for Docker sessions.');
     expect(format(null, NOW, 'injected')).toMatch(/^Not reported yet/);
+  });
+
+  it('a remote session (transcript): read from the conversation log, then shown like any report', () => {
+    const { format, formatKeepWarm, keepWarmUnavailable } = loadApi();
+    expect(format(null, NOW, 'transcript')).toMatch(/^Not read yet\. For a remote session Codeman reads it/);
+    const expiresAt = NOW + 42 * 60_000;
+    expect(format({ warm: true, ttl: '1h', expiresAt, recacheTokensIfCold: 80_000 }, NOW, 'transcript')).toBe(
+      `Warm until ${clock(expiresAt)} (1h cache). About 80k tokens would be re-cached if it goes cold.`
+    );
+    // The switch stays usable, and the keep-warm line says what it is doing.
+    expect(keepWarmUnavailable('transcript')).toBe(false);
+    const armed = { enabled: true, state: 'armed', nextCheckAt: expiresAt - 5 * 60_000, nudges: 0 };
+    // No relaunch installs the idleCompaction opt-out on a remote launch, so it does not promise one.
+    expect(formatKeepWarm({ ...armed, idleCompactionOff: false }, NOW, 'transcript')).toBe(
+      `Keep-alive: next ${clock(expiresAt - 5 * 60_000)} · Claude Code's idle compaction stays on (remote)`
+    );
   });
 
   it('warm: a clock time, the lifetime and the tokens at stake', () => {

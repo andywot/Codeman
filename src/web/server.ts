@@ -124,6 +124,9 @@ import { AI_CHECK_MODEL } from '../config/ai-defaults.js';
 import { approvalInbox } from './approval-inbox.js';
 import { SCREEN_BLOCKED_SOURCE } from './screen-blocked.js';
 import { PromptCacheKeepWarmService } from '../prompt-cache-keepwarm.js';
+import { IDLE_READ_DELAY_MS, RemoteTranscriptTelemetry } from '../remote-transcript-telemetry.js';
+import { readTranscriptTail } from '../chat-transcript.js';
+import { remoteTmuxSessionName } from '../tmux-manager.js';
 import { fetchWorkspaceOnce } from '../git-fetch.js';
 import { GitFetchScheduler } from '../git-fetch-scheduler.js';
 import { probePathKind } from '../utils/bounded-path-probe.js';
@@ -390,6 +393,9 @@ export class WebServer extends EventEmitter {
         limitShown: limit !== null && limit.resetAt > Date.now(),
       };
     },
+    // Fork: a remote session's cache state comes from its conversation log (remote-transcript-telemetry.ts);
+    // read it again right before a nudge, without re-scheduling (this evaluation is the schedule).
+    refreshCache: (view) => this.remoteTelemetry.refresh(view.id, { schedule: false }),
     publish: (id, status) => {
       const session = this.sessions.get(id);
       if (!session?.setKeepWarmStatus(status)) return;
@@ -398,6 +404,47 @@ export class WebServer extends EventEmitter {
       if (status.state !== 'off' || status.reason !== 'off') {
         console.log(`[KeepWarm] ${id.slice(0, 8)}: ${status.state}${status.reason ? ` (${status.reason})` : ''}`);
       }
+    },
+    log: (message) => console.log(message),
+  });
+  // Fork: prompt-cache state and usage-limit pauses for remote (ssh) claude sessions, read from their
+  // conversation log over the host's pooled shell and from the pane's visible frame
+  // (remote-transcript-telemetry.ts). A field initializer like the keep-warm service above, which calls it.
+  private readonly remoteTelemetry = new RemoteTranscriptTelemetry({
+    getSession: (id) => this.sessions.get(id),
+    // The effective opt-in the keep-warm last published (its own switch, else the app default), or the
+    // session's own switch before the first evaluation has run.
+    keepWarmWanted: (view) => {
+      const session = view as Session;
+      return session.keepWarm?.enabled ?? session.keepWarmEnabled === true;
+    },
+    readTail: async (view, maxBytes) => {
+      const session = view as Session;
+      if (!session.remote) return null;
+      const tail = await readTranscriptTail(
+        {
+          sessionId: session.id,
+          claudeSessionId: session.claudeSessionId ?? session.id,
+          remote: session.remote,
+          muxName: session.remote.remoteSessionName ?? remoteTmuxSessionName(session.id),
+        },
+        maxBytes
+      );
+      return tail ? { lines: tail.lines, size: tail.size } : null;
+    },
+    // The local pane runs the ssh client, so its visible frame is the remote screen.
+    captureScreen: (view) => {
+      const muxName = (view as Session).muxName;
+      const text = muxName ? (this.mux.capturePaneText?.(muxName) ?? null) : null;
+      return text ? plainFrame(text) : null;
+    },
+    applyPromptCache: (view, cache, schedule) => {
+      const session = view as Session;
+      if (session.setPromptCache(cache)) {
+        this.broadcast(SseEvent.SessionPromptCache, { sessionId: session.id, ...session.promptCache });
+        this.persistSessionState(session);
+      }
+      if (schedule) void this.keepWarmService.schedule(session.id);
     },
     log: (message) => console.log(message),
   });
@@ -873,6 +920,7 @@ export class WebServer extends EventEmitter {
       // SessionPort
       sessions: this.sessions as ReadonlyMap<string, Session>,
       keepWarm: this.keepWarmService,
+      remoteTelemetry: this.remoteTelemetry,
       addSession: this.registerSessionWithLayout.bind(this),
       tabLayouts: this.tabLayouts,
       cleanupSession: this.cleanupSession.bind(this),
@@ -1569,6 +1617,7 @@ export class WebServer extends EventEmitter {
   ): Promise<void> {
     const session = this.sessions.get(sessionId);
     this.keepWarmService.remove(sessionId);
+    this.remoteTelemetry.remove(sessionId);
     // A closed session takes its place in the fetch schedule with it: otherwise a detached-and-forgotten id
     // would still count as tracked, and its next run would land on a session that no longer exists.
     this.gitFetchScheduler.remove(sessionId);
@@ -2061,7 +2110,11 @@ export class WebServer extends EventEmitter {
   private async setupSessionListeners(session: Session): Promise<void> {
     // First keep-warm evaluation: publishes the effective opt-in for the Session Options
     // readout even before any cache report arrives.
-    void this.keepWarmService.schedule(session.id);
+    // Fork: a remote session then reads its conversation log once (it may have worked on while this
+    // server was down), after that evaluation, which is what says whether the keep-warm wants it.
+    void this.keepWarmService
+      .schedule(session.id)
+      .then(() => (RemoteTranscriptTelemetry.applies(session) ? this.remoteTelemetry.refresh(session.id) : undefined));
     // Idempotent: the wiring exit handler detaches ALL listeners on every PTY exit
     // (removeSessionListenerRefs), so the re-attach routes (/interactive,
     // /interactive-respawn, /shell) call this again to restore observability
@@ -2105,6 +2158,11 @@ export class WebServer extends EventEmitter {
     return {
       broadcast: this.broadcast.bind(this),
       keepWarmSchedule: (id: string) => void this.keepWarmService.schedule(id),
+      remoteTelemetryRefresh: (id: string) => {
+        if (RemoteTranscriptTelemetry.applies(this.sessions.get(id))) {
+          void this.remoteTelemetry.refresh(id, { delayMs: IDLE_READ_DELAY_MS });
+        }
+      },
       batchTerminalData: this.batchTerminalData.bind(this),
       batchTaskUpdate: this.batchTaskUpdate.bind(this),
       broadcastSessionStateDebounced: this.broadcastSessionStateDebounced.bind(this),
@@ -4335,6 +4393,7 @@ export class WebServer extends EventEmitter {
     // Stops the fetch sweep from starting another run while the server is closing; a git process already
     // running is left to finish, which is what a fetch does to a repository nothing else is touching.
     this.gitFetchScheduler.stop();
+    this.remoteTelemetry.stop();
     // A post within the debounce window before shutdown would otherwise not reach disk.
     // Flushed again after `app.close()` below, for a post that lands in between.
     agentInboxPersistence.flush();

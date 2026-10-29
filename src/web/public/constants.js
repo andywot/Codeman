@@ -730,17 +730,22 @@ function computeConnectionLossUi(input) {
 // because the row refreshes on SSE, not on a timer, and a countdown would sit
 // stale between turns. Pure: no DOM, `now` is passed in. `statusLine` is the
 // session's `statusLineExporter`: a launch without the exporter never reports, so
-// it says why instead of "not reported yet" forever.
+// it says why instead of "not reported yet" forever. A remote (ssh) session is
+// `transcript` (fork): Codeman reads its state from the conversation log on the
+// remote machine, so only Docker sessions (`remote`) are left uncollected.
 const PROMPT_CACHE_NOT_COLLECTED = {
   'collection-off':
     'Not collected: Plan Usage was off when this session started. Turn it on in App Settings → Header & Panels, then start a new session; this one cannot pick it up.',
   'workspace-statusline':
     "Not collected: this workspace's .claude/settings.local.json sets its own statusLine, which Codeman never replaces.",
-  remote: 'Not collected for remote and Docker sessions.',
+  remote: 'Not collected for Docker sessions.',
 };
 function formatPromptCacheStatus(cache, now, statusLine) {
   if (PROMPT_CACHE_NOT_COLLECTED[statusLine]) return PROMPT_CACHE_NOT_COLLECTED[statusLine];
   if (!cache || typeof cache.warm !== 'boolean') {
+    if (statusLine === 'transcript') {
+      return 'Not read yet. For a remote session Codeman reads it from the conversation log on the machine after a response, while keep-warm or auto-resume is on.';
+    }
     return 'Not reported yet. Claude Code 2.1.251 or newer reports it after the first response.';
   }
   const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -779,9 +784,12 @@ function formatKeepWarmStatus(status, now, statusLine) {
       : 'window closed'
     : '';
   // Keep-warm switched on or off after launch: the `idleCompaction` opt-out rides only a launch.
+  // A remote launch (`transcript`) never carries it, so a relaunch would not change it either.
   const idleCompaction =
     status.enabled && status.idleCompactionOff === false
-      ? 'idle compaction on until relaunch'
+      ? statusLine === 'transcript'
+        ? "Claude Code's idle compaction stays on (remote)"
+        : 'idle compaction on until relaunch'
       : !status.enabled && status.idleCompactionOff === true
         ? 'idle compaction off until relaunch'
         : '';

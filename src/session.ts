@@ -1563,9 +1563,24 @@ export class Session extends EventEmitter {
     return this._promptCache;
   }
 
-  /** Whether the current launch carries the statusLine exporter (`MuxSession.statusLine`); undefined when unknown. */
+  /**
+   * Whether the current launch carries the statusLine exporter (`MuxSession.statusLine`); undefined when unknown.
+   * Fork: a remote (ssh) session whose CLI reports cache telemetry reads `transcript` instead of `remote`:
+   * no exporter rides its launch, but its cache state is derived from the conversation log on the remote
+   * host (remote-transcript-telemetry.ts). Mapped here rather than at launch, so remote sessions created
+   * before this, whose mux records say `remote` (or nothing, for an attach), get it too. Docker stays `remote`.
+   */
   get statusLineExporter(): StatusLineExporter | undefined {
-    return this._muxSession?.statusLine;
+    const state = this._muxSession?.statusLine;
+    if (
+      this._remote &&
+      !this._docker &&
+      (state === undefined || state === 'remote') &&
+      getCli(this.mode)?.capabilities.statusLineTelemetry
+    ) {
+      return 'transcript';
+    }
+    return state;
   }
 
   /**
@@ -2064,6 +2079,21 @@ export class Session extends EventEmitter {
         this._autoOps.processCleanData(tail);
       }
     }
+  }
+
+  /**
+   * Feed a usage-limit message read somewhere other than this pane's output stream (fork: the remote
+   * conversation log or a screen capture, remote-transcript-telemetry.ts) to the auto-resume scheduler.
+   * Same rule as switching auto-resume on: only a reset still ahead arms it, so a stale message in an
+   * old log can never type `continue` into a session. Repeats are deduped by the scheduler like a
+   * footer redraw. True when the text held such a message and auto-resume is on.
+   */
+  noteUsageLimitText(text: string, now: number = Date.now()): boolean {
+    if (!this._autoOps.autoResumeEnabled || isExternalCliMode(this.mode)) return false;
+    const detection = detectUsageLimitPause(text, now);
+    if (!detection || detection.resetAt <= now) return false;
+    this._autoOps.processCleanData(text);
+    return true;
   }
 
   /** Restore auto-resume state (and a pending schedule) after Codeman restart. */

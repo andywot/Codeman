@@ -809,8 +809,12 @@ export interface PromptCacheStatus {
  * - `workspace-statusline`: the workspace's own `.claude/settings.local.json` sets a
  *   statusLine (or could not be read), and Codeman never replaces one there.
  * - `remote`: remote and Docker launches never carry the exporter.
+ * - `transcript` (fork): a remote (ssh) claude session. It carries no exporter either, but its
+ *   cache state is derived from its conversation log, read over the host's pooled shell
+ *   (`remote-transcript-telemetry.ts`). Never stored on a mux record: `Session.statusLineExporter`
+ *   maps a remote session's `remote` to it, so sessions launched before the fork change get it too.
  */
-export type StatusLineExporter = 'injected' | 'collection-off' | 'workspace-statusline' | 'remote';
+export type StatusLineExporter = 'injected' | 'collection-off' | 'workspace-statusline' | 'remote' | 'transcript';
 
 /**
  * What the prompt-cache keep-warm (`prompt-cache-keepwarm.ts`) is doing for a session, for
