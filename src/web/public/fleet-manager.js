@@ -219,7 +219,7 @@ Object.assign(CodemanApp.prototype, {
     );
     key.appendChild(keyRow);
 
-    body.replaceChildren(machines, accounts, usage, key);
+    body.replaceChildren(machines, accounts, key);
   },
 
   _fleetMachineForm(dialog, machine, fleet) {
