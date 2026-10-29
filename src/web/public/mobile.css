@@ -2747,18 +2747,19 @@ html.mobile-init .file-browser-panel {
     padding: 0;
   }
 
-  /* Same accent as the "C" in the header (`.logo` uses --accent-hover), and the
-     same 48px box as the Run button opposite it, so the two are centered on one
-     line by construction rather than by eye. */
+  /* The wordmark in ink at the headline step, as the desktop title bar sets it
+     (colour means state or selection, never branding), in the same 44px box as
+     the New session button opposite it, so the two are centered on one line by
+     construction rather than by eye. */
   .mobile-overview-brand {
     display: inline-flex;
     align-items: center;
-    min-height: 48px;
+    min-height: 44px;
     font-size: var(--fs-xl);
-    font-weight: 800;
+    font-weight: 700;
     line-height: 1;
-    color: var(--accent-hover);
-    letter-spacing: -0.02em;
+    color: var(--text);
+    letter-spacing: -0.015em;
   }
 
   /* Split Run button. Colors come from the toolbar's own
@@ -2778,30 +2779,33 @@ html.mobile-init .file-browser-panel {
     flex-shrink: 0;
   }
 
-  /* Sized well past the 44px touch minimum: this is the primary action on the
-     home screen, and the caret is a separate target right next to it.
+  /* The 44px touch minimum: this is the one primary action on the home screen
+     (accent fill, flat, the control radius), and the caret is a separate target
+     right next to it.
      ⚠️ The !important is required, not decorative: the phone block clamps every
      .btn-toolbar to `height/min-height/max-height: 26px !important`, and this
-     button deliberately carries .btn-toolbar to inherit the run-mode gradient.
-     Without matching !important (max-height included) it renders 26px tall. */
+     button deliberately carries .btn-toolbar to inherit the run-mode fill.
+     Without matching !important (max-height included) it renders 26px tall.
+     The shadow is shape, not colour: only floating surfaces cast one. */
   .mobile-overview-run-group .mobile-overview-run {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    min-height: 48px !important;
-    height: 48px !important;
-    max-height: 48px !important;
-    padding: 0 1.15rem !important;
-    font-size: var(--fs-lg) !important;
+    min-height: 44px !important;
+    height: 44px !important;
+    max-height: 44px !important;
+    padding: 0 1rem !important;
+    font-size: var(--fs-md) !important;
     line-height: 1;
-    font-weight: 700;
+    font-weight: 600 !important;
     font-family: inherit;
-    border-radius: 10px 0 0 10px !important;
+    border-radius: var(--btn-radius) 0 0 var(--btn-radius) !important;
+    box-shadow: none !important;
   }
 
   /* Fork: New session alone, no Run caret beside it (mobile-overview.js). */
   .mobile-overview-run-group--single > .btn-run {
-    border-radius: 10px !important;
+    border-radius: var(--btn-radius) !important;
   }
 
   .mobile-overview-run-mode {
@@ -2814,18 +2818,19 @@ html.mobile-init .file-browser-panel {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 48px !important;
-    height: 48px !important;
-    max-height: 48px !important;
-    min-width: 48px !important;
-    width: 48px !important;
+    min-height: 44px !important;
+    height: 44px !important;
+    max-height: 44px !important;
+    min-width: 44px !important;
+    width: 44px !important;
     padding: 0 !important;
     line-height: 1;
     font-family: inherit;
-    border-radius: 0 10px 10px 0 !important;
+    border-radius: 0 var(--btn-radius) var(--btn-radius) 0 !important;
+    box-shadow: none !important;
   }
 
-  /* The phone block shrinks every run-gear glyph to 10px; this one is a 48px
+  /* The phone block shrinks every run-gear glyph to 10px; this one is a 44px
      tap target, so it gets a proportionate chevron. `display:block` drops the
      inline-baseline gap that would otherwise push it a pixel low. */
   .mobile-overview-run-group .mobile-overview-run-caret svg {
@@ -2842,7 +2847,7 @@ html.mobile-init .file-browser-panel {
     margin: 0.5rem 0 0;
     padding: 0.35rem;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--floating-bg);
     box-shadow: var(--elevated-shadow);
   }
@@ -2854,7 +2859,7 @@ html.mobile-init .file-browser-panel {
     min-height: 44px;
     padding: 0 0.6rem;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--btn-radius);
     background: transparent;
     color: var(--text);
     font-family: inherit;
@@ -2871,7 +2876,7 @@ html.mobile-init .file-browser-panel {
   }
 
   .mobile-overview-run-option--add {
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .mobile-overview-run-header {
@@ -2924,7 +2929,7 @@ html.mobile-init .file-browser-panel {
     min-height: 56px;
     padding: 0.5rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--bg-card);
     color: var(--text);
     font-family: inherit;
@@ -2949,7 +2954,7 @@ html.mobile-init .file-browser-panel {
   }
   .mobile-overview-approval-btn {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--btn-radius);
     background: var(--bg-card);
     color: var(--text);
     font-family: inherit;
@@ -3004,7 +3009,7 @@ html.mobile-init .file-browser-panel {
       border-color: var(--border);
     }
     50% {
-      background: rgba(34, 197, 94, 0.1);
+      background: color-mix(in srgb, var(--green) 10%, var(--bg-card));
       border-color: var(--green);
     }
   }
@@ -3041,7 +3046,7 @@ html.mobile-init .file-browser-panel {
       border-color: var(--border);
     }
     50% {
-      background: rgba(239, 68, 68, 0.14);
+      background: color-mix(in srgb, var(--red) 12%, var(--bg-card));
       border-color: var(--red);
     }
   }
@@ -3053,7 +3058,7 @@ html.mobile-init .file-browser-panel {
       border-color: var(--border);
     }
     50% {
-      background: rgba(234, 179, 8, 0.12);
+      background: color-mix(in srgb, var(--yellow) 12%, var(--bg-card));
       border-color: var(--yellow);
     }
   }
@@ -3111,9 +3116,10 @@ html.mobile-init .file-browser-panel {
     text-overflow: ellipsis;
   }
 
+  /* The key is set apart by case and tracking, not by fading it: faded, the
+     10px key fell under the 4.5:1 PRODUCT.md asks of text. */
   .mobile-overview-meta-key {
     margin-right: 0.3rem;
-    opacity: 0.6;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -3122,12 +3128,18 @@ html.mobile-init .file-browser-panel {
     opacity: 0.45;
   }
 
+  /* A row that blinks or breathes spends part of each beat on its state tint
+     (held there under reduced motion); muted ink drops under 4.5:1 on it, so the
+     path and meta lines of those rows take dim ink. */
+  :is(.mobile-overview-row--needs, .mobile-overview-row--waiting, .mobile-overview-row--working) :is(.mobile-overview-row-sub, .mobile-overview-row-meta) {
+    color: var(--text-dim);
+  }
+
   /* The freshest signal on the row: while a session is actually running, how
      long the current turn has been going is the number the eye should land on.
      Same treatment the desktop rail gives its "active" stamp. */
   .mobile-overview-row--working .mobile-overview-meta-since {
-    color: var(--green);
-    opacity: 0.95;
+    color: var(--green-text);
   }
 
   .mobile-overview-dot {
@@ -3135,7 +3147,7 @@ html.mobile-init .file-browser-panel {
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: var(--text-muted);
+    background: var(--mark-muted);
   }
 
   .mobile-overview-dot--needs,
@@ -3171,7 +3183,7 @@ html.mobile-init .file-browser-panel {
     content: '';
     position: absolute;
     inset: -4px;
-    border: 2px solid rgba(34, 197, 94, 0.25);
+    border: 2px solid color-mix(in srgb, var(--green) 25%, transparent);
     border-top-color: var(--green);
     border-radius: 50%;
     animation: tab-load-spin 0.7s linear infinite;
@@ -3182,7 +3194,7 @@ html.mobile-init .file-browser-panel {
   }
 
   .mobile-overview-dot--done {
-    background: var(--text-muted);
+    background: var(--mark-muted);
     opacity: 0.5;
   }
 
@@ -3193,7 +3205,7 @@ html.mobile-init .file-browser-panel {
     gap: 0.25rem;
     padding: 0.2rem 0.45rem;
     border: 1px solid var(--border-light);
-    border-radius: 999px;
+    border-radius: 3px;
     font-size: var(--fs-2xs);
     font-weight: 600;
     color: var(--text-dim);
@@ -3203,24 +3215,24 @@ html.mobile-init .file-browser-panel {
   .mobile-overview-pill--needs,
   .mobile-overview-pill--error {
     border-color: var(--red);
-    color: var(--red);
+    color: var(--red-text);
   }
 
   .mobile-overview-pill--waiting {
     border-color: var(--yellow);
-    color: var(--yellow);
+    color: var(--yellow-text);
   }
 
   .mobile-overview-pill--idle,
   .mobile-overview-pill--working {
     border-color: var(--green);
-    color: var(--green);
+    color: var(--green-text);
   }
 
   /* An exited agent (Ark0N/Codeman#446): neutral, since nothing is running behind
      the row. The dot and the row take `--exited` too and keep their base rules. */
   .mobile-overview-pill--exited {
-    border-color: var(--text-muted);
+    border-color: var(--mark-muted);
     color: var(--text-muted);
   }
 
@@ -3228,7 +3240,7 @@ html.mobile-init .file-browser-panel {
      is not asking the user for anything, and red and yellow are what say it is. */
   .mobile-overview-pill--watching {
     border-color: var(--accent);
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .mobile-overview-chevron {
@@ -3278,7 +3290,7 @@ html.mobile-init .file-browser-panel {
     min-height: 32px;
     padding: 0 0.7rem;
     border: 1px solid var(--border-light);
-    border-radius: 999px;
+    border-radius: var(--btn-radius);
     background: transparent;
     color: var(--text-dim);
     font-family: inherit;
@@ -3290,13 +3302,13 @@ html.mobile-init .file-browser-panel {
   .mobile-overview-machine.active {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   /* Open in a Claude on that machine: resuming makes a second writer. */
   .mobile-overview-pill--running {
     border-color: var(--accent);
-    color: var(--accent);
+    color: var(--accent-text);
   }
 
   .mobile-overview-more {
@@ -3306,7 +3318,7 @@ html.mobile-init .file-browser-panel {
     gap: 0.35rem;
     min-height: 40px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--btn-radius);
     background: var(--control-bg);
     color: var(--text-dim);
     font-family: inherit;
@@ -3316,9 +3328,9 @@ html.mobile-init .file-browser-panel {
 
   .mobile-overview-more-count {
     padding: 0.05rem 0.35rem;
-    border-radius: 999px;
+    border-radius: 3px;
     background: var(--control-bg-hover);
-    color: var(--text-muted);
+    color: var(--text-dim);
   }
 }
 
@@ -3331,11 +3343,11 @@ html.mobile-init .file-browser-panel {
   }
 
   .mobile-overview-row--needs {
-    background: rgba(239, 68, 68, 0.14);
+    background: color-mix(in srgb, var(--red) 12%, var(--bg-card));
   }
 
   .mobile-overview-row--waiting {
-    background: rgba(234, 179, 8, 0.12);
+    background: color-mix(in srgb, var(--yellow) 12%, var(--bg-card));
   }
 
   .mobile-overview-dot--working {

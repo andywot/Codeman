@@ -592,7 +592,11 @@ Object.assign(CodemanApp.prototype, {
 
     const brand = document.createElement('span');
     brand.className = 'mobile-overview-brand';
-    brand.textContent = (window.CodemanI18n && window.CodemanI18n.displayName) || 'Codeman';
+    // Fork: the product is "Claude RC" on every surface (the desktop title bar
+    // and welcome title say so in index.html). A display name the user set in
+    // App Settings still wins; the stock default ("Codeman") does not.
+    const displayName = window.CodemanI18n && window.CodemanI18n.displayName;
+    brand.textContent = displayName && displayName !== 'Codeman' ? displayName : 'Claude RC';
     brand.setAttribute('data-i18n-skip', '');
     top.appendChild(brand);
 

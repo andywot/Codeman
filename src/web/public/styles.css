@@ -73,6 +73,18 @@
   /* warm, quiet "working" amber (no second saturated hue) */
   --yellow: #f0c25a;
   --red: #e06363;
+  /* Fork: state hues as TEXT. A skin whose state hues are too light to read as
+     small text (Monokai Pro Light) sets darker steps; every other skin reads
+     the hue itself. Marks (dots, rings, diamonds) keep the plain hue tokens.
+     --mark-muted is the neutral for hollow rings and idle dots when a skin has
+     darkened --text-muted for legibility. */
+  --green-text: var(--green);
+  --yellow-text: var(--yellow);
+  --red-text: var(--red);
+  --cyan-text: var(--teal);
+  --purple-text: var(--session-purple);
+  --accent-text: var(--accent-d);
+  --mark-muted: var(--text-muted);
   /* Daylight accent extras — referenced by the v1.0 override block at end of file */
   --accent-d: #2487c9;
   --emerald: #3ec8ee;
@@ -329,16 +341,36 @@ html[data-skin="rose-pine-dawn"] {
 
 /* Monokai Pro Light (the fork's default). Flat surfaces, no glass or gradients:
    the gradient pairs collapse to one colour and the ring is a focus outline.
-   Accents carry state; purple is selection and the primary action. */
+   Colour means state or selection: the pink accent is selection, focus and the
+   one primary action per surface (filled with --accent-fill); green, yellow,
+   cyan and the same pink carry state. */
 html[data-skin="monokai-pro-light"] {
   /* Values from the official "Monokai Pro Light" VS Code theme (monokai.pro). */
   color-scheme: light;
   --bg-dark: #faf4f2; --bg-card: #ede7e5; --bg-input: #faf4f2; --bg-hover: #e0dad9;
   --border: #e0dad9; --border-light: #d3cdcc;
-  --text: #29242a; --text-dim: #706b6e; --text-muted: #918c8e;
+  /* Text holds 4.5:1 on the card chrome (#ede7e5), not just the paper, as
+     PRODUCT.md asks: Monokai's #706b6e / #918c8e measure 4.27 and 2.7 there.
+     --text-dim also clears the 13% accent tint of the active rows. The theme's
+     own grey stays the colour of quiet MARKS (hollow rings, idle dots). */
+  --text: #29242a; --text-dim: #605c5f; --text-muted: #6a6668;
+  --mark-muted: #918c8e;
   --accent: #e14775; --accent-hover: #c73a63;
   --term-bg: #fefaf9;
   --green: #269d69; --yellow: #cc7a0a; --red: #e14775;
+  /* The state hues as small TEXT (board state, pills, counts, usage numbers):
+     each hue darkened toward black until it holds 4.5:1 on the card and on a
+     12 to 16% tint of itself, the backgrounds state text sits on. Marks keep
+     the bright hues above. */
+  --green-text: color-mix(in srgb, var(--green) 69%, #000);
+  --yellow-text: color-mix(in srgb, var(--yellow) 68%, #000);
+  --red-text: color-mix(in srgb, var(--red) 74%, #000);
+  --cyan-text: color-mix(in srgb, var(--teal) 74%, #000);
+  --purple-text: color-mix(in srgb, var(--session-purple) 89%, #000);
+  /* Accent-coloured text (active names, selected chips, links): the pink
+     darkened to hold 4.5:1 on the card and on the 13% accent tint. The custom
+     accent block below derives the same step from any accent. */
+  --accent-text: color-mix(in srgb, var(--accent) 73%, #000);
   --glass-bg: #ede7e5; --glass-border: #e0dad9;
   --control-bg: #e0dad9; --control-bg-hover: #d3cdcc;
   --control-border: #d3cdcc; --control-border-hover: #a59fa0;
@@ -381,10 +413,16 @@ html[data-accent] {
   --run-hover-a: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
   --run-hover-b: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
   --gear-hover: color-mix(in srgb, var(--accent-fill) 72%, var(--accent-shade));
+  /* Accent-coloured TEXT on the light grounds: always toward black (a light
+     accent's --accent-shade is white), 68% being the step that keeps every
+     preset at 4.5:1 on the card and on its own 13 to 16% tint. */
+  --accent-text: color-mix(in srgb, var(--accent) 68%, #000);
 }
-/* The dark skins draw a glow ring from the accent. */
+/* The dark skins draw a glow ring from the accent, and their accent text
+   stays light. */
 html[data-accent]:is([data-skin="og"], [data-skin="daylight-green"], [data-skin="daylight-blue"]) {
   --ring-glow: 0 0 10px -2px rgba(var(--accent-rgb), 0.45);
+  --accent-text: var(--accent);
 }
 
 /* Components that predate skin tokens used literal dark glass fills. Keep
@@ -433,7 +471,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   .search-badge-session,
   .history-view-all-btn
 ) {
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .search-badge-file,
@@ -23651,7 +23689,7 @@ html[data-skin="monokai-pro-light"] #tabRail .tab-cluster-swatch {
   width: 7px;
   height: 7px;
   border-radius: 1px;
-  background: var(--text-muted);
+  background: var(--mark-muted);
 }
 html[data-skin="monokai-pro-light"] #tabRail .tab-cluster-count {
   margin-left: auto;
@@ -23681,7 +23719,7 @@ html[data-skin="monokai-pro-light"] #tabRail .session-tab.active {
   box-shadow: none;
 }
 html[data-skin="monokai-pro-light"] #tabRail .session-tab.active .tab-name {
-  color: var(--accent-d);
+  color: var(--accent-text);
   font-weight: 600;
 }
 html[data-skin="monokai-pro-light"] #tabRail .session-tab:focus-visible {
@@ -23697,6 +23735,18 @@ html[data-skin="monokai-pro-light"] #tabRail .tab-number {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   text-align: right;
+}
+/* The upstream active badge (a 20% accent pill, !important) put pink on pink at
+   2.8:1; in the explorer the row tint is the selection, the number stays text. */
+html[data-skin="monokai-pro-light"] #tabRail .session-tab.active .tab-number {
+  background: none !important;
+  border-color: transparent !important;
+  color: var(--accent-text) !important;
+}
+/* Row actions (gear, close, more) on the tinted active row: dim ink, which
+   holds 4.5:1 on the 13% accent tint where the muted step does not. */
+html[data-skin="monokai-pro-light"] #tabRail .session-tab .tab-actions > :not(:hover) {
+  color: var(--text-dim);
 }
 html[data-skin="monokai-pro-light"] #tabRail .session-tab.active,
 html[data-skin="monokai-pro-light"] #tabRail .session-tab.active[data-color] {
@@ -23723,13 +23773,11 @@ html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element
 html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar {
   background: transparent;
 }
-html[data-skin="monokai-pro-light"] :is(.ob-new, .ns-start) {
-  background: #e0dad9;
-  color: #29242a;
-}
-html[data-skin="monokai-pro-light"] :is(.ob-new, .ns-start):hover:not(:disabled) {
-  background: #d3cdcc;
-}
+/* One rule for the main button: the single primary action on a surface is
+   accent-filled (--accent-fill with --accent-ink), everything beside it stays
+   neutral (grey control fill, outline or ghost). The board's New session and the dialog's Start session
+   keep their own accent rules (.ob-new, .ns-start below), like Save, Create,
+   Allow and the phone's New session. */
 html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar > .slider {
   background: rgba(41, 36, 42, 0.18);
   border-radius: 4px;
@@ -23839,7 +23887,7 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   color: var(--text-dim);
 }
 .ob-section--attention .ob-section-title {
-  color: var(--red);
+  color: var(--red-text);
 }
 .ob-section-kind {
   font-weight: 500;
@@ -23909,20 +23957,20 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   justify-self: center;
   border-radius: 50%;
   box-sizing: border-box;
-  border: 2px solid var(--text-muted);
+  border: 2px solid var(--mark-muted);
 }
 .ob-row[data-state='working'] .ob-mark {
   border-color: var(--green);
   background: var(--green);
 }
 .ob-row[data-state='working'] .ob-state {
-  color: var(--green);
+  color: var(--green-text);
 }
 .ob-row[data-state='waiting'] .ob-mark {
   border-color: var(--yellow);
 }
 .ob-row[data-state='waiting'] .ob-state {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .ob-row[data-state='needs'] .ob-mark {
   border: 0;
@@ -23931,7 +23979,7 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   transform: rotate(45deg) scale(0.9);
 }
 .ob-row:is([data-state='needs'], [data-state='error']) .ob-state {
-  color: var(--red);
+  color: var(--red-text);
   font-weight: 600;
 }
 .ob-row[data-state='error'] .ob-mark {
@@ -23943,7 +23991,7 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   height: 2px;
   border: 0;
   border-radius: 1px;
-  background: var(--text-muted);
+  background: var(--mark-muted);
 }
 @media (prefers-reduced-motion: no-preference) {
   .ob-row[data-state='working'] .ob-mark {
@@ -23982,7 +24030,7 @@ html[data-tab-orientation="vertical"] .tab-rail-overview:hover {
 }
 html[data-tab-orientation="vertical"] body:has(.welcome-overlay.visible.has-overview-board) #tabRailOverview {
   background: rgba(var(--accent-rgb), 0.13);
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 /* The overlay covers all of <main>, the explorer included; start the board
    where the editor area starts. */
@@ -23991,7 +24039,7 @@ html[data-tab-orientation='vertical'] .welcome-overlay.has-overview-board {
 }
 html[data-tab-orientation="vertical"] .tab-rail-new {
   margin-top: 0;
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 
 /* ── New session dialog (new-session.js) ─────────────────────────────────── */
@@ -24078,7 +24126,7 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
 .ns-chip[aria-checked='true'] {
   border-color: var(--accent);
   background: rgba(var(--accent-rgb), 0.12);
-  color: var(--accent-d);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .ns-input {
@@ -24145,7 +24193,7 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
 .ns-error {
   margin: 0;
   font-size: var(--fs-base);
-  color: var(--red);
+  color: var(--red-text);
 }
 .ns-error[hidden] {
   display: none;
@@ -24313,7 +24361,7 @@ footer.toolbar :is(
     background: var(--yellow);
   }
   .rc-account--high {
-    color: var(--red);
+    color: var(--red-text);
   }
   /* Detection hints (status-bar.js _statusBarDetectionItems): quiet on purpose, a
      muted ring rather than an alert colour, since nothing is wrong with the session. */
@@ -24322,7 +24370,7 @@ footer.toolbar :is(
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    border: 1px solid var(--text-muted);
+    border: 1px solid var(--mark-muted);
   }
   footer.toolbar .version-display {
     font: var(--fs-xs) / 1 var(--font-mono);
@@ -24403,10 +24451,10 @@ html[data-focus='on'] main {
   cursor: pointer;
 }
 .ns-hint[data-kind='ok'] {
-  color: var(--green);
+  color: var(--green-text);
 }
 .ns-hint[data-kind='missing'] {
-  color: var(--red);
+  color: var(--red-text);
 }
 .ns-browse {
   display: grid;
@@ -24527,13 +24575,13 @@ html[data-focus='on'] main {
   color: var(--text-dim);
 }
 .fm-status[data-kind='ok'] {
-  color: var(--green);
+  color: var(--green-text);
 }
 .fm-status[data-kind='warn'] {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .fm-status[data-kind='bad'] {
-  color: var(--red);
+  color: var(--red-text);
 }
 .fm-btn {
   height: 26px;
@@ -24693,13 +24741,13 @@ html[data-focus='on'] main {
   color: var(--text-dim);
 }
 .sc-state[data-state='in-sync'] {
-  color: var(--green);
+  color: var(--green-text);
 }
 .sc-state[data-state='differs'] {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .sc-state[data-state='missing'] {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .sc-row .fm-btn:first-of-type {
   margin-left: auto;
@@ -24742,17 +24790,17 @@ html[data-focus='on'] main {
   color: var(--text-dim);
 }
 .sc-summary[data-kind='ok'] {
-  color: var(--green);
+  color: var(--green-text);
 }
 .sc-summary[data-kind='warn'] {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .sc-summary[data-kind='bad'] {
-  color: var(--red);
+  color: var(--red-text);
 }
 .fm-btn.sc-sync {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .sc-items {
   border-top: 1px solid var(--border);
@@ -24902,7 +24950,7 @@ html[data-tab-orientation="vertical"] :is(#tabRailMachines, #tabRailRunning) {
 }
 .rn-tag--live {
   border-color: rgba(var(--accent-rgb), 0.5);
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 .rn-tag--outside {
   border-color: var(--yellow);
@@ -24924,7 +24972,7 @@ html[data-tab-orientation="vertical"] :is(#tabRailMachines, #tabRailRunning) {
 .rn-error {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--red);
+  color: var(--red-text);
 }
 .rn-note {
   margin: 0;
@@ -24933,7 +24981,7 @@ html[data-tab-orientation="vertical"] :is(#tabRailMachines, #tabRailRunning) {
 }
 .fm-btn.rn-primary:not(:disabled) {
   border-color: var(--accent);
-  color: var(--accent-d);
+  color: var(--accent-text);
   font-weight: 600;
 }
 .fm-btn.rn-primary:hover:not(:disabled) {
@@ -25026,7 +25074,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   font-weight: 600;
 }
 .rail-project-main:hover .rail-project-name {
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 .rail-project-where {
   overflow: hidden;
@@ -25098,7 +25146,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   outline: none;
 }
 .project-menu-item.danger {
-  color: var(--red);
+  color: var(--red-text);
 }
 /* New session dialog: projects list and the save row */
 .ns-projects[hidden] {
@@ -25125,7 +25173,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   cursor: pointer;
 }
 .ns-save:hover {
-  color: var(--accent-d);
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 @media (max-width: 599px) {
@@ -25180,7 +25228,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   height: 7px;
   border-radius: 50%;
   box-sizing: border-box;
-  background: var(--text-muted);
+  background: var(--mark-muted);
 }
 :is(.rc-machine, .ns-chip)[data-mstate='ok']::before {
   background: var(--green);
@@ -25190,7 +25238,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 :is(.rc-machine, .ns-chip)[data-mstate='asleep']::before {
   background: none;
-  border: 1.5px solid var(--text-muted);
+  border: 1.5px solid var(--mark-muted);
 }
 :is(.rc-machine, .ns-chip)[data-mstate='offline']::before {
   background: var(--red);
@@ -25298,7 +25346,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter {
     background: var(--bg-dark) !important;
     border: 1px solid var(--accent) !important;
-    color: var(--accent-d) !important;
+    color: var(--accent-text) !important;
   }
   html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter:active {
     background: color-mix(in srgb, var(--accent) 12%, var(--bg-dark)) !important;
@@ -25313,7 +25361,13 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn.confirming {
     background: color-mix(in srgb, var(--yellow) 18%, var(--bg-input));
     border-color: var(--yellow);
-    color: var(--yellow);
+    color: var(--yellow-text);
+  }
+  /* The active tab's gear and close sit on its accent tint: dim ink at full
+     strength (upstream faded the gear to 60%, 2:1). */
+  html[data-skin="monokai-pro-light"] .session-tab.active :is(.tab-gear, .tab-close) {
+    color: var(--text-dim);
+    opacity: 1;
   }
 }
 
@@ -25491,13 +25545,13 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   font-weight: 600;
 }
 .lc-ev--ok {
-  color: var(--green);
+  color: var(--green-text);
 }
 .lc-ev--warn {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .lc-ev--bad {
-  color: var(--red);
+  color: var(--red-text);
 }
 .lc-ev--quiet {
   color: var(--text-muted);
@@ -25562,11 +25616,11 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 :is(.log-viewer-window-title .status.streaming, .subagent-window-title .status.active) {
   background: color-mix(in srgb, var(--green) 14%, transparent);
-  color: var(--green);
+  color: var(--green-text);
 }
 .subagent-window-title .status.idle {
   background: color-mix(in srgb, var(--yellow) 16%, transparent);
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .subagent-window-title .status.completed,
 .log-viewer-window-title .status.disconnected {
@@ -25575,7 +25629,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .log-viewer-window-title .status.error {
   background: color-mix(in srgb, var(--red) 14%, transparent);
-  color: var(--red);
+  color: var(--red-text);
 }
 :is(.log-viewer-window-actions, .subagent-window-actions) button {
   border-radius: var(--btn-radius);
@@ -25602,23 +25656,23 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .subagent-model-badge.haiku {
   background: color-mix(in srgb, var(--green) 14%, transparent);
-  color: var(--green);
+  color: var(--green-text);
 }
 .subagent-model-badge.sonnet {
   background: color-mix(in srgb, var(--teal) 14%, transparent);
-  color: var(--teal);
+  color: var(--cyan-text);
 }
 .subagent-model-badge.opus {
   background: color-mix(in srgb, var(--session-purple) 14%, transparent);
-  color: var(--session-purple);
+  color: var(--purple-text);
 }
 .subagent-status.active {
   background: color-mix(in srgb, var(--green) 14%, transparent);
-  color: var(--green);
+  color: var(--green-text);
 }
 .subagent-status.idle {
   background: color-mix(in srgb, var(--yellow) 16%, transparent);
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .subagent-status.completed {
   background: var(--control-bg);
@@ -25630,7 +25684,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .plan-subagent-model {
   background: color-mix(in srgb, var(--session-purple) 14%, transparent);
-  color: var(--session-purple);
+  color: var(--purple-text);
 }
 .plan-subagent-prompt-link:hover {
   background: var(--control-bg);
@@ -25660,7 +25714,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   border-color: transparent;
 }
 .command-palette-item.active .command-palette-title {
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 .command-palette-icon {
   color: var(--accent);
@@ -25713,7 +25767,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 .search-filter-chip.active {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-dark));
   border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-dark));
-  color: var(--accent-d);
+  color: var(--accent-text);
 }
 /* The case filter: cases are plumbing in Claude RC (see the toolbar note). */
 #searchCaseFilter {
@@ -25744,7 +25798,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .history-item-subtitle.is-case,
 .history-item.expanded .history-item-expand {
-  color: var(--teal);
+  color: var(--cyan-text);
 }
 .history-item-expand:hover {
   background: var(--control-bg);
@@ -25752,21 +25806,36 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 .history-item-detail {
   border-top-color: var(--border);
 }
+/* Small labels on the control fill (#e0dad9) take dim ink, and the state
+   badges their text step: muted ink and the bright hues fall under 4.5:1 on a
+   fill or a tint (PRODUCT.md). */
+html[data-skin="monokai-pro-light"] :is(.header-system-stats .stat-label, .header-plan-usage .pu-label, .history-item-badge-mode) {
+  color: var(--text-dim);
+}
+html[data-skin="monokai-pro-light"] .history-item-badge-live {
+  color: var(--green-text);
+}
+html[data-skin="monokai-pro-light"] :is(.history-item-badge-running, .history-item-badge-worktree) {
+  color: var(--accent-text);
+}
+html[data-skin="monokai-pro-light"] footer.toolbar .version-display {
+  opacity: 1;
+}
 .search-badge-session {
   background: color-mix(in srgb, var(--teal) 12%, transparent);
-  color: var(--teal);
+  color: var(--cyan-text);
 }
 .search-badge-event {
   background: color-mix(in srgb, var(--session-purple) 12%, transparent);
-  color: var(--session-purple);
+  color: var(--purple-text);
 }
 .search-badge-file {
   background: color-mix(in srgb, var(--green) 12%, transparent);
-  color: var(--green);
+  color: var(--green-text);
 }
 .search-badge-past {
   background: color-mix(in srgb, var(--yellow) 14%, transparent);
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 
 /* Approvals inbox */
@@ -25785,11 +25854,11 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .approval-kind-badge {
   background: color-mix(in srgb, var(--red) 12%, transparent);
-  color: var(--red);
+  color: var(--red-text);
 }
 .approval-kind-question .approval-kind-badge {
   background: color-mix(in srgb, var(--yellow) 16%, transparent);
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .approval-kind-idle .approval-kind-badge {
   background: var(--control-bg);
@@ -25819,13 +25888,13 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 
 /* Plan usage readout: state colours from the skin. */
 .header-plan-usage .pu-green {
-  color: var(--green);
+  color: var(--green-text);
 }
 .header-plan-usage .pu-yellow {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 .header-plan-usage .pu-red {
-  color: var(--red);
+  color: var(--red-text);
 }
 
 /* Session Manager search box focus: the skin's accent, not the old blue. */
@@ -25921,6 +25990,24 @@ html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal,
 html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-callout-title {
   font-size: var(--fs-md);
 }
+/* The rail is chrome: the card step, not upstream's 16% black (which put the
+   rail's dim and muted text under 4.5:1). The active entry, the phone/beta tags
+   and the faded scope pill take their text steps (PRODUCT.md). */
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-rail {
+  background: var(--bg-card);
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-rail-item.active {
+  color: var(--accent-text);
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-scope {
+  opacity: 1;
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-tag {
+  color: var(--accent-text);
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-tag-beta {
+  color: var(--yellow-text);
+}
 
 /* Files and Git panels: overlay shadow from the skin, state colours from its
    tokens (the literals were the dark default's green, amber and red). */
@@ -25928,30 +26015,32 @@ html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal,
 .git-status-panel {
   box-shadow: var(--elevated-shadow);
 }
-html .toolbar .btn-git-status.git-status--clean svg,
+html .toolbar .btn-git-status.git-status--clean svg {
+  color: var(--green);
+}
 .git-status-ok,
 .git-status-badge--A,
 .git-status-badge--new {
-  color: var(--green);
+  color: var(--green-text);
 }
 html .toolbar .btn-git-status.git-status--dirty,
 .git-status-chip--warn {
-  color: var(--yellow);
+  color: var(--yellow-text);
   border-color: color-mix(in srgb, var(--yellow) 45%, transparent);
 }
 .git-status-badge,
 .git-status-hash,
 .git-status-repo-state--dirty,
 .git-status-repo-unreadable {
-  color: var(--yellow);
+  color: var(--yellow-text);
 }
 html .toolbar .btn-git-status.git-status--conflict {
-  color: var(--red);
+  color: var(--red-text);
   border-color: color-mix(in srgb, var(--red) 50%, transparent);
 }
 .git-status-badge--D,
 .git-status-badge--U {
-  color: var(--red);
+  color: var(--red-text);
 }
 .git-status-hash {
   font-family: var(--font-mono);

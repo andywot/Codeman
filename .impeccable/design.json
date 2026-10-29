@@ -8,291 +8,158 @@
         "role": "primary",
         "displayName": "Monokai Pink",
         "canonical": "#e14775",
-        "tonalRamp": [
-          "#441523",
-          "#70243a",
-          "#9e3252",
-          "#ca4069",
-          "#e6638a",
-          "#ed91ac",
-          "#f4bfcf",
-          "#fbe9ee"
-        ]
+        "tonalRamp": ["#441523", "#70243a", "#9e3252", "#ca4069", "#e6638a", "#ed91ac", "#f4bfcf", "#fbe9ee"]
       },
       "accent-deep": {
         "role": "primary",
         "displayName": "Deep Pink",
         "canonical": "#c73a63",
-        "tonalRamp": [
-          "#3c111e",
-          "#641d32",
-          "#8b2945",
-          "#b33459",
-          "#cf587a",
-          "#dd89a1",
-          "#ebbac8",
-          "#f8e7ec"
-        ]
+        "tonalRamp": ["#3c111e", "#641d32", "#8b2945", "#b33459", "#cf587a", "#dd89a1", "#ebbac8", "#f8e7ec"]
       },
       "accent-deeper": {
         "role": "primary",
         "displayName": "Deeper Pink",
         "canonical": "#a82f53",
-        "tonalRamp": [
-          "#320e19",
-          "#54182a",
-          "#76213a",
-          "#972a4b",
-          "#b54e6d",
-          "#cb8298",
-          "#e1b6c3",
-          "#f5e6ea"
-        ]
+        "tonalRamp": ["#320e19", "#54182a", "#76213a", "#972a4b", "#b54e6d", "#cb8298", "#e1b6c3", "#f5e6ea"]
       },
       "accent-ink": {
         "role": "primary",
         "displayName": "Accent Ink",
         "canonical": "#ffffff",
-        "tonalRamp": [
-          "#4d4d4d",
-          "#808080",
-          "#b2b2b2",
-          "#e6e6e6",
-          "#ffffff",
-          "#ffffff",
-          "#ffffff",
-          "#ffffff"
-        ]
+        "tonalRamp": ["#4d4d4d", "#808080", "#b2b2b2", "#e6e6e6", "#ffffff", "#ffffff", "#ffffff", "#ffffff"]
       },
       "state-green": {
         "role": "secondary",
         "displayName": "Working Green",
         "canonical": "#269d69",
-        "tonalRamp": [
-          "#0b2f20",
-          "#134e34",
-          "#1b6e4a",
-          "#228d5e",
-          "#47ac80",
-          "#7dc4a5",
-          "#b3ddca",
-          "#e5f3ed"
-        ]
+        "tonalRamp": ["#0b2f20", "#134e34", "#1b6e4a", "#228d5e", "#47ac80", "#7dc4a5", "#b3ddca", "#e5f3ed"]
       },
       "state-yellow": {
         "role": "secondary",
         "displayName": "Waiting Amber",
         "canonical": "#cc7a0a",
-        "tonalRamp": [
-          "#3d2503",
-          "#663d05",
-          "#8f5507",
-          "#b86e09",
-          "#d48e2f",
-          "#e0af6c",
-          "#edd0a9",
-          "#f9efe2"
-        ]
+        "tonalRamp": ["#3d2503", "#663d05", "#8f5507", "#b86e09", "#d48e2f", "#e0af6c", "#edd0a9", "#f9efe2"]
       },
       "state-red": {
         "role": "secondary",
         "displayName": "Needs-you Pink",
         "canonical": "#e14775",
-        "tonalRamp": [
-          "#441523",
-          "#70243a",
-          "#9e3252",
-          "#ca4069",
-          "#e6638a",
-          "#ed91ac",
-          "#f4bfcf",
-          "#fbe9ee"
-        ]
+        "tonalRamp": ["#441523", "#70243a", "#9e3252", "#ca4069", "#e6638a", "#ed91ac", "#f4bfcf", "#fbe9ee"]
       },
       "info-cyan": {
         "role": "secondary",
         "displayName": "Info Cyan",
         "canonical": "#1c8ca8",
-        "tonalRamp": [
-          "#082a32",
-          "#0e4654",
-          "#146276",
-          "#197e97",
-          "#3e9db5",
-          "#77bacb",
-          "#b0d7e1",
-          "#e4f1f5"
-        ]
+        "tonalRamp": ["#082a32", "#0e4654", "#146276", "#197e97", "#3e9db5", "#77bacb", "#b0d7e1", "#e4f1f5"]
       },
       "session-orange": {
         "role": "tertiary",
         "displayName": "Monokai Orange",
         "canonical": "#e16032",
-        "tonalRamp": [
-          "#441d0f",
-          "#703019",
-          "#9e4323",
-          "#ca562d",
-          "#e67851",
-          "#eda084",
-          "#f4c7b7",
-          "#fbece6"
-        ]
+        "tonalRamp": ["#441d0f", "#703019", "#9e4323", "#ca562d", "#e67851", "#eda084", "#f4c7b7", "#fbece6"]
       },
       "session-purple": {
         "role": "tertiary",
         "displayName": "Monokai Purple",
         "canonical": "#7058be",
-        "tonalRamp": [
-          "#221a39",
-          "#382c5f",
-          "#4e3e85",
-          "#654fab",
-          "#8571c8",
-          "#a99bd8",
-          "#cdc5e8",
-          "#eeebf7"
-        ]
+        "tonalRamp": ["#221a39", "#382c5f", "#4e3e85", "#654fab", "#8571c8", "#a99bd8", "#cdc5e8", "#eeebf7"]
       },
       "paper": {
         "role": "neutral",
         "displayName": "Paper",
         "canonical": "#faf4f2",
-        "tonalRamp": [
-          "#4b4949",
-          "#7d7a79",
-          "#afaba9",
-          "#e1dcda",
-          "#fbf6f4",
-          "#fcf8f7",
-          "#fdfbfa",
-          "#fefefd"
-        ]
+        "tonalRamp": ["#4b4949", "#7d7a79", "#afaba9", "#e1dcda", "#fbf6f4", "#fcf8f7", "#fdfbfa", "#fefefd"]
       },
       "terminal-paper": {
         "role": "neutral",
         "displayName": "Terminal Paper",
         "canonical": "#fefaf9",
-        "tonalRamp": [
-          "#4c4b4b",
-          "#7f7d7c",
-          "#b2afae",
-          "#e5e1e0",
-          "#fefbfa",
-          "#fefcfb",
-          "#fffdfd",
-          "#fffefe"
-        ]
+        "tonalRamp": ["#4c4b4b", "#7f7d7c", "#b2afae", "#e5e1e0", "#fefbfa", "#fefcfb", "#fffdfd", "#fffefe"]
       },
       "card": {
         "role": "neutral",
         "displayName": "Card",
         "canonical": "#ede7e5",
-        "tonalRamp": [
-          "#474545",
-          "#767472",
-          "#a6a2a0",
-          "#d5d0ce",
-          "#f0ebe9",
-          "#f4f1ef",
-          "#f9f7f6",
-          "#fdfcfc"
-        ]
+        "tonalRamp": ["#474545", "#767472", "#a6a2a0", "#d5d0ce", "#f0ebe9", "#f4f1ef", "#f9f7f6", "#fdfcfc"]
       },
       "rule": {
         "role": "neutral",
         "displayName": "Rule",
         "canonical": "#e0dad9",
-        "tonalRamp": [
-          "#434141",
-          "#706d6c",
-          "#9d9998",
-          "#cac4c3",
-          "#e5e0df",
-          "#ece9e8",
-          "#f4f2f2",
-          "#fbfbfa"
-        ]
+        "tonalRamp": ["#434141", "#706d6c", "#9d9998", "#cac4c3", "#e5e0df", "#ece9e8", "#f4f2f2", "#fbfbfa"]
       },
       "rule-strong": {
         "role": "neutral",
         "displayName": "Strong Rule",
         "canonical": "#d3cdcc",
-        "tonalRamp": [
-          "#3f3e3d",
-          "#6a6666",
-          "#94908f",
-          "#beb8b8",
-          "#dad4d4",
-          "#e5e1e0",
-          "#f0eeed",
-          "#faf9f9"
-        ]
+        "tonalRamp": ["#3f3e3d", "#6a6666", "#94908f", "#beb8b8", "#dad4d4", "#e5e1e0", "#f0eeed", "#faf9f9"]
       },
       "rule-hover": {
         "role": "neutral",
         "displayName": "Hover Rule",
         "canonical": "#a59fa0",
-        "tonalRamp": [
-          "#323030",
-          "#525050",
-          "#736f70",
-          "#948f90",
-          "#b2adae",
-          "#c9c5c6",
-          "#e0ddde",
-          "#f4f3f4"
-        ]
+        "tonalRamp": ["#323030", "#525050", "#736f70", "#948f90", "#b2adae", "#c9c5c6", "#e0ddde", "#f4f3f4"]
       },
       "ink": {
         "role": "neutral",
         "displayName": "Ink",
         "canonical": "#29242a",
-        "tonalRamp": [
-          "#0c0b0d",
-          "#141215",
-          "#1d191d",
-          "#252026",
-          "#49454a",
-          "#7f7c7f",
-          "#b4b2b4",
-          "#e5e5e5"
-        ]
+        "tonalRamp": ["#0c0b0d", "#141215", "#1d191d", "#252026", "#49454a", "#7f7c7f", "#b4b2b4", "#e5e5e5"]
       },
       "ink-dim": {
         "role": "neutral",
         "displayName": "Dim Ink",
-        "canonical": "#706b6e",
-        "tonalRamp": [
-          "#222021",
-          "#383637",
-          "#4e4b4d",
-          "#656063",
-          "#858184",
-          "#a9a6a8",
-          "#cdcbcc",
-          "#eeedee"
-        ]
+        "canonical": "#605c5f"
       },
       "ink-muted": {
         "role": "neutral",
         "displayName": "Muted Ink",
-        "canonical": "#918c8e",
-        "tonalRamp": [
-          "#2c2a2b",
-          "#484647",
-          "#666263",
-          "#827e80",
-          "#a29d9f",
-          "#bdbabb",
-          "#d8d7d7",
-          "#f2f1f1"
-        ]
+        "canonical": "#6a6668"
       },
       "scrim": {
         "role": "neutral",
         "displayName": "Scrim",
         "canonical": "rgba(41, 36, 42, 0.26)"
+      },
+      "mark-muted": {
+        "role": "neutral",
+        "displayName": "Mark Grey",
+        "canonical": "#918c8e"
+      },
+      "accent-fill": {
+        "role": "primary",
+        "displayName": "Pink Fill",
+        "canonical": "#cf416c"
+      },
+      "accent-text": {
+        "role": "primary",
+        "displayName": "Pink Text",
+        "canonical": "#a43455"
+      },
+      "state-green-text": {
+        "role": "secondary",
+        "displayName": "Working Green Text",
+        "canonical": "#1a6c48"
+      },
+      "state-yellow-text": {
+        "role": "secondary",
+        "displayName": "Waiting Amber Text",
+        "canonical": "#8b5307"
+      },
+      "state-red-text": {
+        "role": "secondary",
+        "displayName": "Needs-you Pink Text",
+        "canonical": "#a73557"
+      },
+      "info-cyan-text": {
+        "role": "secondary",
+        "displayName": "Info Cyan Text",
+        "canonical": "#15687c"
+      },
+      "session-purple-text": {
+        "role": "tertiary",
+        "displayName": "Monokai Purple Text",
+        "canonical": "#644ea9"
       }
     },
     "typographyMeta": {
@@ -386,20 +253,12 @@
   },
   "components": [
     {
-      "name": "Neutral Primary Button",
+      "name": "Primary Button",
       "kind": "button",
-      "refersTo": "button-neutral-primary",
-      "description": "The main start action (board New session, dialog Start session): grey fill, ink text.",
-      "html": "<button class=\"ds-btn-neutral\">Start session</button>",
-      "css": ".ds-btn-neutral { font-family: var(--ui-font, Manrope, sans-serif); height: 32px; padding: 0 16px; border: 0; border-radius: 4px; background: #e0dad9; color: #29242a; font-size: 13px; font-weight: 600; cursor: pointer; } .ds-btn-neutral:hover { background: #d3cdcc; } .ds-btn-neutral:focus-visible { outline: 2px solid #e14775; outline-offset: 2px; }"
-    },
-    {
-      "name": "Accent Button",
-      "kind": "button",
-      "refersTo": "button-accent",
-      "description": "Dialog Save/Create, approval Allow, Wake.",
-      "html": "<button class=\"ds-btn-accent\">Save</button>",
-      "css": ".ds-btn-accent { font-family: var(--ui-font, Manrope, sans-serif); height: 32px; padding: 0 16px; border: 1px solid #e14775; border-radius: 4px; background: #e14775; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; } .ds-btn-accent:hover { background: #c73a63; border-color: #c73a63; } .ds-btn-accent:focus-visible { outline: 2px solid #e14775; outline-offset: 2px; }"
+      "refersTo": "button-primary",
+      "description": "The one primary action per surface: board and phone New session, dialog Start session, Save/Create, approval Allow, Wake. Accent fill, white ink, flat.",
+      "html": "<button class=\"ds-btn-primary\">Start session</button>",
+      "css": ".ds-btn-primary { font-family: var(--ui-font, Manrope, sans-serif); height: 32px; padding: 0 16px; border: 0; border-radius: 4px; background: #cf416c; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; } .ds-btn-primary:hover { background: #c73a63; } .ds-btn-primary:focus-visible { outline: 2px solid #e14775; outline-offset: 2px; }"
     },
     {
       "name": "Outline Button",
@@ -415,7 +274,7 @@
       "refersTo": "chip",
       "description": "New session choice chips with the machine-state dot; selected is an accent tint.",
       "html": "<div class=\"ds-chips\"><button class=\"ds-chip\" data-mstate=\"ok\" aria-checked=\"true\">This server</button><button class=\"ds-chip\" data-mstate=\"asleep\">DESKTOP-TJLEEOP</button><button class=\"ds-chip\" data-mstate=\"offline\">laptop</button></div>",
-      "css": ".ds-chips { display: flex; gap: 6px; } .ds-chip { font-family: var(--ui-font, Manrope, sans-serif); display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid #d3cdcc; border-radius: 4px; background: #faf4f2; color: #29242a; font-size: 13px; cursor: pointer; } .ds-chip:hover { border-color: #a59fa0; } .ds-chip[aria-checked='true'] { border-color: #e14775; background: rgba(225,71,117,0.12); color: #c73a63; font-weight: 600; } .ds-chip:focus-visible { outline: 2px solid #e14775; outline-offset: 2px; } .ds-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; background: #918c8e; } .ds-chip[data-mstate='ok']::before { background: #269d69; } .ds-chip[data-mstate='asleep']::before { background: none; border: 1.5px solid #918c8e; } .ds-chip[data-mstate='offline']::before { background: #e14775; }"
+      "css": ".ds-chips { display: flex; gap: 6px; } .ds-chip { font-family: var(--ui-font, Manrope, sans-serif); display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 1px solid #d3cdcc; border-radius: 4px; background: #faf4f2; color: #29242a; font-size: 13px; cursor: pointer; } .ds-chip:hover { border-color: #a59fa0; } .ds-chip[aria-checked='true'] { border-color: #e14775; background: rgba(225,71,117,0.12); color: #a43455; font-weight: 600; } .ds-chip:focus-visible { outline: 2px solid #e14775; outline-offset: 2px; } .ds-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; background: #918c8e; } .ds-chip[data-mstate='ok']::before { background: #269d69; } .ds-chip[data-mstate='asleep']::before { background: none; border: 1.5px solid #918c8e; } .ds-chip[data-mstate='offline']::before { background: #e14775; }"
     },
     {
       "name": "Folder Input",
@@ -431,7 +290,7 @@
       "refersTo": "explorer-row",
       "description": "Machine section header and session rows with number, state dot and name.",
       "html": "<nav class=\"ds-explorer\"><div class=\"ds-ex-label\"><span class=\"ds-ex-sw\"></span>This server<span class=\"ds-ex-count\">3</span></div><a class=\"ds-ex-row is-active\" href=\"#\"><span class=\"ds-ex-num\">1</span><span class=\"ds-dot ds-working\"></span>alpha</a><a class=\"ds-ex-row\" href=\"#\"><span class=\"ds-ex-num\">2</span><span class=\"ds-dot ds-waiting\"></span>beta · api</a><a class=\"ds-ex-row\" href=\"#\"><span class=\"ds-ex-num\">3</span><span class=\"ds-dot\"></span>docs</a></nav>",
-      "css": ".ds-explorer { font-family: var(--ui-font, Manrope, sans-serif); width: 264px; padding: 4px 0; background: #ede7e5; border-right: 1px solid #e0dad9; } .ds-ex-label { display: flex; align-items: center; gap: 6px; padding: 10px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #706b6e; } .ds-ex-sw { width: 7px; height: 7px; border-radius: 1px; background: #918c8e; } .ds-ex-count { margin-left: auto; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-weight: 500; letter-spacing: 0; color: #918c8e; } .ds-ex-row { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 0 6px; padding: 3px 8px; border-radius: 4px; color: #29242a; font-size: 13px; text-decoration: none; } .ds-ex-row:hover { background: #d3cdcc; } .ds-ex-row.is-active { background: rgba(41,36,42,0.05); color: #c73a63; font-weight: 600; } .ds-ex-row:focus-visible { outline: 2px solid #e14775; outline-offset: -2px; } .ds-ex-num { min-width: 14px; text-align: right; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; font-weight: 400; color: #918c8e; } .ds-dot { width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; border: 2px solid #918c8e; } .ds-working { background: #269d69; border-color: #269d69; } .ds-waiting { border-color: #cc7a0a; }"
+      "css": ".ds-explorer { font-family: var(--ui-font, Manrope, sans-serif); width: 264px; padding: 4px 0; background: #ede7e5; border-right: 1px solid #e0dad9; } .ds-ex-label { display: flex; align-items: center; gap: 6px; padding: 10px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #605c5f; } .ds-ex-sw { width: 7px; height: 7px; border-radius: 1px; background: #918c8e; } .ds-ex-count { margin-left: auto; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-weight: 500; letter-spacing: 0; color: #6a6668; } .ds-ex-row { display: flex; align-items: center; gap: 8px; min-height: 28px; margin: 0 6px; padding: 3px 8px; border-radius: 4px; color: #29242a; font-size: 13px; text-decoration: none; } .ds-ex-row:hover { background: #d3cdcc; } .ds-ex-row.is-active { background: rgba(41,36,42,0.05); color: #a43455; font-weight: 600; } .ds-ex-row:focus-visible { outline: 2px solid #e14775; outline-offset: -2px; } .ds-ex-num { min-width: 14px; text-align: right; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; font-weight: 400; color: #6a6668; } .ds-dot { width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; border: 2px solid #918c8e; } .ds-working { background: #269d69; border-color: #269d69; } .ds-waiting { border-color: #cc7a0a; }"
     },
     {
       "name": "Status Bar",
@@ -439,7 +298,7 @@
       "refersTo": "status-bar",
       "description": "24px editor status line: connection dot, attention diamond, machine dots with usage rings.",
       "html": "<footer class=\"ds-status\"><span class=\"ds-si ds-conn\">Connected</span><span class=\"ds-si ds-attn\">1 waiting</span><span class=\"ds-sp\"></span><button class=\"ds-si ds-mach\">DESKTOP <span class=\"ds-ring\" style=\"--p:62\"></span><span class=\"ds-ring\" style=\"--p:20\"></span></button><span class=\"ds-si\">v1.47.0</span></footer>",
-      "css": ".ds-status { display: flex; align-items: center; gap: 2px; height: 24px; padding: 0 8px; background: #ede7e5; border-top: 1px solid #e0dad9; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; line-height: 1; color: #706b6e; } .ds-sp { flex: 1; } .ds-si { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; } button.ds-si { cursor: pointer; } button.ds-si:hover { background: #e0dad9; color: #29242a; } .ds-conn::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #269d69; } .ds-attn { color: #29242a; font-weight: 600; } .ds-attn::before { content: ''; width: 7px; height: 7px; transform: rotate(45deg); background: #cc7a0a; } .ds-mach::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #269d69; } .ds-ring { width: 11px; height: 11px; border-radius: 50%; background: conic-gradient(#cc7a0a calc(var(--p) * 1%), #d3cdcc 0); -webkit-mask: radial-gradient(circle, transparent 2.6px, #000 3px); mask: radial-gradient(circle, transparent 2.6px, #000 3px); }"
+      "css": ".ds-status { display: flex; align-items: center; gap: 2px; height: 24px; padding: 0 8px; background: #ede7e5; border-top: 1px solid #e0dad9; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; line-height: 1; color: #605c5f; } .ds-sp { flex: 1; } .ds-si { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; } button.ds-si { cursor: pointer; } button.ds-si:hover { background: #e0dad9; color: #29242a; } .ds-conn::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #269d69; } .ds-attn { color: #29242a; font-weight: 600; } .ds-attn::before { content: ''; width: 7px; height: 7px; transform: rotate(45deg); background: #cc7a0a; } .ds-mach::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #269d69; } .ds-ring { width: 11px; height: 11px; border-radius: 50%; background: conic-gradient(#cc7a0a calc(var(--p) * 1%), #d3cdcc 0); -webkit-mask: radial-gradient(circle, transparent 2.6px, #000 3px); mask: radial-gradient(circle, transparent 2.6px, #000 3px); }"
     },
     {
       "name": "Overview Board Rows",
@@ -447,7 +306,7 @@
       "refersTo": "board-row",
       "description": "Ruled session rows with shape-coded state marks.",
       "html": "<div class=\"ds-board\"><div class=\"ds-row\" data-state=\"needs\"><span class=\"ds-num\">2</span><span class=\"ds-mark\"></span><span class=\"ds-name\">beta · api</span><span class=\"ds-dir\">…/proj/beta</span><span class=\"ds-state\">needs you</span></div><div class=\"ds-row\" data-state=\"working\"><span class=\"ds-num\">1</span><span class=\"ds-mark\"></span><span class=\"ds-name\">alpha</span><span class=\"ds-dir\">…/codeman-cases/alpha</span><span class=\"ds-state\">working 4m</span></div><div class=\"ds-row\" data-state=\"done\"><span class=\"ds-num\">3</span><span class=\"ds-mark\"></span><span class=\"ds-name\">docs</span><span class=\"ds-dir\">…/docs</span><span class=\"ds-state\">exited</span></div></div>",
-      "css": ".ds-board { font-family: var(--ui-font, Manrope, sans-serif); width: 640px; border-top: 1px solid #e0dad9; color: #29242a; } .ds-row { display: grid; grid-template-columns: 18px 12px 140px 1fr 110px; align-items: center; gap: 12px; min-height: 36px; padding: 0 10px; border-bottom: 1px solid #e0dad9; font-size: 13px; cursor: pointer; } .ds-row:hover { background: #d3cdcc; } .ds-num { font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; color: #918c8e; text-align: right; } .ds-name { font-weight: 600; } .ds-dir, .ds-state { font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 12px; color: #706b6e; } .ds-state { justify-self: end; } .ds-mark { width: 9px; height: 9px; justify-self: center; border-radius: 50%; box-sizing: border-box; border: 2px solid #918c8e; } .ds-row[data-state='working'] .ds-mark { border-color: #269d69; background: #269d69; } .ds-row[data-state='needs'] .ds-mark { border: 0; border-radius: 1px; background: #e14775; transform: rotate(45deg) scale(0.9); } .ds-row[data-state='needs'] .ds-state { color: #c73a63; font-weight: 600; } .ds-row[data-state='done'] .ds-mark { height: 2px; border: 0; background: #918c8e; }"
+      "css": ".ds-board { font-family: var(--ui-font, Manrope, sans-serif); width: 640px; border-top: 1px solid #e0dad9; color: #29242a; } .ds-row { display: grid; grid-template-columns: 18px 12px 140px 1fr 110px; align-items: center; gap: 12px; min-height: 36px; padding: 0 10px; border-bottom: 1px solid #e0dad9; font-size: 13px; cursor: pointer; } .ds-row:hover { background: #d3cdcc; } .ds-num { font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; color: #6a6668; text-align: right; } .ds-name { font-weight: 600; } .ds-dir, .ds-state { font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 12px; color: #605c5f; } .ds-state { justify-self: end; } .ds-mark { width: 9px; height: 9px; justify-self: center; border-radius: 50%; box-sizing: border-box; border: 2px solid #918c8e; } .ds-row[data-state='working'] .ds-mark { border-color: #269d69; background: #269d69; } .ds-row[data-state='needs'] .ds-mark { border: 0; border-radius: 1px; background: #e14775; transform: rotate(45deg) scale(0.9); } .ds-row[data-state='needs'] .ds-state { color: #a43455; font-weight: 600; } .ds-row[data-state='done'] .ds-mark { height: 2px; border: 0; background: #918c8e; }"
     },
     {
       "name": "Toast",
@@ -455,7 +314,7 @@
       "refersTo": "toast",
       "description": "Neutral floating card; the kind is a dot before the message.",
       "html": "<div class=\"ds-toast\"><span class=\"ds-toast-dot\"></span><span>Session started on DESKTOP-TJLEEOP</span><button class=\"ds-toast-x\" aria-label=\"Close\">×</button></div>",
-      "css": ".ds-toast { font-family: var(--ui-font, Manrope, sans-serif); display: flex; align-items: center; gap: 8px; max-width: 420px; padding: 8px 10px 8px 12px; background: #faf4f2; border: 1px solid #d3cdcc; border-radius: 6px; box-shadow: 0 12px 36px rgba(41,36,42,0.14), 0 2px 8px rgba(41,36,42,0.08); font-size: 13px; color: #29242a; } .ds-toast-dot { width: 7px; height: 7px; border-radius: 50%; background: #269d69; flex-shrink: 0; } .ds-toast-x { margin-left: auto; border: 0; background: none; color: #706b6e; font-size: 16px; line-height: 1; cursor: pointer; } .ds-toast-x:hover { color: #29242a; }"
+      "css": ".ds-toast { font-family: var(--ui-font, Manrope, sans-serif); display: flex; align-items: center; gap: 8px; max-width: 420px; padding: 8px 10px 8px 12px; background: #faf4f2; border: 1px solid #d3cdcc; border-radius: 6px; box-shadow: 0 12px 36px rgba(41,36,42,0.14), 0 2px 8px rgba(41,36,42,0.08); font-size: 13px; color: #29242a; } .ds-toast-dot { width: 7px; height: 7px; border-radius: 50%; background: #269d69; flex-shrink: 0; } .ds-toast-x { margin-left: auto; border: 0; background: none; color: #605c5f; font-size: 16px; line-height: 1; cursor: pointer; } .ds-toast-x:hover { color: #29242a; }"
     }
   ],
   "narrative": {
