@@ -219,6 +219,7 @@ import {
   registerSystemRoutes,
   registerCaseRoutes,
   registerFleetRoutes,
+  registerProjectRoutes,
   registerChatRoutes,
   registerWorktreeRoutes,
   registerSessionRoutes,
@@ -1311,6 +1312,7 @@ export class WebServer extends EventEmitter {
     registerSystemRoutes(this.app, ctx);
     registerCaseRoutes(this.app, ctx);
     registerFleetRoutes(this.app);
+    registerProjectRoutes(this.app);
     registerChatRoutes(this.app, ctx);
     registerWorktreeRoutes(this.app, ctx);
     // The registry's lifetime is the server's: it drops per-session wake state on every

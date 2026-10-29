@@ -102,6 +102,7 @@ Object.assign(CodemanApp.prototype, {
 
   async openNewSessionFlow() {
     let fleet = null;
+    await this.loadProjects?.();
     try {
       fleet = await this._fetchJson('/api/fleet');
     } catch (err) {
@@ -139,6 +140,10 @@ Object.assign(CodemanApp.prototype, {
         <button type="button" class="ns-manage">Machines &amp; accounts</button>
         <button type="button" class="ns-close" aria-label="Close">×</button>
       </header>
+      <section class="ns-projects" hidden>
+        <h3 class="ns-label">Projects</h3>
+        <div class="ns-recent-list ns-project-list" role="list"></div>
+      </section>
       <section class="ns-recents" hidden>
         <h3 class="ns-label">Recent</h3>
         <div class="ns-recent-list" role="list"></div>
@@ -171,6 +176,10 @@ Object.assign(CodemanApp.prototype, {
       <div class="ns-field">
         <span class="ns-label" id="nsModeLabel">Agent</span>
         <div class="ns-chips" data-ns="mode" role="radiogroup" aria-labelledby="nsModeLabel"></div>
+      </div>
+      <div class="ns-save-row">
+        <input class="ns-input ns-project-name" id="nsProjectName" autocomplete="off" spellcheck="false" maxlength="60" placeholder="Project name" aria-label="Project name">
+        <button type="button" class="ns-save">Save as project</button>
       </div>
       <p class="ns-error" role="alert" hidden></p>
       <footer class="ns-foot">
@@ -460,6 +469,16 @@ Object.assign(CodemanApp.prototype, {
       clearTimeout(browseTimer);
       dialog.remove();
     });
+    const currentPick = () => {
+      const path = (typedPath().replace(/\/+$/, '') || '/').replace(/^~$/, listing.dir || '~');
+      return {
+        target: state.target,
+        path: path.startsWith('~') && listing.dir && listing.exists ? listing.dir : path,
+        mode: state.mode,
+        accountId: state.accountId || undefined,
+        model: state.model || undefined,
+      };
+    };
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (listing.exists === false && state.target !== NEW_SESSION_LOCAL) {
@@ -467,20 +486,63 @@ Object.assign(CodemanApp.prototype, {
         errorEl.hidden = false;
         return;
       }
-      const path = (typedPath().replace(/\/+$/, '') || '/').replace(/^~$/, listing.dir || '~');
-      this._launchNewSession(
-        dialog,
-        {
-          target: state.target,
-          path: path.startsWith('~') && listing.dir && listing.exists ? listing.dir : path,
-          mode: state.mode,
-          accountId: state.accountId || undefined,
-          model: state.model || undefined,
-        },
-        systemById,
-        accountById,
-        errorEl
+      this._launchNewSession(dialog, currentPick(), systemById, accountById, errorEl);
+    });
+
+    // ── Projects: saved picks, one click to start ──
+    const projectList = $('.ns-project-list');
+    const renderProjects = () => {
+      const saved = (this._projects || []).filter((p) => systemById.has(p.target));
+      $('.ns-projects').hidden = !saved.length;
+      projectList.replaceChildren(
+        ...saved.map((p) => {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'ns-recent';
+          row.setAttribute('role', 'listitem');
+          row.setAttribute('data-i18n-skip', '');
+          const name = document.createElement('span');
+          name.className = 'ns-recent-name';
+          name.textContent = p.name;
+          const where = document.createElement('span');
+          where.className = 'ns-recent-where';
+          where.textContent = CodemanProjects.subtitle(p);
+          const path = document.createElement('span');
+          path.className = 'ns-recent-path';
+          path.textContent = this._displayPath(p.path, systemById.get(p.target).system.system);
+          row.append(name, where, path);
+          row.addEventListener('click', () =>
+            this._launchNewSession(dialog, CodemanProjects.toPick(p), systemById, accountById, errorEl)
+          );
+          return row;
+        })
       );
+    };
+    renderProjects();
+    $('.ns-save').addEventListener('click', async () => {
+      const pick = currentPick();
+      if (!pick.path.startsWith('/')) {
+        errorEl.textContent = 'Pick the folder from the list so its full path is known.';
+        errorEl.hidden = false;
+        return;
+      }
+      const { machine, system } = current();
+      const body = CodemanProjects.fromPick(pick, {
+        name: $('.ns-project-name').value,
+        machine: machine.name,
+        system: machine.systems.length > 1 ? system.label : '',
+        accountLabel: accountById.get(pick.accountId)?.label,
+      });
+      try {
+        await this.saveProject(body);
+        $('.ns-project-name').value = '';
+        errorEl.hidden = true;
+        renderProjects();
+        this.showToast?.(`Saved project ${body.name}`, 'success');
+      } catch (err) {
+        errorEl.textContent = `Could not save the project: ${err.message}`;
+        errorEl.hidden = false;
+      }
     });
 
     dialog.showModal();
@@ -503,14 +565,7 @@ Object.assign(CodemanApp.prototype, {
     startBtn.disabled = true;
     startBtn.textContent = 'Starting…';
     try {
-      const account = accountById.get(pick.accountId);
-      const folder = pick.path.split('/').filter(Boolean).pop() || pick.path;
-      const sessionName = pick.mode === 'claude' && account ? `${folder} · ${account.label}` : folder;
-      const id =
-        pick.target === NEW_SESSION_LOCAL
-          ? await this._startLocalSession(pick, sessionName)
-          : await this._startRemoteSession(pick, pick.target, sessionName);
-      this._rememberNewSession({ ...pick, at: Date.now() });
+      const id = await this._startPick(pick, accountById.get(pick.accountId)?.label);
       dialog.close();
       await this._selectWhenPresent(id);
     } catch (err) {
@@ -519,6 +574,22 @@ Object.assign(CodemanApp.prototype, {
       startBtn.disabled = false;
       startBtn.textContent = 'Start session';
     }
+  },
+
+  /**
+   * The one launch path: New session, its recents and saved projects all start here.
+   * Returns the new session id; throws with a message fit to show the user.
+   */
+  async _startPick(pick, accountLabel) {
+    if (!pick.path.startsWith('/')) throw new Error('Pick the folder from the list so its full path is known.');
+    const folder = pick.path.split('/').filter(Boolean).pop() || pick.path;
+    const sessionName = pick.mode === 'claude' && accountLabel ? `${folder} · ${accountLabel}` : folder;
+    const id =
+      pick.target === NEW_SESSION_LOCAL
+        ? await this._startLocalSession(pick, sessionName)
+        : await this._startRemoteSession(pick, pick.target, sessionName);
+    this._rememberNewSession({ ...pick, at: Date.now() });
+    return id;
   },
 
   async _startLocalSession({ path, mode }, name) {
