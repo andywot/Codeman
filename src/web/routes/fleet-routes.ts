@@ -20,6 +20,11 @@
  * - GET    /api/fleet/running/:target         every Claude running on that machine that the
  *                                             dashboard does not show (claude-discovery.ts):
  *                                             in tmux (attachable) or outside tmux (resumable)
+ * - GET    /api/fleet/history/:target?offset=&limit=&fresh=1
+ *                                             past Claude conversations on that machine, newest
+ *                                             first, one page per pooled-shell command, cached
+ *                                             30 s (claude-history.ts); each row says whether it
+ *                                             is running there or open in the dashboard
  *
  * Machine-level config like the remote-host routes, so admin-only in multi-user mode.
  * See src/fleet.ts for the model and its secret-handling rules.
@@ -35,7 +40,8 @@ import { isAdmin } from '../route-helpers.js';
 import { RemoteHostSchema } from '../schemas.js';
 import { readRemoteCases, readRemoteHosts, writeRemoteCases, writeRemoteHosts } from '../../remote-hosts.js';
 import { MachineStatusMonitor, classifySshFailure, createDefaultMachineStatusDeps } from '../../machine-status.js';
-import { discoverTarget, discoveryTargets, knownForTarget } from '../../claude-discovery.js';
+import { discoverTarget, discoveryTargets, knownForTarget, loginKey } from '../../claude-discovery.js';
+import { ClaudeHistoryService, historyPaging } from '../../claude-history.js';
 import { resolveTmuxSocketName } from '../../config/instance.js';
 import { remoteTmuxLocation } from '../../tmux-manager.js';
 import type { SessionPort } from '../ports/index.js';
@@ -122,9 +128,10 @@ function slugify(name: string): string {
 export function registerFleetRoutes(
   app: FastifyInstance,
   ctx?: SessionPort,
-  /** Test seam: a monitor with fake IO. */
-  options: { machineStatus?: MachineStatusMonitor } = {}
+  /** Test seams: a monitor and a history service with fake IO. */
+  options: { machineStatus?: MachineStatusMonitor; history?: ClaudeHistoryService } = {}
 ): void {
+  const history = options.history ?? new ClaudeHistoryService();
   const machineStatus =
     options.machineStatus ??
     new MachineStatusMonitor(createDefaultMachineStatusDeps(() => readRemoteHosts(CONFIG_DIR)));
@@ -314,6 +321,36 @@ export function registerFleetRoutes(
     }));
     const known = knownForTarget(target, hosts, sessions, resolveTmuxSocketName(), remoteTmuxLocation);
     return { success: true, data: await discoverTarget(target, hosts, known) };
+  });
+
+  // Read-only like discovery: one listing script per page, through the pooled shell.
+  // The machine's Windows system is not listed (its logs live under /mnt/c, and the
+  // WSL login already covers the machine).
+  app.get('/api/fleet/history/:target', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    const { target: id } = req.params as { target: string };
+    const query = (req.query ?? {}) as { offset?: string; limit?: string; fresh?: string };
+    const hosts = await readRemoteHosts(CONFIG_DIR);
+    const target = discoveryTargets(hosts).find((t) => t.id === id && t.hostId !== null);
+    const host = target && hosts.find((h) => h.id === target.hostId);
+    if (!target || !host) {
+      reply.code(404);
+      return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Machine not found');
+    }
+    // Conversations the dashboard already shows on that login: a click selects the tab.
+    const login = loginKey(host);
+    const knownOpen = new Map<string, string>();
+    for (const s of ctx?.sessions.values() ?? []) {
+      const conversation = s.claudeSessionId;
+      if (s.remote && conversation && loginKey(s.remote) === login) knownOpen.set(conversation, s.id);
+    }
+    try {
+      const page = await history.page(host, historyPaging(query), { fresh: query.fresh === '1', knownOpen });
+      return { success: true, data: { target, ...page } };
+    } catch (err) {
+      return createErrorResponse(ApiErrorCode.OPERATION_FAILED, (err as Error).message);
+    }
   });
 
   app.get('/api/fleet/hosts/:id/folders', async (req, reply) => {

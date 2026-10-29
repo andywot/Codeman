@@ -5530,6 +5530,26 @@ html[data-skin="og"] .welcome-primary:hover {
   color: var(--green);
 }
 
+/* Fork (machine-history.js): another machine's conversation that a Claude there
+   still has open. Accent, not green: it is a warning against a second writer. */
+.history-item-badge-running {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.history-machine {
+  max-width: 9rem;
+}
+
+.history-error {
+  color: var(--accent);
+}
+
+.machine-history-item .history-item-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* Worktree pill (#266). Tinted off the accent so it reads as metadata rather
    than status — LIVE is the only badge that should look like state. */
 .history-item-badge-worktree {
@@ -23617,6 +23637,12 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
 }
 .ob-section {
   margin-top: 26px;
+}
+/* Fork (machine-history.js): the Resume Conversation block, moved under the board. */
+.overview-board > .history-sessions {
+  margin-top: 30px;
+  max-width: none;
+  text-align: left;
 }
 .ob-section-title {
   display: flex;

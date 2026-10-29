@@ -16,8 +16,8 @@
  * the page already holds, and re-renders on the same tab-render tail the home
  * rail uses.
  *
- * With no sessions at all the board stays out of the way and the welcome
- * screen (resume conversation, search) shows as before.
+ * The welcome screen's "Resume Conversation" block (past conversations on every
+ * machine, and search) is moved under the board, which hides the rest of it.
  *
  * @mixin Extends CodemanApp.prototype via Object.assign
  * @dependency home-sessions.js (buildHomeSessionRows, _homeSessionsStampText, show/hideHomeSessions)
@@ -75,6 +75,29 @@ Object.assign(CodemanApp.prototype, {
     el.hidden = !show;
     overlay?.classList.toggle('has-overview-board', show);
     if (show) this.renderOverviewBoard();
+    else this._restoreOverviewHistory();
+  },
+
+  /**
+   * Fork (machine-history.js): the welcome screen's "Resume Conversation" block
+   * (past conversations on every machine, plus search) sits under the board, since
+   * the board hides the rest of the welcome screen. The block is MOVED, never
+   * copied, so its ids and wiring stay single; it goes back when the board hides.
+   */
+  _overviewHistoryBlock() {
+    const block = document.getElementById('historySessions');
+    if (!block) return null;
+    if (!this._overviewHistoryHome && !block.closest('.overview-board')) {
+      this._overviewHistoryHome = { parent: block.parentElement, next: block.nextSibling };
+    }
+    return block;
+  },
+
+  _restoreOverviewHistory() {
+    const home = this._overviewHistoryHome;
+    const block = document.getElementById('historySessions');
+    if (!home || !block || !block.closest('.overview-board')) return;
+    home.parent.insertBefore(block, home.next && home.next.parentNode === home.parent ? home.next : null);
   },
 
   hideOverviewBoard() {
@@ -162,7 +185,15 @@ Object.assign(CodemanApp.prototype, {
         this._buildOverviewSection(section.label, section.rows, order, { remote: section.remote, machine: true })
       );
     }
-    el.replaceChildren(head, body);
+    const history = this._overviewHistoryBlock();
+    if (history && history.parentElement === el) {
+      // Re-rendering must not detach the block: that would drop focus from its filter box.
+      for (const child of [...el.children]) if (child !== history) child.remove();
+      el.insertBefore(head, history);
+      el.insertBefore(body, history);
+    } else {
+      el.replaceChildren(head, body, ...(history ? [history] : []));
+    }
   },
 
   _buildOverviewSection(label, rows, order, { attention = false, remote = false, machine = false } = {}) {
