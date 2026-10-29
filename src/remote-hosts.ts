@@ -223,21 +223,8 @@ export function buildSshConnectionArgs(remote: RemoteSshOptions & Pick<RemoteHos
   for (const opt of remote.extraSshOptions ?? []) {
     parts.push(`-o ${shellescape(opt)}`);
   }
-  // Fork: share one ssh connection per host. File reads, uploads, folder listings and
-  // chat polls each run a short ssh command; without a shared master every one paid a
-  // full handshake. A host that sets its own ControlMaster keeps it.
-  if (!(remote.extraSshOptions ?? []).some((opt) => /^Control(Master|Path)=/i.test(opt))) {
-    parts.push(...SSH_SHARED_CONNECTION_ARGS);
-  }
   return parts;
 }
-
-/** ssh options for one persistent, shared connection per user@host:port (10 minutes idle). */
-export const SSH_SHARED_CONNECTION_ARGS = [
-  '-o ControlMaster=auto',
-  '-o ControlPath=/tmp/claude-rc-ssh-%C',
-  '-o ControlPersist=600',
-];
 
 /**
  * COD-104 — build the SSH command that checks the remote host has tmux.
