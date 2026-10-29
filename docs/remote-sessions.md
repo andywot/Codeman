@@ -217,6 +217,47 @@ The early return is a structural guarantee that **no code path can ever issue a
 remote `kill-session` for a session we don't own** — the only `kill-session` run is
 on the local socket, which never reaches the remote socket.
 
+### Fork: every Claude on a machine (`claude-discovery.ts`, "Running elsewhere")
+
+COD-105 discovery only sees `codeman-*` names on `-L codeman`. The fork's **Running
+elsewhere** dialog (`running-claude.js`, `GET /api/fleet/running[/:target]`) finds
+every Claude Code process on this server and on each machine's ssh login (a PC's WSL
+and Windows systems share one login, so they are looked at once):
+
+- **One read-only script** per machine (`discoveryScriptBody()`, run locally with
+  `sh -c` or through the host's pooled shell, never a fresh ssh): `list-panes -a` on
+  every socket in `${TMUX_TMPDIR:-/tmp}/tmux-<uid>/` (5 s cap per socket), `ps`, each
+  candidate's `/proc/<pid>/cwd`, Claude Code's own `~/.claude/sessions/<pid>.json`
+  records (digits-only names; the `.key` files beside them are never read), and the
+  conversation logs that could be theirs. ⚠️ It lists and reads only: no tmux
+  command but `list-panes`, no signal (not even `kill -0`); `test/claude-discovery.test.ts`
+  runs it under real `sh` with stub `tmux`/`ps` and pins that.
+- **Placement is by ancestry** (`classifyDiscovery()`, pure): a `claude` process
+  (by name, the native installer's version-named binary, an npm `cli.js`, or a
+  Windows `cmd.exe /c claude`) below a pane's pid runs in that pane, anything else
+  runs outside tmux. One-shot `-p` runs and a Claude below another Claude are left
+  out. The conversation id comes from the session record (pid and start time must
+  match), else `--resume`/`--session-id`, else the newest log in that folder
+  (flagged as a guess, and `ambiguous` when several unnamed Claudes share it).
+- **What the dashboard already shows is left out**: locally its own tmux socket and
+  its adopted sessions, remotely the `remoteTmuxLocation()` of every session on that
+  login.
+- **Attach** (tmux only) adopts the session: `attachRemoteSession.remoteTmuxSocket`
+  (remote) or `attachLocalTmux` (this server) on `POST /api/sessions`, mode `shell`.
+  The pane runs `tmux -L <socket> attach -t '=<name>'` (exact match). A recorded
+  socket makes `isReclaimedRemote()` false even for a `codeman-ssh-*` name, so
+  closing the tab **always detaches**; a local adoption (`SessionState.adoptedTmux`)
+  takes the same detach-only branch of `killSession()`. ⚠️ `startShell()` no longer
+  types `clear` into a new shell pane that is an attach (non-owned remote or
+  adopted): it used to land in the attached Claude's prompt and submit. ⚠️ Names
+  outside `ADOPTED_TMUX_NAME_RE` are listed but not attachable: the pane command
+  passes through `bash -c "<json>"`, which still interprets `$`, backticks, quotes.
+- **Resume here** (outside tmux only) starts a new claude session in the process's
+  folder running `claude --resume <id>`: `POST /api/sessions` locally,
+  `POST /api/quick-start` with `resumeSessionId` for a remote case (a Windows
+  claude resumes through the machine's Windows system). The dialog warns first:
+  the original keeps running, and two writers on one conversation log corrupt it.
+
 ## Respawn / reattach continuation
 
 A dropped connection or a dead pane must reconnect to the **same conversation**,

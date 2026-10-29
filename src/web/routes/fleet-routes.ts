@@ -11,6 +11,10 @@
  * - DELETE /api/fleet/machines/:slug          removes its hosts and their remote cases
  * - POST   /api/fleet/hosts/:id/test          ssh, tmux and claude on that system
  * - GET    /api/fleet/hosts/:id/folders?path= one folder level on that system
+ * - GET    /api/fleet/running                 the machines discovery looks on
+ * - GET    /api/fleet/running/:target         every Claude running on that machine that the
+ *                                             dashboard does not show (claude-discovery.ts):
+ *                                             in tmux (attachable) or outside tmux (resumable)
  *
  * Machine-level config like the remote-host routes, so admin-only in multi-user mode.
  * See src/fleet.ts for the model and its secret-handling rules.
@@ -25,6 +29,10 @@ import { isMultiUserMode } from '../../config/multiuser.js';
 import { isAdmin } from '../route-helpers.js';
 import { RemoteHostSchema } from '../schemas.js';
 import { readRemoteCases, readRemoteHosts, writeRemoteCases, writeRemoteHosts } from '../../remote-hosts.js';
+import { discoverTarget, discoveryTargets, knownForTarget } from '../../claude-discovery.js';
+import { resolveTmuxSocketName } from '../../config/instance.js';
+import { remoteTmuxLocation } from '../../tmux-manager.js';
+import type { SessionPort } from '../ports/index.js';
 import {
   ensureServerKey,
   listHostFolders,
@@ -105,7 +113,7 @@ function slugify(name: string): string {
   );
 }
 
-export function registerFleetRoutes(app: FastifyInstance): void {
+export function registerFleetRoutes(app: FastifyInstance, ctx?: SessionPort): void {
   app.get('/api/fleet', async (req, reply) => {
     const no = denied(req, reply);
     if (no) return no;
@@ -255,6 +263,30 @@ export function registerFleetRoutes(app: FastifyInstance): void {
       success: true,
       data: { ok: true, tmux: line('tmux'), claude: line('claude') },
     };
+  });
+
+  // Read-only: one listing script per machine, nothing attached or signalled. Each
+  // machine is its own request so a sleeping one does not hold up the rest.
+  app.get('/api/fleet/running', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    return { success: true, data: { targets: discoveryTargets(await readRemoteHosts(CONFIG_DIR)) } };
+  });
+
+  app.get('/api/fleet/running/:target', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    const { target: id } = req.params as { target: string };
+    const hosts = await readRemoteHosts(CONFIG_DIR);
+    const target = discoveryTargets(hosts).find((t) => t.id === id);
+    if (!target) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Machine not found');
+    const sessions = [...(ctx?.sessions.values() ?? [])].map((s) => ({
+      id: s.id,
+      remote: s.remote,
+      adoptedTmux: s.adoptedTmux,
+    }));
+    const known = knownForTarget(target, hosts, sessions, resolveTmuxSocketName(), remoteTmuxLocation);
+    return { success: true, data: await discoverTarget(target, hosts, known) };
   });
 
   app.get('/api/fleet/hosts/:id/folders', async (req, reply) => {

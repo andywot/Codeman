@@ -24376,10 +24376,133 @@ html[data-focus='on'] main {
 select.ns-input {
   font-family: var(--ui-font);
 }
-html[data-tab-orientation="vertical"] #tabRailMachines {
+html[data-tab-orientation="vertical"] :is(#tabRailMachines, #tabRailRunning) {
   margin-top: 0;
   font-weight: 500;
   color: var(--text-dim);
+}
+
+/* ── Fork: Running dialog (running-claude.js) ─────────────────────────────── */
+.rn-dialog {
+  width: min(720px, calc(100vw - 32px));
+}
+.rn-intro {
+  margin: -8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.rn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.rn-machine {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rn-machine-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.rn-addr {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.rn-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-dark);
+}
+.rn-list > .fm-muted,
+.rn-list > .rn-error,
+.rn-list > .rn-note {
+  padding: 7px 10px;
+}
+.rn-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+}
+.rn-row + .rn-row,
+.rn-row + .rn-note {
+  border-top: 1px solid var(--border);
+}
+.rn-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rn-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rn-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.rn-tag {
+  padding: 0 5px;
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 16px;
+  color: var(--text-dim);
+}
+.rn-tag--live {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  color: var(--accent-d);
+}
+.rn-tag--outside {
+  border-color: var(--yellow);
+  color: var(--notice-ink, var(--yellow));
+}
+.rn-meta,
+.rn-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.rn-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.rn-error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--red);
+}
+.rn-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.fm-btn.rn-primary:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-d);
+  font-weight: 600;
+}
+.fm-btn.rn-primary:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+.fm-btn:disabled {
+  cursor: not-allowed;
 }
 
 /* Status bar usage rings: one per window, the arc is the share used. */

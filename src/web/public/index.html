@@ -435,6 +435,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
           <span>Machines &amp; accounts</span>
         </button>
+        <button type="button" class="tab-rail-overview" id="tabRailRunning" onclick="app.openRunningClaudes()" title="Claude running on your machines that the dashboard did not start">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <span>Running elsewhere</span>
+        </button>
         <div class="session-sidebar-filter tab-rail-search">
           <input type="search" id="tabRailSearch" class="session-sidebar-filter-input"
             placeholder="Search sessions" aria-label="Search sessions"
@@ -4539,6 +4543,7 @@
   <script defer src="overview-board.js"></script>
   <script defer src="new-session.js"></script>
   <script defer src="fleet-manager.js"></script>
+  <script defer src="running-claude.js"></script>
   <script defer src="status-bar.js"></script>
   <script defer src="chat-view.js"></script>
   <script defer src="git-status-ui.js"></script>

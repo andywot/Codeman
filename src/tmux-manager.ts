@@ -58,6 +58,7 @@ import {
   type OmpConfig,
   type SessionRemote,
   type SessionDocker,
+  type AdoptedTmux,
   type DockerCommandMode,
   type PaneExit,
   type StatusLineExporter,
@@ -71,6 +72,7 @@ import {
   legacyConfigForMode,
 } from './session-cli-registry-bridge.js';
 import { keepWarmOn } from './prompt-cache-keepwarm.js';
+import { ADOPTED_TMUX_NAME_RE, TMUX_SOCKET_NAME_RE } from './claude-discovery.js';
 import type { CliEntry } from './config/cli-registry/types.js';
 import {
   resolveStatusLineCliCommand,
@@ -1232,9 +1234,20 @@ export function remoteTmuxSessionName(sessionId: string): string {
  */
 export function remoteTmuxLocation(remote: SessionRemote, sessionId: string): { socket: string; sessionName: string } {
   if (remote.owned === false) {
-    return { socket: 'codeman', sessionName: remote.remoteSessionName || remoteTmuxSessionName(sessionId) };
+    const sessionName = remote.remoteSessionName || remoteTmuxSessionName(sessionId);
+    return { socket: remoteAttachSocket(remote, sessionName), sessionName };
   }
   return { socket: REMOTE_TMUX_SOCKET, sessionName: remoteTmuxSessionName(sessionId) };
+}
+
+/**
+ * The remote socket a NON-owned session attaches on: the adopted session's own socket
+ * when discovery recorded one (`remoteTmuxSocket`), else this server's private socket
+ * for a `codeman-ssh-*` name, else the canonical `-L codeman` (COD-105).
+ */
+export function remoteAttachSocket(remote: SessionRemote, remoteSessionName: string): string {
+  if (remote.remoteTmuxSocket) return remote.remoteTmuxSocket;
+  return remoteSessionName.startsWith('codeman-ssh-') ? REMOTE_TMUX_SOCKET : 'codeman';
 }
 
 /**
@@ -1829,12 +1842,20 @@ export function resolveDockerLaunchOptions(
  * it ends it like any session this server started.
  */
 export function isReclaimedRemote(remote: SessionRemote): boolean {
+  // An ADOPTED session (discovery recorded its socket) is never reclaimed: whoever
+  // started it, closing the tab only detaches.
+  if (remote.remoteTmuxSocket) return false;
   return remote.owned === false && (remote.remoteSessionName ?? '').startsWith('codeman-ssh-');
 }
 
 export function buildRemoteAttachCommand(remote: SessionRemote, remoteSessionName: string): string {
-  const socket = remoteSessionName.startsWith('codeman-ssh-') ? REMOTE_TMUX_SOCKET : 'codeman';
-  const tmuxInvocation = `tmux -L ${socket} attach -t ${shellescape(remoteSessionName)}`;
+  const socket = remoteAttachSocket(remote, remoteSessionName);
+  // An adopted session's name is the user's own and can be anything tmux allows, so it
+  // is matched EXACTLY (`=name`): a bare name is also a prefix match and could join
+  // a different session.
+  const target = remote.remoteTmuxSocket ? `=${remoteSessionName}` : remoteSessionName;
+  const socketArg = /^[A-Za-z0-9._-]+$/.test(socket) ? socket : shellescape(socket);
+  const tmuxInvocation = `tmux -L ${socketArg} attach -t ${shellescape(target)}`;
   const [ssh, batchMode, ...connectionArgs] = buildSshConnectionArgs(remote);
   const sshParts = [
     ssh,
@@ -1845,6 +1866,22 @@ export function buildRemoteAttachCommand(remote: SessionRemote, remoteSessionNam
     shellescape(withRemoteTmuxPath(tmuxInvocation)),
   ];
   return sshParts.join(' ');
+}
+
+/**
+ * Fork (claude-discovery.ts): the pane command that ATTACHES this server's dashboard to a
+ * LOCAL tmux session the user started themselves. Only `attach` (never `new-session`),
+ * matched exactly (`=name`), with `$TMUX` unset because the pane already runs inside
+ * this server's own tmux. The command line passes through `bash -c "<json>"`, where `$`,
+ * backticks, quotes and backslashes would still be interpreted, so the name must match
+ * {@link ADOPTED_TMUX_NAME_RE} (the route refuses anything else) and the socket
+ * {@link TMUX_SOCKET_NAME_RE}; both are checked again here.
+ */
+export function buildAdoptedLocalAttachCommand(adopted: AdoptedTmux): string {
+  if (!TMUX_SOCKET_NAME_RE.test(adopted.socket) || !ADOPTED_TMUX_NAME_RE.test(adopted.sessionName)) {
+    throw new Error('Invalid adopted tmux session');
+  }
+  return `unset TMUX; exec tmux -L ${adopted.socket} attach -t ${shellescape(`=${adopted.sessionName}`)}`;
 }
 
 /**
@@ -2471,6 +2508,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
       historyLimit = DEFAULT_TMUX_HISTORY_LIMIT,
       remote,
       docker,
+      adoptedTmux,
       owner,
     } = options;
     const muxName = `codeman-${sessionId.slice(0, 8)}`;
@@ -2492,6 +2530,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
         workingDir,
         remote,
         docker,
+        ...(adoptedTmux ? { adoptedTmux } : {}),
         owner,
         mode,
         attached: false,
@@ -2566,11 +2605,21 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     try {
       // Build the full command to run inside tmux
       const localFullCmd = `${buildNofileLimitCommand()} && ${pathExport}${envExportsStr} && ${cmd}`;
-      const fullCmd = docker
-        ? buildDockerLaunchCommand(resolveDockerLaunchOptions(mode, docker, sessionId, resumeSessionId))
-        : remote
-          ? buildRemoteSessionCommand({ mode, remote, sessionId, claudeMode, allowedTools, ompConfig, resumeSessionId })
-          : localFullCmd;
+      const fullCmd = adoptedTmux
+        ? buildAdoptedLocalAttachCommand(adoptedTmux)
+        : docker
+          ? buildDockerLaunchCommand(resolveDockerLaunchOptions(mode, docker, sessionId, resumeSessionId))
+          : remote
+            ? buildRemoteSessionCommand({
+                mode,
+                remote,
+                sessionId,
+                claudeMode,
+                allowedTools,
+                ompConfig,
+                resumeSessionId,
+              })
+            : localFullCmd;
 
       // Create tmux session in three steps to handle cold-start (no server running)
       // and avoid the race where the command exits before remain-on-exit is set:
@@ -2631,7 +2680,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
 
       // Replace the shell with the actual command (no echo in terminal). Keep
       // pane launch in /tmp, then cd inside bash against the current mount table.
-      const launchCmd = remote || docker ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
+      const launchCmd = remote || docker || adoptedTmux ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
       execSync(
         `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${JSON.stringify(launchCmd)}`,
         {
@@ -2697,6 +2746,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
         workingDir,
         remote,
         docker,
+        ...(adoptedTmux ? { adoptedTmux } : {}),
         owner,
         mode,
         attached: false,
@@ -2822,6 +2872,8 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
     const muxName = session.muxName;
+    // An adopted local session only ever re-attaches; the record is authoritative.
+    const adoptedTmux = options.adoptedTmux ?? session.adoptedTmux;
 
     if (!isValidMuxName(muxName) || !isValidPath(workingDir)) return null;
 
@@ -2863,11 +2915,13 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     const config = niceConfig || DEFAULT_NICE_CONFIG;
     const cmd = wrapWithNice(baseCmd, config);
     const localFullCmd = `${buildNofileLimitCommand()} && ${pathExport}${envExportsStr} && ${cmd}`;
-    const fullCmd = docker
-      ? buildDockerLaunchCommand(resolveDockerLaunchOptions(mode, docker, sessionId, resumeSessionId))
-      : remote
-        ? buildRemoteSessionCommand({ mode, remote, sessionId, claudeMode, allowedTools, ompConfig, resumeSessionId })
-        : localFullCmd;
+    const fullCmd = adoptedTmux
+      ? buildAdoptedLocalAttachCommand(adoptedTmux)
+      : docker
+        ? buildDockerLaunchCommand(resolveDockerLaunchOptions(mode, docker, sessionId, resumeSessionId))
+        : remote
+          ? buildRemoteSessionCommand({ mode, remote, sessionId, claudeMode, allowedTools, ompConfig, resumeSessionId })
+          : localFullCmd;
 
     try {
       // Same per-CLI env setup as createSession, re-applied so the respawned pane inherits it.
@@ -2884,7 +2938,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
       this.applyEnvOverrides(muxName, envOverrides, unsetEnvKeys);
 
       // -c /tmp + cd bounce — see createSession() for rationale (stale FUSE state).
-      const launchCmd = remote || docker ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
+      const launchCmd = remote || docker || adoptedTmux ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
       await execAsync(
         `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${JSON.stringify(launchCmd)}`,
         {
@@ -3092,8 +3146,13 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     // for a non-owned session. The only `kill-session` we run is on OUR LOCAL
     // socket (`this.tmux()` = `tmux -L codeman` on THIS host), which kills the
     // local pane — it does NOT reach the REMOTE socket.
-    if (session.remote && session.remote.owned === false && !isReclaimedRemote(session.remote)) {
-      console.log(`[TmuxManager] DETACH (non-owned remote): tearing down local pane only for ${session.muxName}`);
+    // Fork: a local tmux session ADOPTED from discovery is the user's own; the same
+    // detach-only teardown applies (killing our pane ends only its `tmux attach` client).
+    if (
+      session.adoptedTmux ||
+      (session.remote && session.remote.owned === false && !isReclaimedRemote(session.remote))
+    ) {
+      console.log(`[TmuxManager] DETACH (adopted/non-owned): tearing down local pane only for ${session.muxName}`);
       if (isValidMuxName(session.muxName)) {
         try {
           // Local socket only — detaches the remote session by killing the local ssh pane.
@@ -3259,9 +3318,9 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
   private async reviveRemotePane(session: MuxSession): Promise<number | undefined> {
     const remote = session.remote;
     if (!remote) return undefined;
-    const remoteName = remote.remoteSessionName || remoteTmuxSessionName(session.sessionId);
+    const { socket, sessionName: remoteName } = remoteTmuxLocation(remote, session.sessionId);
     try {
-      if (!(await remoteTmuxSessionAlive(remote, remoteName))) return undefined;
+      if (!(await remoteTmuxSessionAlive(remote, remoteName, socket))) return undefined;
       const cmd = buildRemoteSessionCommand({ mode: session.mode, remote, sessionId: session.sessionId });
       const name = session.muxName;
       execSync(`${this.tmux()} new-session -ds "${name}" -c ${TMUX_LAUNCH_CWD}`, {
@@ -3869,9 +3928,9 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     if (!session.remote) return;
     if (this.remoteAliveInFlight.has(session.sessionId)) return;
     this.remoteAliveInFlight.add(session.sessionId);
-    const remoteName = session.remote.remoteSessionName || remoteTmuxSessionName(session.sessionId);
+    const { socket, sessionName: remoteName } = remoteTmuxLocation(session.remote, session.sessionId);
     try {
-      const alive = await remoteTmuxSessionAlive(session.remote, remoteName);
+      const alive = await remoteTmuxSessionAlive(session.remote, remoteName, socket);
       this.remoteAliveCache.set(session.sessionId, alive);
     } catch {
       this.remoteAliveCache.set(session.sessionId, undefined);

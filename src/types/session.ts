@@ -192,6 +192,14 @@ export interface SessionRemote extends RemoteSshOptions {
    */
   remoteSessionName?: string;
   /**
+   * Fork (claude-discovery.ts): the remote tmux SOCKET NAME (`tmux -L <name>`, a socket in
+   * the remote user's tmux directory) of an ADOPTED session found by discovery, e.g.
+   * `default` for a plain `tmux` the user started by hand. Only set with `owned: false`.
+   * Its presence also means "adopted, never ours": closing the tab always detaches, even
+   * for a `codeman-ssh-*` name (see `isReclaimedRemote`).
+   */
+  remoteTmuxSocket?: string;
+  /**
    * Wake-on-LAN command carried over from the host config (see `RemoteHost.wakeCommand`)
    * so the input route can wake a sleeping host without re-reading the host list.
    */
@@ -839,6 +847,18 @@ export interface KeepWarmStatus {
   budgetEndsAt?: number;
 }
 
+/**
+ * Fork (claude-discovery.ts): a tmux session on THIS server that the user started
+ * outside the dashboard and adopted from discovery. The dashboard's pane runs
+ * `tmux -L <socket> attach -t =<sessionName>`; closing the tab only detaches.
+ */
+export interface AdoptedTmux {
+  /** tmux socket name (`tmux -L <socket>`), a socket in the user's tmux directory. */
+  socket: string;
+  /** The adopted session's own name, matched exactly. */
+  sessionName: string;
+}
+
 export interface SessionState {
   /** Unique session identifier */
   id: string;
@@ -850,6 +870,8 @@ export interface SessionState {
   workingDir: string;
   /** Remote execution metadata, present when this session runs over SSH through local tmux */
   remote?: SessionRemote;
+  /** Fork: a local tmux session adopted from discovery (attach only, never killed). */
+  adoptedTmux?: AdoptedTmux;
   /** Docker execution metadata, present when this session runs inside a container via local tmux + docker exec */
   docker?: SessionDocker;
   /** Owning username in multi-user mode; undefined in single-user (ignored when the flag is off) */

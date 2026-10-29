@@ -161,7 +161,7 @@ export function buildLaunch(
   const windows = host.system === 'windows';
   const setup: string[] = [];
   const env: Record<string, string> = {};
-  let binary = windows ? WINDOWS_CLAUDE_BINARY : 'claude';
+  const binary = windows ? WINDOWS_CLAUDE_BINARY : 'claude';
 
   if (account?.kind === 'token') {
     env.CLAUDE_CODE_OAUTH_TOKEN = `$(cat ${secretFile(account.id)})`;

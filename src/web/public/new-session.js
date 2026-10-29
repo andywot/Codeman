@@ -537,7 +537,7 @@ Object.assign(CodemanApp.prototype, {
   },
 
   /** Reuse the remote case for this host and folder, or link one, then start it. */
-  async _startRemoteSession({ path, mode, accountId, model }, hostId, sessionName) {
+  async _startRemoteSession({ path, mode, accountId, model, resumeSessionId }, hostId, sessionName) {
     const cases = await this._fetchJson('/api/cases');
     const all = Array.isArray(cases) ? cases : [];
     let match = all.find((c) => c.location === 'remote' && c.remote?.hostId === hostId && c.remote?.path === path);
@@ -559,6 +559,8 @@ Object.assign(CodemanApp.prototype, {
     if (mode === 'claude') {
       if (accountId) body.fleetAccountId = accountId;
       if (model) body.fleetModel = model;
+      // "Resume here" from the Running dialog (running-claude.js).
+      if (resumeSessionId) body.resumeSessionId = resumeSessionId;
     }
     const started = await this._fetchJson('/api/quick-start', {
       method: 'POST',

@@ -22,6 +22,7 @@ import { CODEX_REASONING_EFFORTS } from '../types/session.js';
 import { WEBHOOK_KINDS, WEBHOOK_SCOPES } from '../types/push.js';
 import { MIN_MATCH_LENGTH, MAX_MATCH_LENGTH } from '../config/agent-wait.js';
 import { MAX_WAKE_MACS } from '../config/remote-wake-limits.js';
+import { ADOPTED_TMUX_NAME_RE, TMUX_SOCKET_NAME_RE } from '../claude-discovery.js';
 import { MAX_INPUT_LENGTH } from '../config/terminal-limits.js';
 import { MAX_MESSAGE_BYTES } from './agent-inbox.js';
 import { enabledCliIds, enabledClis } from '../config/cli-registry/registry.js';
@@ -637,11 +638,31 @@ export const CreateSessionSchema = z.object({
   attachRemoteSession: z
     .object({
       hostId: z.string().min(1).max(200),
-      remoteSessionName: z
-        .string()
-        .min(1)
-        .max(200)
-        .regex(/^codeman-[a-zA-Z0-9._-]+$/, 'remoteSessionName must be a codeman-* tmux session name'),
+      remoteSessionName: z.string().min(1).max(200),
+      /**
+       * Fork (claude-discovery.ts): the socket an ADOPTED session was found on
+       * (`tmux -L <name>`). With it, the session may have any name discovery can attach
+       * to (`ADOPTED_TMUX_NAME_RE`) and closing the tab always detaches; without it,
+       * only the `codeman-*` names COD-105 discovery lists.
+       */
+      remoteTmuxSocket: z.string().regex(TMUX_SOCKET_NAME_RE, 'Invalid tmux socket name').optional(),
+    })
+    .refine(
+      (v) =>
+        v.remoteTmuxSocket
+          ? ADOPTED_TMUX_NAME_RE.test(v.remoteSessionName)
+          : /^codeman-[a-zA-Z0-9._-]+$/.test(v.remoteSessionName),
+      { message: 'remoteSessionName is not a tmux session name this server can attach to', path: ['remoteSessionName'] }
+    )
+    .optional(),
+  /**
+   * Fork (claude-discovery.ts): attach to a tmux session on THIS server that the user
+   * started outside the dashboard. Attach only; closing the tab detaches.
+   */
+  attachLocalTmux: z
+    .object({
+      socket: z.string().regex(TMUX_SOCKET_NAME_RE, 'Invalid tmux socket name'),
+      sessionName: z.string().regex(ADOPTED_TMUX_NAME_RE, 'tmux session name cannot be attached safely'),
     })
     .optional(),
 });
@@ -1229,6 +1250,17 @@ export const QuickStartSchema = z.object({
   fleetModel: z
     .string()
     .regex(/^[a-z0-9][a-z0-9.-]{0,60}(\[1m\])?$/)
+    .optional(),
+  /**
+   * Fork (claude-discovery.ts, "Resume here"): continue this Claude conversation in the
+   * new session (`claude --resume <id>`). Remote claude cases only; the id names a log
+   * on the remote machine, so it is not checked here (the launch falls back to a new
+   * conversation when claude refuses it).
+   */
+  resumeSessionId: z
+    .string()
+    .max(100)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9-]{7,99}$/, 'resumeSessionId must be a Claude conversation id')
     .optional(),
   mode: sessionModeSchema().optional(),
   openCodeConfig: OpenCodeConfigSchema,
