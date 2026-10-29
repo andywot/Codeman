@@ -1187,7 +1187,10 @@ export function registerSessionRoutes(
           `${host.label} did not come back after a wake-on-LAN request — nothing was attached`
         );
       }
-      workingDir = `${host.username}@${host.host}:${remoteSessionName}`;
+      // Fork: the remote folder when the caller knows it (an absolute path passes the
+      // local path checks and gives uploads a home); else the upstream placeholder.
+      const remoteDir = typeof body.workingDir === 'string' && body.workingDir.startsWith('/') ? body.workingDir : '';
+      workingDir = remoteDir || `${host.username}@${host.host}:${remoteSessionName}`;
       remote = toAttachedSessionRemote(host, remoteSessionName, workingDir);
     }
 
@@ -1211,7 +1214,8 @@ export function registerSessionRoutes(
     // Validate workingDir exists and is a directory. Bounded: a workingDir on a
     // network mount that stopped answering must not freeze the event loop, and
     // "did not answer" is reported as such, never as "does not exist".
-    if (body.workingDir) {
+    // Fork: a remote attach's workingDir is a folder on the remote machine, not here.
+    if (body.workingDir && !remote) {
       const kind = await probePathKind(workingDir, { pastCap: true });
       if (kind === 'unknown') {
         return createErrorResponse(
