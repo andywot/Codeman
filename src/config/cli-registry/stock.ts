@@ -282,6 +282,12 @@ const CLAUDE: CliEntry = {
       // and never redrawn, which is why only the newest row above the composer counts.
       // Anchored on column 0: Claude's own rows start there, the agent's prose never does.
       awaitingLine: String.raw`^✻ Waiting for \d+ (?:background agents?|dynamic workflows?)\b`,
+      // The newest Claude Code these patterns were re-checked against on a live pane:
+      // idle, working, a permission prompt, a question prompt and the trust dialog,
+      // captured into test/fixtures/claude-screens/2.1.312/ on 2026-10-30 and pinned by
+      // test/claude-screen-detectors.test.ts. A session reporting a newer version gets a
+      // quiet "detection untested" hint. Re-capture the fixtures before bumping it.
+      testedThroughVersion: '2.1.312',
     },
     requiresMux: false,
     // Claude installs Codeman's own hooks block into every workspace it runs in, so its

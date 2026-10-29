@@ -47,6 +47,7 @@ export interface SessionListenerRefs {
   watchingChanged: () => void;
   blockedChanged: (blocked: boolean, frame: string | null) => void;
   displayModelChanged: () => void;
+  detectionChanged: () => void;
   taskCreated: (task: BackgroundTask) => void;
   taskUpdated: (task: BackgroundTask) => void;
   taskCompleted: (task: BackgroundTask) => void;
@@ -317,6 +318,15 @@ export function createSessionListeners(session: Session, deps: SessionListenerDe
       deps.persistSessionState(session);
     },
 
+    /**
+     * The screen detectors stopped (or started again) being able to read this pane
+     * (`SessionState.stateDetection`, src/session-detection-health.ts). Live state only,
+     * so a broadcast and no persist.
+     */
+    detectionChanged: () => {
+      deps.broadcastSessionStateDebounced(session.id);
+    },
+
     // ─── Background Task Events ──────────────────────────────
 
     /** Broadcasts `task:created` — new background task discovered */
@@ -552,6 +562,7 @@ export function attachSessionListeners(session: Session, refs: SessionListenerRe
   session.on('watchingChanged', refs.watchingChanged);
   session.on('blockedChanged', refs.blockedChanged);
   session.on('displayModelChanged', refs.displayModelChanged);
+  session.on('detectionChanged', refs.detectionChanged);
   session.on('taskCreated', refs.taskCreated);
   session.on('taskUpdated', refs.taskUpdated);
   session.on('taskCompleted', refs.taskCompleted);
@@ -591,6 +602,7 @@ export function detachSessionListeners(session: Session, refs: SessionListenerRe
   session.off('watchingChanged', refs.watchingChanged);
   session.off('blockedChanged', refs.blockedChanged);
   session.off('displayModelChanged', refs.displayModelChanged);
+  session.off('detectionChanged', refs.detectionChanged);
   session.off('taskCreated', refs.taskCreated);
   session.off('taskUpdated', refs.taskUpdated);
   session.off('taskCompleted', refs.taskCompleted);

@@ -1,0 +1,40 @@
+
+❯ Run this exact bash command with the Bash tool: sleep 40 && echo finished
+
+  Ran 1 shell command
+
+● The shell blocked the foreground sleep 40, so I'll run the same command in the background, which the block message
+  suggests for waiting on a command.
+
+  Ran 1 shell command
+
+● The foreground run was blocked by the shell, so I started the exact command sleep 40 && echo finished in the
+  background (task ID bdm13zp81). I'll report its output when it finishes.
+
+✻ Brewed for 5s · done 1:18 AM
+
+❯ Use the Write tool to create notes.txt containing the word hello.
+
+● Write(notes.txt)
+  ⎿  User rejected write to notes.txt
+      1 hello
+
+✻ Crunched for 2s · done 1:18 AM
+
+❯ Use the AskUserQuestion tool to ask me which color I prefer: red, green or blue. Do nothing else.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Color
+
+Which color do you prefer?
+
+❯ 1. Red
+     Choose red
+  2. Green
+     Choose green
+  3. Blue
+     Choose blue
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

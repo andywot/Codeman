@@ -727,6 +727,10 @@ export const StatusTelemetrySchema = z.object({
         .nullish(),
       cost: z.object({ total_cost_usd: z.number().nullish() }).nullish(),
       model: z.object({ display_name: z.string().max(100).nullish() }).nullish(),
+      // The running CLI's own version, on every render. Kept as text and validated as
+      // MAJOR.MINOR.PATCH where it is used (Session.noteReportedCliVersion), so a future
+      // format cannot 400 the whole post and blank the footer.
+      version: z.string().max(40).nullish(),
       // Main-conversation prompt-cache statistics (Claude Code v2.1.251+). Every documented
       // scalar field is listed nullish: `expires_at`/`hit_ratio`/`last_miss_at`/
       // `recache_tokens_if_cold` are all documented as possibly null, and the object gains

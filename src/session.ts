@@ -106,6 +106,17 @@ import {
   type ActivityStreak,
 } from './session-activity.js';
 import {
+  initialDetectionHealth,
+  isScreenRecognized,
+  noteScreenReading,
+  noteVetoedStreak,
+  noteStateConfirmed,
+  isNewerThanTested,
+  sanitizeCliVersion,
+  DETECTION_WATCH_MS,
+  type DetectionHealth,
+} from './session-detection-health.js';
+import {
   BufferAccumulator,
   ANSI_ESCAPE_PATTERN_FULL,
   TOKEN_PATTERN,
@@ -606,6 +617,13 @@ export class Session extends EventEmitter {
   private _lastPaneProbeAt = 0; // Throttle for the tmux screen probe
   private _lastPaneProbeWorking: boolean | null = null; // Its last verdict (null = could not read)
   private _lastPaneProbeTrustDialog = false; // Same capture showed the workspace-trust dialog (see _confirmIdle)
+  /**
+   * Whether the screen detectors can still read this pane (src/session-detection-health.ts).
+   * Only tracked for a CLI that declares `capabilities.workDetect`; ephemeral.
+   */
+  private _detectionHealth: DetectionHealth = initialDetectionHealth();
+  /** Re-reads a busy, quiet pane nothing else would look at (see _armDetectionWatch). */
+  private _detectionWatchTimer: NodeJS.Timeout | null = null;
   /**
    * Background work the pane's own footer reports, e.g. `1 monitor`; null for none.
    *
@@ -2220,6 +2238,9 @@ export class Session extends EventEmitter {
       cliModel: this._cliModel || undefined,
       cliAccountType: this._cliAccountType || undefined,
       cliLatestVersion: this._cliLatestVersion || undefined,
+      ...this._cliVersionHint(),
+      stateDetection: this._detectionHealth.unknown ? 'unknown' : undefined,
+      stateDetectionReason: this._detectionHealth.unknown ?? undefined,
       openCodeConfig: this._openCodeConfig,
       codexConfig: this._codexConfig,
       geminiConfig: this._geminiConfig,
@@ -3517,10 +3538,112 @@ export class Session extends EventEmitter {
       // also produces a steady stream of repaints. The screen settles it, and only
       // an explicit "no working line" vetoes; a probe that cannot read the pane
       // (null) leaves the streak in charge.
-      if (!this._isWorking && isSustainedActivity(this._activityStreak) && this._probePaneWorking() !== false) {
-        this._markWorking();
+      if (!this._isWorking && isSustainedActivity(this._activityStreak)) {
+        if (this._probePaneWorking() !== false) this._markWorking();
+        else this._noteVetoedStreak(this._activityStreak);
       }
     }
+  }
+
+  /**
+   * A sustained run of repaints that the screen says is not work. Typing into the
+   * composer is the ordinary cause, so the clock restarts at every human keystroke;
+   * what is left after `UNVERIFIED_STREAK_MS` is a pane repainting like a working one
+   * with no working line the pattern recognizes, which is how a Claude Code release that
+   * redrew its status line would look. Reported as unknown rather than idle.
+   */
+  private _noteVetoedStreak(streak: ActivityStreak): void {
+    if (!getCli(this.mode)?.capabilities.workDetect) return;
+    const startedAt = Math.max(streak.startedAt, this._lastHumanInputAt);
+    this._setDetectionHealth(noteVetoedStreak(this._detectionHealth, startedAt, Date.now()));
+  }
+
+  /**
+   * Record what one pane capture showed about the detectors' own health: a working line
+   * confirms them outright, any other chrome they know keeps them trusted, and a run of
+   * captures with none of it (no composer glyph, no working line, no dialog) for
+   * `UNRECOGNIZED_SCREEN_MS` reports the session as unknown.
+   */
+  private _noteScreenHealth(text: string, working: boolean, blocked: boolean, trustDialog: boolean): void {
+    const workDetect = getCli(this.mode)?.capabilities.workDetect;
+    if (!workDetect) return;
+    if (working) {
+      this._setDetectionHealth(noteStateConfirmed(this._detectionHealth));
+      return;
+    }
+    const recognized = isScreenRecognized(text, {
+      promptGlyph: workDetect.promptGlyph,
+      working,
+      blocked,
+      trustDialog,
+    });
+    this._setDetectionHealth(noteScreenReading(this._detectionHealth, recognized, Date.now()));
+    // An unreadable screen must be read again even after the session settled idle.
+    if (!recognized) this._armDetectionWatch();
+  }
+
+  /** Swap in a new health record, announcing a change of verdict. */
+  private _setDetectionHealth(next: DetectionHealth): void {
+    const prev = this._detectionHealth;
+    this._detectionHealth = next;
+    if (prev.unknown === next.unknown) return;
+    console.log(
+      next.unknown
+        ? `[Session] State detection cannot read this pane (${next.unknown}); reporting unknown: ${this.id}`
+        : `[Session] State detection reads this pane again: ${this.id}`
+    );
+    this.emit('detectionChanged');
+  }
+
+  /**
+   * Keep looking at a quiet pane when nothing else would: one that is `busy`, or whose
+   * last capture showed none of the chrome the detectors know. Every other read is armed
+   * by the composer glyph or by output, so a Claude Code release that changed the glyph
+   * would leave a finished turn "working" forever with nothing ever reading the screen
+   * again, and an unreadable screen concluded idle would never be looked at again either.
+   * One-shot and self-rearming while either holds; cleared in `_clearAllTimers()`.
+   */
+  private _armDetectionWatch(): void {
+    if (this._detectionWatchTimer || !getCli(this.mode)?.capabilities.workDetect) return;
+    this._detectionWatchTimer = setTimeout(() => {
+      this._detectionWatchTimer = null;
+      if (this._isStopped) return;
+      if (this._status !== 'busy' && this._detectionHealth.unrecognizedSince === null) return;
+      // An armed idle confirmation reads the screen on its own cadence, and a pane still
+      // printing is read by the streak path; only the silent, unarmed case needs this.
+      if (!this._awaitingIdleConfirmation && isPaneQuiet(this._lastActivityAt, Date.now())) {
+        this._probePaneWorking();
+      }
+      this._armDetectionWatch();
+    }, DETECTION_WATCH_MS);
+  }
+
+  /** The "detection untested on this CLI version" fields of `toState()`. */
+  private _cliVersionHint(): Pick<SessionState, 'cliVersionUntested' | 'cliVersionTestedThrough'> {
+    const tested = getCli(this.mode)?.capabilities.workDetect?.testedThroughVersion;
+    if (!isNewerThanTested(this._cliVersion, tested)) return {};
+    return { cliVersionUntested: true, cliVersionTestedThrough: tested };
+  }
+
+  /**
+   * Record the version the running CLI reports for itself (Claude's statusline payload
+   * carries `version` on every render). It outranks the launch-time `--version` probe,
+   * which is cached for the server's lifetime and so goes stale once the CLI updates
+   * itself. A malformed value changes nothing.
+   *
+   * @returns true when the version changed (and `cliInfoUpdated` was emitted)
+   */
+  noteReportedCliVersion(raw: unknown): boolean {
+    const version = sanitizeCliVersion(raw);
+    if (!version || version === this._cliVersion) return false;
+    this._cliVersion = version;
+    this.emit('cliInfoUpdated', {
+      version: this._cliVersion,
+      model: this._cliModel,
+      accountType: this._cliAccountType,
+      latestVersion: this._cliLatestVersion,
+    });
+    return true;
   }
 
   /**
@@ -3562,6 +3685,7 @@ export class Session extends EventEmitter {
     // A capture that failed proves nothing either way, so it keeps the last answer.
     if (text !== null) {
       const trustDialog = isTrustDialogScreen(text);
+      this._noteScreenHealth(text, this._lastPaneProbeWorking === true, blockedOnScreen === true, trustDialog);
       if (
         trustDialog &&
         !this._lastPaneProbeTrustDialog &&
@@ -3905,6 +4029,7 @@ export class Session extends EventEmitter {
     this._status = 'busy';
     this.emit('working');
     this._autoOps.notifyWorking();
+    this._armDetectionWatch();
   }
 
   /**
@@ -3943,6 +4068,12 @@ export class Session extends EventEmitter {
     }
     this._awaitingIdleConfirmation = false;
     this.activityTimeout = null;
+    // The pane went quiet at a composer the detectors recognize, with no working line:
+    // that is the ordinary idle verdict, and it confirms the detectors read this pane.
+    // A capture that showed no known chrome leaves the unknown standing.
+    if (this._detectionHealth.unrecognizedSince === null) {
+      this._setDetectionHealth(noteStateConfirmed(this._detectionHealth));
+    }
     // Emit idle if either:
     // 1. Claude was working and is now at prompt (normal case)
     // 2. Session just started and is ready (status is 'busy' but _isWorking is false)
@@ -4436,9 +4567,17 @@ export class Session extends EventEmitter {
     // pane's dialog is resolved rather than left behind it.
     this._clearScreenBlocked();
     this._markActivity(true);
+    // A new pane has not been read yet: nothing to distrust, and a fresh `busy` with no
+    // composer to arm the idle check is exactly what the watch is for.
+    this._setDetectionHealth(initialDetectionHealth());
+    this._armDetectionWatch();
   }
 
   private _clearAllTimers(): void {
+    if (this._detectionWatchTimer) {
+      clearTimeout(this._detectionWatchTimer);
+      this._detectionWatchTimer = null;
+    }
     // Stop re-sending Enter for a prompt this session will never take now
     this._submitVerifier?.cancel();
     this._submitVerifier = null;

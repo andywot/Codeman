@@ -94,6 +94,7 @@ const MOBILE_OVERVIEW_PILL_LABEL = {
   waiting: 'waiting',
   working: 'working',
   idle: 'idle',
+  unknown: 'unknown',
   done: 'done',
 };
 
@@ -108,6 +109,7 @@ const MOBILE_OVERVIEW_SINCE_LABEL = {
   error: 'failed',
   working: 'working',
   idle: 'idle',
+  unknown: 'unknown',
   done: 'ended',
 };
 
@@ -126,12 +128,18 @@ Object.assign(CodemanApp.prototype, {
    * the hook is the newer signal.
    * @param {object} session session state from this.sessions
    * @param {Set<string>|undefined} hooks pending hook types for that session
-   * @returns {'needs'|'error'|'waiting'|'working'|'idle'|'done'}
+   * A live session whose screen the detectors can no longer read
+   * (`stateDetection: 'unknown'`, src/session-detection-health.ts, e.g. after a
+   * Claude Code update redrew its composer or working line) is 'unknown' rather than
+   * the stale working/idle verdict: a wrong state is worse than none. Hooks are not
+   * screen reads, so they still outrank it.
+   * @returns {'needs'|'error'|'waiting'|'working'|'idle'|'unknown'|'done'}
    */
   _mobileOverviewState(session, hooks) {
     if (hooks && (hooks.has('permission_prompt') || hooks.has('elicitation_dialog'))) return 'needs';
     if (session.status === 'error') return 'error';
     if (hooks && hooks.has('idle_prompt')) return 'waiting';
+    if (session.stateDetection === 'unknown' && session.status !== 'stopped') return 'unknown';
     if (session.status === 'busy') return 'working';
     if (session.status === 'stopped') return 'done';
     return 'idle';

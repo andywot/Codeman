@@ -465,6 +465,15 @@ export interface CliCapabilities {
      * before typing: the caret ends there, and the popup follows the caret.
      */
     composerCompletionSigils?: string;
+    /**
+     * The newest version of this CLI the strings above were checked against on a live
+     * pane (`MAJOR.MINOR.PATCH`). A session whose CLI reports a NEWER version (its
+     * statusline `version`, else `--version` at launch) carries `cliVersionUntested` in
+     * its state and the dashboard shows a quiet hint that working/idle may be off. It
+     * changes no detection: bump it after re-checking the fixtures in
+     * `test/fixtures/claude-screens/` against the new release. Absent means no hint.
+     */
+    testedThroughVersion?: string;
   };
   /**
    * How many columns this CLI indents its transcript body by, so a copy taken from its

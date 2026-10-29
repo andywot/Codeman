@@ -1,0 +1,40 @@
+
+
+❯ Use the Write tool to create notes.txt containing the word hello.
+
+● Write(notes.txt)
+  ⎿  User rejected write to notes.txt
+      1 hello
+
+✻ Crunched for 2s · done 1:18 AM
+
+❯ Use the AskUserQuestion tool to ask me which color I prefer: red, green or blue. Do nothing else.
+
+● User declined to answer questions
+  ⎿  · Which color do you prefer? (Red / Green / Blue)
+
+✻ Baked for 4s · done 1:19 AM
+
+● Background command "Sleep 40 seconds then print finished" completed (exit code 0)
+
+● The background sleep 40 && echo finished task finished with exit code 0.
+
+  The notes.txt write and the color question were both interrupted, so I haven't created the file or asked you the
+  question. Should I retry either one?
+
+✻ Cooked for 2s · done 1:19 AM
+
+❯ Execute ./slow.sh in the foreground with a 60s timeout and tell me its output.
+
+  Ran 1 shell command
+
+● ./slow.sh ran in the foreground with a 60-second timeout and printed:
+
+  ok
+
+✻ Cogitated for 35s · done 1:20 AM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts

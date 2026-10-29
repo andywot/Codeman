@@ -416,6 +416,12 @@ const capabilitiesSchema = z
           .string()
           .regex(/^[!-/:-@[-`{-~]{1,8}$/, 'composerCompletionSigils must be 1 to 8 ASCII punctuation characters')
           .optional(),
+        // Display-only: compared with the session's CLI version for the "detection untested
+        // on this version" hint. Strict MAJOR.MINOR.PATCH, the only shape compared.
+        testedThroughVersion: z
+          .string()
+          .regex(/^\d{1,6}\.\d{1,6}\.\d{1,6}$/, 'testedThroughVersion must be MAJOR.MINOR.PATCH')
+          .optional(),
       })
       .strict()
       // A window with nothing to search is a typo, not a configuration. Refused at LOAD

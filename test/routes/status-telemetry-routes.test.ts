@@ -220,6 +220,25 @@ describe('POST /api/status-telemetry: the session model (displayModel)', () => {
     expect(session.toState().displayModel?.model).toBe('<b>Opus</b>');
   });
 
+  it("records the running CLI's version from the statusline, which outranks the launch probe", async () => {
+    const session = realSession('claude', 'claude-version');
+    const info = vi.fn();
+    session.on('cliInfoUpdated', info);
+    await post({ sessionId: 'claude-version', data: { ...REAL, version: '2.1.312' } });
+    expect(session.toState().cliVersion).toBe('2.1.312');
+    expect(session.toState().cliVersionUntested).toBeUndefined();
+    await post({ sessionId: 'claude-version', data: { ...REAL, version: '2.1.312' } });
+    expect(info).toHaveBeenCalledTimes(1);
+    // Claude Code updated itself past the version the screen detectors were tested on.
+    await post({ sessionId: 'claude-version', data: { ...REAL, version: '9.0.0' } });
+    expect(session.toState()).toMatchObject({ cliVersion: '9.0.0', cliVersionUntested: true });
+    // A malformed or null version neither 400s the post nor changes anything.
+    const res = await post({ sessionId: 'claude-version', data: { ...REAL, version: null } });
+    expect(res.statusCode).toBe(200);
+    await post({ sessionId: 'claude-version', data: { ...REAL, version: 'next' } });
+    expect(session.toState().cliVersion).toBe('9.0.0');
+  });
+
   it('takes no model from a CLI that has no statusline exporter', async () => {
     const session = realSession('codex', 'codex-1');
     await post({ sessionId: 'codex-1', data: { model: { display_name: 'Opus 4.8' } } });

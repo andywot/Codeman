@@ -463,6 +463,8 @@ export class MockSession extends EventEmitter {
     this.reportedModel = { model: raw, source };
     return true;
   });
+  /** Mirrors Session.noteReportedCliVersion: the statusline route records the CLI's version. */
+  noteReportedCliVersion = vi.fn((_raw: unknown): boolean => false);
 
   /** Stub for sendInput */
   sendInput = vi.fn();

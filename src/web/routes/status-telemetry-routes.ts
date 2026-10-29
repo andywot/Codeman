@@ -63,6 +63,11 @@ export function registerStatusTelemetryRoutes(app: FastifyInstance, ctx: Session
     // broadcasts only a change.
     if (session && reportsStatusLine) {
       session.noteReportedModel('statusline', payload?.model?.display_name);
+      // The version of the CLI actually running in the pane. The launch-time
+      // `--version` probe is cached for the server's lifetime, so after Claude Code
+      // updates itself this is the only source that follows it; it feeds the
+      // "detection untested on this version" hint (SessionState.cliVersionUntested).
+      session.noteReportedCliVersion(payload?.version);
     }
 
     // Prompt-cache state of the main conversation (Claude Code v2.1.251+): kept on the

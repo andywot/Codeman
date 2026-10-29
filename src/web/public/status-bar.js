@@ -86,6 +86,7 @@ Object.assign(CodemanApp.prototype, {
       })
     );
     if (working) parts.push(this._statusBarItem(`${working} working`, { cls: 'rc-quiet' }));
+    parts.push(...this._statusBarDetectionItems(rows));
 
     // The active session's context window, read from its conversation log (chat-view.js).
     const ctx = this.chatContextFor?.(this.activeSessionId);
@@ -148,6 +149,48 @@ Object.assign(CodemanApp.prototype, {
       parts.push(item);
     }
     el.replaceChildren(...parts);
+  },
+
+  /**
+   * Quiet hints that the working/idle readings may be off: sessions whose screen the
+   * detectors can no longer read (state 'unknown'), and sessions running a Claude Code
+   * newer than the one the detectors were tested against (`cliVersionUntested`, from
+   * `capabilities.workDetect.testedThroughVersion`). Both usually mean Claude Code
+   * updated itself and changed its UI.
+   */
+  _statusBarDetectionItems(rows) {
+    const items = [];
+    const unknown = rows.filter((row) => row.state === 'unknown').length;
+    if (unknown) {
+      items.push(
+        this._statusBarItem(`${unknown} unknown`, {
+          cls: 'rc-quiet rc-detect',
+          title:
+            `${unknown === 1 ? 'One session shows' : `${unknown} sessions show`} an unknown state: ` +
+            'the dashboard cannot read the screen any more, so it does not guess working or idle. ' +
+            'Claude Code may have changed its UI in an update.',
+        })
+      );
+    }
+    const untested = new Map();
+    for (const session of this.sessions?.values?.() ?? []) {
+      if (session?.cliVersionUntested && session.cliVersion) {
+        untested.set(session.cliVersion, session.cliVersionTestedThrough || '');
+      }
+    }
+    if (untested.size) {
+      const versions = [...untested.keys()].sort();
+      const tested = [...untested.values()].find(Boolean);
+      items.push(
+        this._statusBarItem(`CC ${versions[versions.length - 1]} untested`, {
+          cls: 'rc-quiet rc-detect',
+          title:
+            `Claude Code ${versions.join(', ')} is newer than ${tested || 'the version'} the dashboard's ` +
+            'working/idle detection was tested against. Session states may be off until it is re-checked.',
+        })
+      );
+    }
+    return items;
   },
 
   async refreshStatusBarAccounts() {

@@ -71,6 +71,8 @@ export interface RawStatuslinePayload {
   context_window?: { used_percentage?: number; total_input_tokens?: number; total_output_tokens?: number };
   cost?: { total_cost_usd?: number };
   model?: { display_name?: string };
+  /** The running CLI's own version (`2.1.312`), sent on every render. */
+  version?: string | null;
   /** Main-conversation prompt-cache statistics (Claude Code v2.1.251+); absent before the first API response. */
   prompt_cache?: RawPromptCache | null;
 }
