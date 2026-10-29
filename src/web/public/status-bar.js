@@ -88,24 +88,7 @@ Object.assign(CodemanApp.prototype, {
     if (working) parts.push(this._statusBarItem(`${working} working`, { cls: 'rc-quiet' }));
     parts.push(...this._statusBarDetectionItems(rows));
 
-    // The active session's context window, read from its conversation log (chat-view.js).
-    const ctx = this.chatContextFor?.(this.activeSessionId);
-    if (ctx && window.CodemanChat) {
-      const pct = Math.min(100, Math.round((ctx.used / ctx.limit) * 100));
-      const { chatTokens } = window.CodemanChat;
-      const item = this._statusBarItem('context', { cls: 'rc-account rc-context' });
-      const ring = document.createElement('span');
-      ring.className = `rc-ring${pct >= 80 ? ' rc-ring--high' : pct >= 50 ? ' rc-ring--mid' : ''}`;
-      ring.style.setProperty('--p', String(pct));
-      ring.setAttribute('aria-hidden', 'true');
-      const tag = document.createElement('span');
-      tag.className = 'rc-ring-key';
-      tag.textContent = `${pct}%`;
-      item.append(ring, tag);
-      item.title = `This session's context: ${chatTokens(ctx.used)} of ${chatTokens(ctx.limit)} tokens`;
-      item.setAttribute('aria-label', item.title);
-      parts.push(item);
-    }
+    parts.push(...this._statusBarSessionItems());
 
     const spacer = document.createElement('span');
     spacer.className = 'rc-status-spacer';
@@ -149,6 +132,83 @@ Object.assign(CodemanApp.prototype, {
       parts.push(item);
     }
     el.replaceChildren(...parts);
+  },
+
+  /**
+   * The active session's own figures: its context window, cost so far and token totals. They
+   * come from its statusline (`statusUsage`: the local exporter, or for a remote session the
+   * file its launch saves on the machine, remote-session-signals.ts); without one, the context
+   * is read from the conversation log (chat-view.js). A remote session whose alerts and figures
+   * cannot reach the dashboard (`remoteSignals`) says so, quietly.
+   */
+  _statusBarSessionItems() {
+    const items = [];
+    const id = this.activeSessionId;
+    const session = id ? this.sessions?.get?.(id) : null;
+    const usage = session?.statusUsage;
+    const fmt = (n) => (window.CodemanChat?.chatTokens ? window.CodemanChat.chatTokens(n) : this.formatTokens(n));
+    const finite = (n) => typeof n === 'number' && Number.isFinite(n);
+
+    let pct = null;
+    let detail = '';
+    if (usage && finite(usage.contextTokens) && finite(usage.contextWindow) && usage.contextWindow > 0) {
+      pct = Math.round((usage.contextTokens / usage.contextWindow) * 100);
+      detail = `${fmt(usage.contextTokens)} of ${fmt(usage.contextWindow)} tokens`;
+    } else if (usage && finite(usage.contextPercent)) {
+      pct = Math.round(usage.contextPercent);
+      detail = `${pct}% used`;
+    } else {
+      const ctx = this.chatContextFor?.(id);
+      if (ctx && ctx.limit > 0) {
+        pct = Math.round((ctx.used / ctx.limit) * 100);
+        detail = `${fmt(ctx.used)} of ${fmt(ctx.limit)} tokens`;
+      }
+    }
+    if (pct !== null) {
+      pct = Math.max(0, Math.min(100, pct));
+      const item = this._statusBarItem('context', { cls: 'rc-account rc-context' });
+      const ring = document.createElement('span');
+      ring.className = `rc-ring${pct >= 80 ? ' rc-ring--high' : pct >= 50 ? ' rc-ring--mid' : ''}`;
+      ring.style.setProperty('--p', String(pct));
+      ring.setAttribute('aria-hidden', 'true');
+      const tag = document.createElement('span');
+      tag.className = 'rc-ring-key';
+      tag.textContent = `${pct}%`;
+      item.append(ring, tag);
+      const lines = [`This session's context: ${detail}`];
+      if (usage && finite(usage.totalInputTokens) && finite(usage.totalOutputTokens)) {
+        lines.push(`Session tokens: ${fmt(usage.totalInputTokens)} in, ${fmt(usage.totalOutputTokens)} out`);
+      }
+      item.title = lines.join('\n');
+      item.setAttribute('aria-label', lines.join('. '));
+      items.push(item);
+    }
+    if (usage && finite(usage.costUsd)) {
+      items.push(
+        this._statusBarItem(`$${usage.costUsd.toFixed(2)}`, {
+          cls: 'rc-quiet rc-cost',
+          title: "This session's cost so far, as Claude Code estimates it",
+        })
+      );
+    }
+
+    const signals = session?.remoteSignals;
+    if (signals === 'relaunch' || signals === 'unsupported') {
+      items.push(
+        this._statusBarItem('No alerts', {
+          cls: 'rc-quiet rc-detect',
+          title:
+            signals === 'relaunch'
+              ? 'This session started before alerts and token counts reached the dashboard from your PCs, ' +
+                'so it never shows "needs you" and its state comes from the screen only. ' +
+                'Start it again from the dashboard to get them.'
+              : 'Alerts and token counts do not reach the dashboard from this session ' +
+                '(a native Windows session, a custom host command, or a tmux session Claude RC did not start), ' +
+                'so its state comes from the screen only.',
+        })
+      );
+    }
+    return items;
   },
 
   /**

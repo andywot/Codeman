@@ -170,7 +170,8 @@ import {
   sanitizeAttachmentHistory,
   upsertAttachmentHistory as upsertAttachmentHistoryList,
 } from './session-attachment-history.js';
-import type { SessionAttachmentHistoryItem, DisplayModel } from './types/session.js';
+import type { SessionAttachmentHistoryItem, DisplayModel, SessionStatusUsage } from './types/session.js';
+import { remoteSignalsSupport, type RemoteSignalsSupport } from './remote-session-signals.js';
 import { resolveConfigModel } from './model-config-resolvers.js';
 import { caseSessionSettled, isCasePathLocked, noteCaseSessionStarting } from './case-rename.js';
 import { legacyConfigForMode } from './session-cli-registry-bridge.js';
@@ -649,6 +650,10 @@ export class Session extends EventEmitter {
   private _watching: string | null = null;
   /** Last `prompt_cache` report from the statusline exporter; null until Claude sends one. */
   private _promptCache: PromptCacheStatus | null = null;
+  /** Fork: this session's token/context/cost figures from its statusline; live only, never restored on restart. */
+  private _statusUsage: SessionStatusUsage | null = null;
+  /** Fork: a read found this remote session's alert/statusline files (remote-session-signals.ts). */
+  private _remoteSignalsSeen = false;
   /** Prompt-cache keep-warm opt-in; undefined = follow the app-wide default. Persisted. */
   private _keepWarmEnabled: boolean | undefined;
   /** Last status the keep-warm service published for this session; ephemeral. */
@@ -1622,6 +1627,49 @@ export class Session extends EventEmitter {
    * read here. The stamp is carried while the window holds and dropped once it closes; a
    * first report already inside the window gets none. It is never an alert.
    */
+  /** Fork: the latest token/context/cost figures from this session's statusline, or null. */
+  get statusUsage(): SessionStatusUsage | null {
+    return this._statusUsage;
+  }
+
+  /**
+   * Fork: store the token/context/cost figures of a statusline report; true when any figure
+   * changed (the read time alone is not a change, so an idle session's repeated report does not
+   * rebroadcast).
+   */
+  noteStatusUsage(usage: SessionStatusUsage): boolean {
+    const prev = this._statusUsage;
+    const same =
+      prev !== null &&
+      prev.contextTokens === usage.contextTokens &&
+      prev.contextWindow === usage.contextWindow &&
+      prev.contextPercent === usage.contextPercent &&
+      prev.totalInputTokens === usage.totalInputTokens &&
+      prev.totalOutputTokens === usage.totalOutputTokens &&
+      prev.costUsd === usage.costUsd;
+    this._statusUsage = { ...usage };
+    return !same;
+  }
+
+  /**
+   * Fork: whether this remote (ssh) claude session's alerts and statusline figures reach the
+   * dashboard (remote-session-signals.ts); undefined for every other session.
+   */
+  get remoteSignals(): RemoteSignalsSupport | undefined {
+    return remoteSignalsSupport(
+      { mode: this.mode, remote: this._remote, docker: this._docker },
+      this._remoteSignalsSeen
+    );
+  }
+
+  /** Fork: a read found this session's files on its machine; true when that changes `remoteSignals`. */
+  markRemoteSignalsSeen(): boolean {
+    if (this._remoteSignalsSeen) return false;
+    const before = this.remoteSignals;
+    this._remoteSignalsSeen = true;
+    return this.remoteSignals !== before;
+  }
+
   setPromptCache(status: PromptCacheStatus): boolean {
     const prev = this._promptCache;
     const inWindow = status.warm && status.recacheTokensIfCold == null;
@@ -2242,6 +2290,8 @@ export class Session extends EventEmitter {
       autoResumeEnabled: this._autoOps.autoResumeEnabled,
       autoResumeAt: this._autoOps.autoResumeAt ?? undefined,
       promptCache: this._promptCache ?? undefined,
+      statusUsage: this._statusUsage ?? undefined,
+      remoteSignals: this.remoteSignals,
       statusLineExporter: this.statusLineExporter,
       keepWarmEnabled: this._keepWarmEnabled,
       keepWarm: this._keepWarm ?? undefined,

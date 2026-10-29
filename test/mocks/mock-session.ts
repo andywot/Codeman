@@ -9,6 +9,7 @@ import type {
   PromptCacheStatus,
   SessionAttachmentHistoryItem,
   SessionStatus,
+  SessionStatusUsage,
   SessionRemote,
 } from '../../src/types.js';
 import type { GitFetchStatus } from '../../src/git-fetch.js';
@@ -465,6 +466,14 @@ export class MockSession extends EventEmitter {
   });
   /** Mirrors Session.noteReportedCliVersion: the statusline route records the CLI's version. */
   noteReportedCliVersion = vi.fn((_raw: unknown): boolean => false);
+  /** Mirrors Session.statusUsage / noteStatusUsage: the statusline's token/context/cost figures. */
+  statusUsage: SessionStatusUsage | null = null;
+  noteStatusUsage = vi.fn((usage: SessionStatusUsage): boolean => {
+    const { at: _prevAt, ...prev } = this.statusUsage ?? { at: 0 };
+    const { at: _at, ...next } = usage;
+    this.statusUsage = { ...usage };
+    return JSON.stringify(prev) !== JSON.stringify(next);
+  });
 
   /** Stub for sendInput */
   sendInput = vi.fn();

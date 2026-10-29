@@ -30,9 +30,9 @@
  * @module usage-telemetry
  */
 
-import type { PromptCacheStatus } from './types/index.js';
+import type { PromptCacheStatus, SessionStatusUsage } from './types/index.js';
 
-export type { PromptCacheStatus };
+export type { PromptCacheStatus, SessionStatusUsage };
 
 /** A single normalized plan-usage window. */
 export interface UsageWindow {
@@ -68,7 +68,19 @@ export interface RawStatuslinePayload {
     five_hour?: { used_percentage?: number; resets_at?: number };
     seven_day?: { used_percentage?: number; resets_at?: number };
   };
-  context_window?: { used_percentage?: number; total_input_tokens?: number; total_output_tokens?: number };
+  context_window?: {
+    used_percentage?: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    context_window_size?: number;
+    /** The last request's usage; null before the first response. */
+    current_usage?: {
+      input_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+      output_tokens?: number;
+    } | null;
+  };
   cost?: { total_cost_usd?: number };
   model?: { display_name?: string };
   /** The running CLI's own version (`2.1.312`), sent on every render. */
@@ -144,6 +156,44 @@ export function parseStatusTelemetry(data: RawStatuslinePayload | undefined): St
     t.modelDisplayName = data.model.display_name.slice(0, 60);
   }
   return t;
+}
+
+/** A finite, non-negative number, else undefined. */
+function count(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+}
+
+/**
+ * This session's own token, context and cost figures from a statusline payload, or null when it
+ * carries none (Claude Code reports `context_window`/`cost` from its first render; older versions
+ * report less, so every field is optional). `at` is when the report was read. Pure.
+ */
+export function parseStatusUsage(data: RawStatuslinePayload | undefined, at: number): SessionStatusUsage | null {
+  if (!data || typeof data !== 'object') return null;
+  const cw = data.context_window;
+  const u: SessionStatusUsage = { at };
+  const current = cw?.current_usage;
+  if (current && typeof current === 'object') {
+    const parts = [current.input_tokens, current.cache_creation_input_tokens, current.cache_read_input_tokens].map(
+      count
+    );
+    if (parts.some((p) => p !== undefined))
+      u.contextTokens = Math.round(parts.reduce<number>((a, p) => a + (p ?? 0), 0));
+  }
+  const size = count(cw?.context_window_size);
+  if (size) u.contextWindow = Math.round(size);
+  if (typeof cw?.used_percentage === 'number' && Number.isFinite(cw.used_percentage)) {
+    u.contextPercent = clampPct(cw.used_percentage);
+  } else if (u.contextTokens !== undefined && u.contextWindow) {
+    u.contextPercent = clampPct((u.contextTokens / u.contextWindow) * 100);
+  }
+  const totalIn = count(cw?.total_input_tokens);
+  if (totalIn !== undefined) u.totalInputTokens = Math.round(totalIn);
+  const totalOut = count(cw?.total_output_tokens);
+  if (totalOut !== undefined) u.totalOutputTokens = Math.round(totalOut);
+  const cost = count(data.cost?.total_cost_usd);
+  if (cost !== undefined) u.costUsd = cost;
+  return Object.keys(u).length > 1 ? u : null;
 }
 
 /**

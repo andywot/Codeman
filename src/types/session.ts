@@ -169,7 +169,17 @@ export interface SessionRemote extends RemoteSshOptions {
    * first (exports naming secret FILES, never secret values), the binary, extra args.
    * Built server-side from validated fields only. Absent = upstream behaviour.
    */
-  launch?: { setup: string; binary: string; args: string };
+  launch?: {
+    setup: string;
+    binary: string;
+    args: string;
+    /**
+     * Fork (fleet.ts `REMOTE_SIGNALS_VERSION`): the launch carries the hooks and per-session
+     * statusLine that record alerts and telemetry to files on the machine (read by
+     * remote-session-signals.ts). Absent on launches built before that, and on Windows.
+     */
+    signals?: number;
+  };
   /**
    * COD-105 — whether THIS Codeman created the remote tmux session.
    *
@@ -781,6 +791,29 @@ export interface PaneExit {
  * field Claude always reports: once the prefix has gone cold it sends `warm:false` with a
  * null `expires_at`.
  */
+/**
+ * This session's own token, context and cost figures as Claude Code reports them on its
+ * statusline (`context_window`, `cost`). Local sessions get it from the statusLine exporter's
+ * POST; a remote (ssh) session from the per-session statusline file its launch saves on the
+ * machine (fork, remote-session-signals.ts). Live state only: never restored on restart, the next render
+ * refreshes it. Every field is optional because older Claude Code versions report fewer.
+ */
+export interface SessionStatusUsage {
+  /** Tokens in the context right now: the last request's input, cache reads and cache writes. */
+  contextTokens?: number;
+  /** The context window size in tokens. */
+  contextWindow?: number;
+  /** Percent of the context window used, 0-100, as Claude Code computes it. */
+  contextPercent?: number;
+  /** Input and output tokens summed over the whole session. */
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  /** The session's cost so far in USD, as Claude Code estimates it. */
+  costUsd?: number;
+  /** When the server read this report (epoch ms). */
+  at: number;
+}
+
 export interface PromptCacheStatus {
   warm: boolean;
   /** Cache lifetime of the current prefix; Claude Code only ever reports these two. */
@@ -926,6 +959,15 @@ export interface SessionState {
    * `expiresAt` has passed reads as cold rather than as a stale warm.
    */
   promptCache?: PromptCacheStatus;
+  /** Fork: this session's token/context/cost figures from its statusline (see SessionStatusUsage). */
+  statusUsage?: SessionStatusUsage;
+  /**
+   * Fork: for a remote (ssh) claude session, whether its alerts and statusline figures reach the
+   * dashboard (remote-session-signals.ts): `on`; `relaunch` (launched before this existed, or
+   * re-attached without it: a new start picks it up); `unsupported` (Windows-native, a host
+   * command override, or an adopted tmux session). Absent for every other session.
+   */
+  remoteSignals?: 'on' | 'relaunch' | 'unsupported';
   /** Why a cache report will or will not arrive (see `StatusLineExporter`); absent when unknown. */
   statusLineExporter?: StatusLineExporter;
   /** Prompt-cache keep-warm opt-in; absent = follow the app-wide `promptCacheKeepWarm` default. */
