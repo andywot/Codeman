@@ -4628,6 +4628,20 @@ Object.assign(CodemanApp.prototype, {
         // reasserted. (The synchronous version passed its regression test only
         // because the test's write mock moved the viewport synchronously.)
         this._restoreTerminalViewport(preserveViewportY, flushSessionId);
+        // Re-position the local echo overlay HERE, once this chunk is parsed,
+        // for the same reason. Ink redraws move the ❯ prompt (Claude pins its
+        // composer to the bottom of the pane, so any height change moves it a
+        // row), and re-scanning when write() returns read the PREVIOUS frame:
+        // the write that moved the prompt left the overlay on the old row, a
+        // row below the ❯ or on the border above it, until the next output or
+        // keystroke. That was the one-line drift seen on remote sessions, where
+        // local echo is on by default and the redraw arrives late over ssh as a
+        // chunk of its own. Unguarded on purpose: hasPending excludes an IME
+        // composition, so a composition-only overlay (the first word of a
+        // prompt) would otherwise stay on the old row. rerender() is a no-op
+        // when there is nothing to draw. After the viewport restore, so it is
+        // placed against the viewport the user will see.
+        this._localEchoOverlay?.rerender();
         this._scheduleTerminalWriteFlush();
         this._noteMobileImeAuthoritativeOutput(flushedOutputSeq, flushSessionId);
       });
@@ -4657,12 +4671,9 @@ Object.assign(CodemanApp.prototype, {
       this.terminal.scrollToBottom();
     }
 
-    // Re-position local echo overlay after terminal writes — Ink redraws can
-    // move the ❯ prompt to a different row, making the overlay invisible.
-    // Unguarded on purpose: hasPending excludes an IME composition, so a
-    // composition-only overlay (the first word of a prompt) would otherwise
-    // stay on the old row. rerender() is a no-op when there is nothing to draw.
-    this._localEchoOverlay?.rerender();
+    // The local echo overlay is re-positioned in the write callback above, not
+    // here: xterm has not parsed this chunk yet, so the ❯ row read now is the
+    // previous frame's.
 
     // After Tab completion: detect the completed text in the overlay.
     // Use terminal.write('', callback) to defer detection until xterm.js

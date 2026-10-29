@@ -297,11 +297,14 @@ describe('mobile IME preview over the local echo overlay', () => {
    * leaves the prompt where it is (a status-line repaint). Reports the overlay
    * row after each frame.
    *
-   * The post-write re-place runs right after terminal.write() returns, before
-   * xterm parses that chunk, so it sees the buffer as of the previous frame: the
-   * overlay reaches the new row on the frame after the move. That timing is the
-   * same for pending text; the composition-only overlay used to never get there
-   * because the re-place was gated on hasPending, which excludes it.
+   * The post-write re-place runs in the write callback, once xterm has parsed
+   * the chunk, so the overlay is on the new row as soon as the frame that moved
+   * the prompt is parsed (`afterMove`), with no later output needed. It used to
+   * run when terminal.write() returned, before the parse, and reached the new
+   * row only on the NEXT frame: with nothing after the move it stayed a row off
+   * (test/local-echo-overlay-after-parse.test.ts). The composition-only overlay
+   * used to never get there at all because the re-place was gated on
+   * hasPending, which excludes it.
    */
   async function composeThenMovePrompt(pending: string, composing: string) {
     return page.evaluate(
@@ -356,10 +359,12 @@ describe('mobile IME preview over the local echo overlay', () => {
         const before = overlayRow();
         await stream('\r\x1b[2Kline 1\r\nline 2\r\nline 3\r\n❯ ');
         const promptRow = app._localEchoOverlay.findPrompt()?.row ?? null;
+        const afterMove = overlayRow();
         await stream('\x1b7\x1b[8;1Hworking\x1b8');
         const result = {
           before,
           promptRow,
+          afterMove,
           after: overlayRow(),
           composition: Array.from(term.element.querySelectorAll('[data-zerolag-composition]'))
             .map((el) => (el as HTMLElement).textContent)
@@ -381,12 +386,20 @@ describe('mobile IME preview over the local echo overlay', () => {
     expect(result.promptRow).toBe(3);
     // Nothing is pending: before the fix this stayed on row 0, over "line 1".
     expect(result.hasPending).toBe(false);
+    expect(result.afterMove).toBe(3);
     expect(result.after).toBe(3);
     expect(result.composition).toBe('今日');
   });
 
   it('a composition after pending text follows it the same way', async () => {
     const result = await composeThenMovePrompt('abc', '今日');
-    expect(result).toEqual({ before: 0, promptRow: 3, after: 3, composition: '今日', hasPending: true });
+    expect(result).toEqual({
+      before: 0,
+      promptRow: 3,
+      afterMove: 3,
+      after: 3,
+      composition: '今日',
+      hasPending: true,
+    });
   });
 });
