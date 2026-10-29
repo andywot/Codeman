@@ -10,15 +10,26 @@ RUN apt-get update \
 
 WORKDIR /opt/codeman
 
-COPY . .
+# Dependencies first, in their own layer: it is rebuilt only when the package list
+# (or the workspace packages and install script) changes, so an ordinary code change
+# skips the full install and the native node-pty compile. Without `src/` here the
+# postinstall skips its vendor bundles; `npm run build` below writes them.
+COPY package.json package-lock.json ./
+COPY scripts ./scripts
+COPY packages ./packages
 
 # devDependencies are deliberately KEPT (no `npm prune --omit=dev`). The in-app
 # updater rebuilds from inside this container, and `npm run build` is tsc +
 # esbuild — both devDependencies. Pruning them saves image size and takes the
 # self-updater with it. See docs/docker-self-update.md.
-RUN npm ci \
- && npm run build \
- && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+COPY . .
+RUN npm run build \
+ # The app without node_modules, so the runtime stage copies the (large, usually
+ # unchanged) dependencies as their own cached layer.
+ && mkdir /opt/app \
+ && find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec cp -a {} /opt/app/ \;
 
 # The Docker CLI talks to the host daemon through the socket mounted by
 # docker/docker-compose.yaml. It does not run a Docker daemon in this container.
@@ -278,7 +289,8 @@ RUN set -eux; \
 
 WORKDIR /opt/codeman
 
-COPY --from=build /opt/codeman /opt/codeman
+COPY --from=build /opt/codeman/node_modules /opt/codeman/node_modules
+COPY --from=build /opt/app /opt/codeman
 
 # CODEMAN_IN_CONTAINER tells the self-updater it must restart by exiting rather
 # than by asking an init system that is not here (src/web/self-update.ts).
