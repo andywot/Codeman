@@ -94,6 +94,11 @@ interface Job {
   reject: (e: RemoteExecError) => void;
 }
 
+/** Decoded size of `n` bytes of `base64` output, which wraps a line every 76 characters. */
+function base64Bytes(n: number): number {
+  return Math.floor(((n - Math.floor(n / 77)) * 3) / 4);
+}
+
 class PooledShell {
   private readonly child: ChildProcess;
   private readonly nonce = randomBytes(8).toString('hex');
@@ -208,17 +213,21 @@ class PooledShell {
     if (start < 0) return;
     const body = start + begin.length;
     const max = job.opts.maxBuffer;
-    if (max !== undefined && ((this.buf.length - body) * 3) / 4 > max + 4096) {
+    const tooLarge = () => {
       this.finish(
         job.id,
         new RemoteExecError('stdout maxBuffer length exceeded', { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })
       );
+      // The rest of the output is still on its way: only a fresh shell is in sync.
       this.die('output too large');
-      return;
-    }
+    };
     const end = Buffer.from(`\n__RCPOOL_${job.id}_E `);
     const endAt = this.buf.indexOf(end, body);
-    if (endAt < 0) return;
+    if (endAt < 0) {
+      // Still streaming: stop a runaway early (the slack covers line breaks and the end marker).
+      if (max !== undefined && base64Bytes(this.buf.length - body) > max + 64 * 1024) tooLarge();
+      return;
+    }
     const nl = this.buf.indexOf(10, endAt + end.length);
     if (nl < 0) return;
     const [rcText, errB64 = ''] = this.buf
@@ -233,6 +242,10 @@ class PooledShell {
         .replace(/[^A-Za-z0-9+/=]/g, ''),
       'base64'
     );
+    if (max !== undefined && stdout.length > max) {
+      tooLarge();
+      return;
+    }
     const stderr = Buffer.from(errB64.replace(/[^A-Za-z0-9+/=]/g, ''), 'base64').toString('utf8');
     this.buf = this.buf.subarray(nl + 1);
     const code = Number.parseInt(rcText, 10);
@@ -311,7 +324,8 @@ export function remoteExec(
   script: string,
   opts: RemoteExecOptions = {}
 ): Promise<RemoteExecResult> {
-  if (process.env.VITEST) {
+  // Tests opt in with a fake `ssh` on PATH (test/remote-shell-pool.test.ts).
+  if (process.env.VITEST && process.env.CODEMAN_TEST_SHELL_POOL !== '1') {
     return Promise.reject(new RemoteExecError('remote commands are disabled under test', { code: 'ETEST' }));
   }
   return new Promise((resolve, reject) => poolFor(target).submit({ script, opts, resolve, reject }));
