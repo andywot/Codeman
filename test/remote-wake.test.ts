@@ -965,7 +965,26 @@ describe('wake wiring guard', () => {
       .filter((full) => /from\s+['"][^'"]*remote-wake(\.js)?['"]/.test(readFileSync(full, 'utf-8')))
       .map((full) => relative(SRC, full));
 
+    // machine-status.ts (the fleet status poll) reads pure helpers only, pinned below.
+    allowed.add('machine-status.ts');
     expect(importers.sort()).toEqual([...allowed].sort());
+  });
+
+  it('the machine status poll imports only pure helpers, never a way to wake', () => {
+    // The poll runs on a timer while a browser is open, so it must never be able to
+    // wake a machine: no registry, no magic packet, no wake command.
+    const source = readFileSync(join(SRC, 'machine-status.ts'), 'utf-8');
+    const line = source.match(/import\s*\{([^}]*)\}\s*from\s*'\.\/remote-wake\.js'/);
+    expect(line).not.toBeNull();
+    const names = line![1]
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean)
+      .sort();
+    expect(names).toEqual(['DEFAULT_SSH_PORT', 'isProbeable', 'resolveWakeTarget']);
+    for (const call of ['sendWakePackets', 'runRemoteWakeCommand', 'RemoteWakeRegistry', 'ensureHostAwake']) {
+      expect(source).not.toContain(call);
+    }
   });
 
   it('the server only ever calls drop/stop on the registry — never a waking method', () => {
