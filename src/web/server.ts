@@ -127,6 +127,16 @@ import { PromptCacheKeepWarmService } from '../prompt-cache-keepwarm.js';
 import { IDLE_READ_DELAY_MS, RemoteTranscriptTelemetry } from '../remote-transcript-telemetry.js';
 import { readTranscriptTail } from '../chat-transcript.js';
 import { remoteTmuxSessionName } from '../tmux-manager.js';
+import {
+  RemoteSessionSignals,
+  remoteSignalsKey,
+  remoteSignalsReadable,
+  type SignalsSession,
+} from '../remote-session-signals.js';
+import { remoteExec, remoteExecIfIdle } from '../remote-shell-pool.js';
+import { EVENTS_DIR, SESSION_STATUS_DIR } from '../fleet.js';
+import { handleHookEvent, type HookEventContext } from './routes/hook-event-routes.js';
+import { createStatuslineApplier, type StatuslineApplier } from './status-telemetry-apply.js';
 import { fetchWorkspaceOnce } from '../git-fetch.js';
 import { GitFetchScheduler } from '../git-fetch-scheduler.js';
 import { probePathKind } from '../utils/bounded-path-probe.js';
@@ -446,6 +456,35 @@ export class WebServer extends EventEmitter {
         this.persistSessionState(session);
       }
       if (schedule) void this.keepWarmService.schedule(session.id);
+    },
+    log: (message) => console.log(message),
+  });
+  // Fork: alerts and statusline figures for remote (ssh) claude sessions, which cannot POST to this
+  // server: their launch records hook events and the statusline to files on the machine, read back here
+  // over the host's pooled shell and fed through the same handlers as the local POSTs
+  // (remote-session-signals.ts). The route context and the statusline applier exist once the routes are
+  // registered; nothing polls before that (`start()` runs right after).
+  private hookCtx: HookEventContext | null = null;
+  private statuslineApplier: StatuslineApplier | null = null;
+  private readonly remoteSignals = new RemoteSessionSignals({
+    sessions: () => this.sessions.values(),
+    browserConnected: () => this.sse.clientCount > 0,
+    exec: async (remote, script, timeoutMs) =>
+      (await remoteExecIfIdle(remote, script, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 })).stdout.toString(
+        'utf8'
+      ),
+    applyEvent: (view, event) => {
+      if (this.hookCtx && this.sessions.get(view.id) === view) handleHookEvent(this.hookCtx, event, view.id, undefined);
+    },
+    applyStatusline: (view, payload) => {
+      const session = this.sessions.get(view.id);
+      if (session === view) {
+        this.statuslineApplier?.apply(session, payload, { promptCache: false, planUsage: false });
+      }
+    },
+    markSeen: (view) => {
+      const session = this.sessions.get(view.id);
+      if (session === view && session.markRemoteSignalsSeen()) this.broadcastSessionStateDebounced(session.id);
     },
     log: (message) => console.log(message),
   });
@@ -1357,7 +1396,11 @@ export class WebServer extends EventEmitter {
         { description: 'git fetch interval checker' }
       );
     }
-    registerStatusTelemetryRoutes(this.app, ctx);
+    this.statuslineApplier = createStatuslineApplier(ctx);
+    registerStatusTelemetryRoutes(this.app, ctx, this.statuslineApplier);
+    // Fork: remote sessions' hook events and statuslines take the same paths as the two POSTs.
+    this.hookCtx = ctx;
+    if (!this.testMode) this.remoteSignals.start();
     registerSystemRoutes(this.app, ctx);
     registerCaseRoutes(this.app, ctx);
     registerFleetRoutes(this.app, ctx);
@@ -1620,6 +1663,8 @@ export class WebServer extends EventEmitter {
     const session = this.sessions.get(sessionId);
     this.keepWarmService.remove(sessionId);
     this.remoteTelemetry.remove(sessionId);
+    this.remoteSignals?.remove(sessionId);
+    this.statuslineApplier?.forget(sessionId);
     // A closed session takes its place in the fetch schedule with it: otherwise a detached-and-forgotten id
     // would still count as tracked, and its next run would land on a session that no longer exists.
     this.gitFetchScheduler.remove(sessionId);
@@ -1803,6 +1848,8 @@ export class WebServer extends EventEmitter {
         // The per-session custom-model config dir carries the endpoint's API key (pi and
         // omp embed it literally); it must not outlive the session it was written for.
         removeConfigDir(customModelConfigDir(sessionId));
+        // Fork: a deleted remote session's alert and statusline files go with its remote tmux session.
+        this.removeRemoteSignalFiles(session);
       }
       await session.stop(killMux);
       this.sessions.delete(sessionId);
@@ -2107,6 +2154,20 @@ export class WebServer extends EventEmitter {
       const v = this.assetVersion(join(publicDir, ref));
       return v === null ? full : `${pre}${ref}?v=${v}${post}`;
     });
+  }
+
+  /**
+   * Fork: best-effort removal of a deleted remote session's alert and statusline files on its
+   * machine (remote-session-signals.ts). Only for a session whose remote tmux session this server
+   * ends with it (owned or reclaimed); a detach or an adopted session leaves them. Never waits.
+   */
+  private removeRemoteSignalFiles(session: SignalsSession): void {
+    if (!session.remote || !remoteSignalsReadable(session)) return;
+    const key = remoteSignalsKey(session.remote, session.id);
+    if (!/^[A-Za-z0-9._-]+$/.test(key)) return;
+    remoteExec(session.remote, `cd "$HOME" && rm -f ${EVENTS_DIR}/${key}.log ${SESSION_STATUS_DIR}/${key}.json`, {
+      timeout: 15_000,
+    }).catch(() => {});
   }
 
   private async setupSessionListeners(session: Session): Promise<void> {
@@ -4399,6 +4460,7 @@ export class WebServer extends EventEmitter {
     // running is left to finish, which is what a fetch does to a repository nothing else is touching.
     this.gitFetchScheduler.stop();
     this.remoteTelemetry.stop();
+    this.remoteSignals.stop();
     // A post within the debounce window before shutdown would otherwise not reach disk.
     // Flushed again after `app.close()` below, for a post that lands in between.
     agentInboxPersistence.flush();

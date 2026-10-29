@@ -38,6 +38,15 @@
  * server reads those files over the pooled shell. The newest reading per account wins,
  * so an account shows usage once one of its sessions has run. (The OAuth usage endpoint
  * refuses `claude setup-token` tokens, which lack the `user:profile` scope; measured.)
+ *
+ * Alerts and per-session telemetry ride the same `--settings` (see {@link REMOTE_SIGNALS_VERSION}):
+ * the remote machine may not be able to reach this server, so nothing is POSTed. Instead the
+ * launch carries Claude Code hooks that APPEND one `<unix seconds> <event>` line per hook to
+ * `~/.config/claude-rc/events/<key>.log`, and the statusLine also saves the whole statusline
+ * JSON to `~/.config/claude-rc/session/<key>.json`. `<key>` is `$CLAUDE_RC_SESSION`, which the
+ * remote pane command exports (tmux-manager.ts, the remote tmux session name, so a session
+ * re-attached after a server restart still finds its files). The server tails both over the
+ * pooled shell (remote-session-signals.ts). No prompt text, tool input or message is written.
  */
 
 import { execFile } from 'node:child_process';
@@ -89,6 +98,32 @@ const URL_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~/-]*)?$/;
 const SECRET_DIR = '~/.config/claude-rc';
 /** Relative to $HOME on each machine: the statusline JSON per account (usage readings). */
 const STATUS_DIR = '.config/claude-rc/status';
+/** Relative to $HOME: hook events per session (one `<unix seconds> <event>` line each). */
+export const EVENTS_DIR = '.config/claude-rc/events';
+/** Relative to $HOME: the latest statusline JSON per session. */
+export const SESSION_STATUS_DIR = '.config/claude-rc/session';
+/** The env var the remote pane exports with the session's file key (tmux-manager.ts). */
+export const REMOTE_SESSION_ENV = 'CLAUDE_RC_SESSION';
+/**
+ * Bumped when the launch's hook/statusline shape changes. Stored on `SessionRemote.launch.signals`,
+ * so a session launched before it is told apart (the dashboard says it needs a new start).
+ */
+export const REMOTE_SIGNALS_VERSION = 1;
+/**
+ * The hook events a remote launch records, with the Claude Code hook (and Notification matcher)
+ * behind each. Same names as `/api/hook-event` (hooks-config.ts), so the server feeds them through
+ * the same handler. UserPromptSubmit is left out: its only use there needs the prompt's
+ * conversation id, and nothing about the prompt is written.
+ */
+export const REMOTE_HOOK_EVENTS = [
+  { event: 'permission_prompt', hook: 'Notification', matcher: 'permission_prompt' },
+  { event: 'idle_prompt', hook: 'Notification', matcher: 'idle_prompt' },
+  { event: 'elicitation_dialog', hook: 'Notification', matcher: 'elicitation_dialog' },
+  { event: 'elicitation_complete', hook: 'Notification', matcher: 'elicitation_complete' },
+  { event: 'elicitation_response', hook: 'Notification', matcher: 'elicitation_response' },
+  { event: 'stop', hook: 'Stop' },
+] as const;
+export type RemoteHookEvent = (typeof REMOTE_HOOK_EVENTS)[number]['event'];
 /** Status file id for sessions on the machine's own login (outside ID_RE, so no account can clash). */
 const MACHINE_LOGIN_ID = '_machine';
 const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:[\]=-]+){0,6}$/;
@@ -205,18 +240,59 @@ export function buildLaunch(
 
   // An api account fixes the model through the env above; --model would be a Claude name.
   let args = model && account?.kind !== 'api' && MODEL_RE.test(model) ? ` --model '${model}'` : '';
-  // Usage reporting (see the file header). Windows claude runs statusLine commands
-  // outside WSL's shell, so only WSL/Linux sessions report. The command contains no
-  // quote characters, so it sits safely inside the single-quoted JSON.
-  // A session on the machine's own login saves as MACHINE_LOGIN_ID; the server maps
-  // that reading to the account whose email the machine is logged in with.
-  const statusId = account ? account.id : MACHINE_LOGIN_ID;
-  if (account?.kind !== 'api' && account?.kind !== 'shell' && !windows && (!account || ID_RE.test(account.id))) {
-    const dir = `$HOME/${STATUS_DIR}`;
-    const save = `mkdir -p ${dir} && cat > ${dir}/.${statusId}.$$ && mv -f ${dir}/.${statusId}.$$ ${dir}/${statusId}.json`;
-    args += ` --settings '${JSON.stringify({ statusLine: { type: 'command', command: save } })}'`;
+  // Usage, alerts and per-session telemetry (see the file header). Windows claude runs
+  // statusLine and hook commands outside WSL's shell, so only WSL/Linux sessions get them.
+  if (windows) return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args };
+  // The per-account usage reading: Claude logins only (an api/shell account has no plan
+  // windows, or not this account's). A session on the machine's own login saves as
+  // MACHINE_LOGIN_ID; the server maps that reading to the account whose email the
+  // machine is logged in with.
+  const usageId = account?.kind === 'api' || account?.kind === 'shell' ? null : account ? account.id : MACHINE_LOGIN_ID;
+  const settings = buildRemoteSignalsSettings(usageId !== null && (!account || ID_RE.test(usageId)) ? usageId : null);
+  args += ` --settings '${JSON.stringify(settings)}'`;
+  return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args, signals: REMOTE_SIGNALS_VERSION };
+}
+
+/**
+ * The one `--settings` object of a WSL/Linux launch: the statusLine (per-session save, plus the
+ * per-account usage save when `usageId` is given) and the hooks of {@link REMOTE_HOOK_EVENTS}.
+ *
+ * ⚠️ Every command here contains no quote characters and no backslashes, so the JSON sits safely
+ * inside the single-quoted shell argument of the launch (and through the outer shellescape
+ * layers). The file key comes from `$CLAUDE_RC_SESSION`; without it (a pane command that does
+ * not export it) the per-session parts write nothing: `test -z $X` with X empty is `test -z`,
+ * which is true. Nothing is printed, so the statusline row stays empty and no hook output
+ * reaches the model.
+ */
+export function buildRemoteSignalsSettings(usageId: string | null): {
+  statusLine: { type: 'command'; command: string };
+  hooks: Record<
+    string,
+    Array<{ matcher?: string; hooks: Array<{ type: 'command'; command: string; timeout: number }> }>
+  >;
+} {
+  const key = `$${REMOTE_SESSION_ENV}`;
+  const d = '$HOME/.config/claude-rc';
+  // Save stdin to a temp file, copy it to the session file when there is a key, then move it
+  // to the account file (or drop it).
+  const perSession = `test -z ${key} || { cp $t ${d}/session/.${key}.$$ && mv -f ${d}/session/.${key}.$$ ${d}/session/${key}.json; }`;
+  const statusLine =
+    `t=${d}/.st.$$; mkdir -p ${d}/session ${d}/status && cat > $t && { ${perSession}; }; ` +
+    (usageId ? `mv -f $t ${d}/status/${usageId}.json` : 'rm -f $t');
+  const hookCommand = (event: string) =>
+    `cat >/dev/null; test -z ${key} || { mkdir -p ${d}/events && echo $(date +%s) ${event} >> ${d}/events/${key}.log; }`;
+  const hooks: Record<
+    string,
+    Array<{ matcher?: string; hooks: Array<{ type: 'command'; command: string; timeout: number }> }>
+  > = {};
+  for (const spec of REMOTE_HOOK_EVENTS) {
+    const entry = {
+      ...('matcher' in spec ? { matcher: spec.matcher } : {}),
+      hooks: [{ type: 'command' as const, command: hookCommand(spec.event), timeout: 10 }],
+    };
+    (hooks[spec.hook] ??= []).push(entry);
   }
-  return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args };
+  return { statusLine: { type: 'command', command: statusLine }, hooks };
 }
 
 const SSH_TIMEOUT_MS = 20_000;

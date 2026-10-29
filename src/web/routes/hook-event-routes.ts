@@ -8,6 +8,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import type { z } from 'zod';
 import { ApiErrorCode, createErrorResponse } from '../../types.js';
 import { HookEventSchema, isValidWorkingDir } from '../schemas.js';
 import { sanitizeHookData, parseBody } from '../route-helpers.js';
@@ -54,238 +55,251 @@ const dshSeqBySession = new Map<string, { seq: number; at: number }>();
 const DSH_SEQ_STALE_WINDOW_MS = 60_000;
 const DSH_SEQ_MAX_SESSIONS = 500;
 
-export function registerHookEventRoutes(
-  app: FastifyInstance,
-  ctx: SessionPort & EventPort & RespawnPort & ConfigPort & InfraPort
-): void {
+export type HookEventContext = SessionPort & EventPort & RespawnPort & ConfigPort & InfraPort;
+export type HookEventName = z.infer<typeof HookEventSchema>['event'];
+
+export function registerHookEventRoutes(app: FastifyInstance, ctx: HookEventContext): void {
   app.post('/api/hook-event', async (req) => {
     const { event, sessionId, data } = parseBody(HookEventSchema, req.body);
-    if (!ctx.sessions.has(sessionId)) {
-      return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Session not found');
-    }
+    return handleHookEvent(ctx, event, sessionId, data);
+  });
+}
 
-    // DeepSeek status-bridge ordering: drop a stale retried report (see
-    // dshSeqBySession above). Success rather than an error, so the shim exits 0
-    // and the TUI does not keep retrying a report that will stay stale.
-    if (data && data.source === 'dsh-status-shim' && typeof data.seq === 'number') {
-      const last = dshSeqBySession.get(sessionId);
-      const now = Date.now();
-      if (last && data.seq <= last.seq && now - last.at < DSH_SEQ_STALE_WINDOW_MS) {
-        return {};
-      }
-      if (!dshSeqBySession.has(sessionId) && dshSeqBySession.size >= DSH_SEQ_MAX_SESSIONS) {
-        const oldest = dshSeqBySession.keys().next().value;
-        if (oldest !== undefined) dshSeqBySession.delete(oldest);
-      }
-      dshSeqBySession.set(sessionId, { seq: data.seq, at: now });
-    }
+/**
+ * Everything a hook event does: wait signals, respawn signals, the Approvals Inbox, the
+ * `hook:<event>` broadcast, push notifications and the run summary. The route above calls it
+ * for a hook that POSTed; remote-session-signals.ts (fork) calls it for a hook a remote (ssh)
+ * session recorded to a file on its machine, so both land in exactly the same state.
+ */
+export function handleHookEvent(
+  ctx: HookEventContext,
+  event: HookEventName,
+  sessionId: string,
+  data: Record<string, unknown> | null | undefined
+) {
+  if (!ctx.sessions.has(sessionId)) {
+    return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Session not found');
+  }
 
-    // Wake anything blocked on `GET /api/sessions/:id/wait`. Hooks are the only
-    // DEFINITIVE signals Codeman gets (`idle` is inferred from output stabilization
-    // and can flap mid-turn), so these two are what an orchestrating agent should
-    // wait on.
-    //
-    // Gated on the session's MODE, matching `resolveWaitSignals` on the read side.
-    // Without it the guard is one-sided: a caller cannot ASK for `stop` on a shell or
-    // codex session, but this endpoint would happily deliver one for it. Hook events
-    // carry no identity beyond a per-instance secret shared by every case, so this is
-    // also the cheap half of the forgery surface — a `stop` claimed for a session that
-    // could never legitimately emit one is now dropped instead of steering another
-    // agent's control flow.
-    const waitSession = ctx.sessions.get(sessionId);
-    if (waitSession && hooksAvailableForMode(waitSession.mode, sessionHookOptions(waitSession))) {
-      if (event === 'stop') {
-        sessionWaits.notifySignal(sessionId, 'stop');
-      } else if (event === 'permission_prompt' || event === 'elicitation_dialog') {
-        sessionWaits.notifySignal(sessionId, 'blocked');
-      }
+  // DeepSeek status-bridge ordering: drop a stale retried report (see
+  // dshSeqBySession above). Success rather than an error, so the shim exits 0
+  // and the TUI does not keep retrying a report that will stay stale.
+  if (data && data.source === 'dsh-status-shim' && typeof data.seq === 'number') {
+    const last = dshSeqBySession.get(sessionId);
+    const now = Date.now();
+    if (last && data.seq <= last.seq && now - last.at < DSH_SEQ_STALE_WINDOW_MS) {
+      return {};
     }
-
-    // Signal the respawn controller based on hook event type
-    const controller = ctx.respawnControllers.get(sessionId);
-    if (controller) {
-      if (event === 'elicitation_dialog') {
-        // Block auto-accept for question prompts
-        controller.signalElicitation();
-      } else if (event === 'stop') {
-        // DEFINITIVE idle signal - Claude finished responding
-        controller.signalStopHook();
-      } else if (event === 'idle_prompt') {
-        // DEFINITIVE idle signal - Claude has been idle for 60+ seconds
-        controller.signalIdlePrompt();
-      }
+    if (!dshSeqBySession.has(sessionId) && dshSeqBySession.size >= DSH_SEQ_MAX_SESSIONS) {
+      const oldest = dshSeqBySession.keys().next().value;
+      if (oldest !== undefined) dshSeqBySession.delete(oldest);
     }
+    dshSeqBySession.set(sessionId, { seq: data.seq, at: now });
+  }
 
-    // Start transcript watching if transcript_path is provided and safe
-    if (data && 'transcript_path' in data) {
-      const transcriptPath = String(data.transcript_path);
-      if (transcriptPath && isValidWorkingDir(transcriptPath)) {
-        ctx.startTranscriptWatcher(sessionId, transcriptPath);
-      }
+  // Wake anything blocked on `GET /api/sessions/:id/wait`. Hooks are the only
+  // DEFINITIVE signals Codeman gets (`idle` is inferred from output stabilization
+  // and can flap mid-turn), so these two are what an orchestrating agent should
+  // wait on.
+  //
+  // Gated on the session's MODE, matching `resolveWaitSignals` on the read side.
+  // Without it the guard is one-sided: a caller cannot ASK for `stop` on a shell or
+  // codex session, but this endpoint would happily deliver one for it. Hook events
+  // carry no identity beyond a per-instance secret shared by every case, so this is
+  // also the cheap half of the forgery surface — a `stop` claimed for a session that
+  // could never legitimately emit one is now dropped instead of steering another
+  // agent's control flow.
+  const waitSession = ctx.sessions.get(sessionId);
+  if (waitSession && hooksAvailableForMode(waitSession.mode, sessionHookOptions(waitSession))) {
+    if (event === 'stop') {
+      sessionWaits.notifySignal(sessionId, 'stop');
+    } else if (event === 'permission_prompt' || event === 'elicitation_dialog') {
+      sessionWaits.notifySignal(sessionId, 'blocked');
     }
+  }
 
-    // Sync Claude's current conversation id. Interactive PTY mode never emits
-    // `session_id` on stdout, so hooks are the only reliable way to learn that
-    // the user ran `/clear` (which spins up a new conversation jsonl).
-    let conversationChanged = false;
-    if (data && typeof data.session_id === 'string' && data.session_id) {
-      const session = ctx.sessions.get(sessionId);
-      const prevClaudeSessionId = session?.claudeSessionId;
-      const prevChainLength = session?.claudeSessionChain.length ?? 0;
-      // FIRST-HAND: this payload came from the CLI process itself and reached us
-      // because the pane's own $CODEMAN_SESSION_ID addressed it. No cwd, no
-      // timestamp, nothing a sibling pane on the same folder could win — so the
-      // response viewer can stop guessing entirely (see
-      // resolveActiveClaudeSessionIdFromHistory).
-      session?.adoptClaudeSessionId(data.session_id, { firstHand: true });
-      if (event === 'prompt_submitted') {
-        // Repairs `lastSubmitAt` for a pane driven straight from tmux: it was
-        // bumped only by input that flowed through Codeman's own write path, so
-        // it read 0 forever for those panes and every consumer of "when did this
-        // pane last submit" silently degraded.
-        // The prompt text tells a person's prompt from the keep-alive's (prompt-cache-keepwarm.ts).
-        session?.markPromptSubmitted(typeof data.prompt === 'string' ? data.prompt : undefined);
-      }
-      // Persist when the conversation actually moved: `/clear` emits no
-      // completion event, so without this the successor id is lost on restart
-      // and recovery falls back to the launch conversation.
-      if (
-        session &&
-        (session.claudeSessionId !== prevClaudeSessionId || session.claudeSessionChain.length !== prevChainLength)
-      ) {
-        conversationChanged = true;
-        ctx.persistSessionState(session);
-      }
-      // Docker sessions: keep the case's resume seed following the LIVE
-      // conversation (post-/clear id switches), so a container stop/reboot
-      // relaunch resumes the right transcript.
-      if (session?.docker && session.claudeSessionId && session.claudeSessionId !== prevClaudeSessionId) {
-        void persistDockerCaseClaudeSessionId(
-          getDataDir(),
-          session.docker.containerName,
-          session.claudeSessionId
-        ).catch(() => {});
-      }
+  // Signal the respawn controller based on hook event type
+  const controller = ctx.respawnControllers.get(sessionId);
+  if (controller) {
+    if (event === 'elicitation_dialog') {
+      // Block auto-accept for question prompts
+      controller.signalElicitation();
+    } else if (event === 'stop') {
+      // DEFINITIVE idle signal - Claude finished responding
+      controller.signalStopHook();
+    } else if (event === 'idle_prompt') {
+      // DEFINITIVE idle signal - Claude has been idle for 60+ seconds
+      controller.signalIdlePrompt();
     }
+  }
 
-    // Sanitize forwarded data: only include known safe fields, limit size
-    const safeData = sanitizeHookData(data);
+  // Start transcript watching if transcript_path is provided and safe
+  if (data && 'transcript_path' in data) {
+    const transcriptPath = String(data.transcript_path);
+    if (transcriptPath && isValidWorkingDir(transcriptPath)) {
+      ctx.startTranscriptWatcher(sessionId, transcriptPath);
+    }
+  }
+
+  // Sync Claude's current conversation id. Interactive PTY mode never emits
+  // `session_id` on stdout, so hooks are the only reliable way to learn that
+  // the user ran `/clear` (which spins up a new conversation jsonl).
+  let conversationChanged = false;
+  if (data && typeof data.session_id === 'string' && data.session_id) {
     const session = ctx.sessions.get(sessionId);
-    const sessionName = session?.name ?? sessionId.slice(0, 8);
-
-    // Approvals Inbox: prompt events open an item, dialog-closed/stop events
-    // clear it. Mode-gated like the wait signals above (hook events carry no
-    // identity beyond the shared per-instance secret, so a prompt claimed for a
-    // session that can never show one must not create an answerable item).
-    let approvalId: string | undefined;
-    // Set when the item opened ALREADY acknowledged, which today means the session is
-    // watching work it started itself. It rides the broadcast so a live page declines to
-    // arm the alert (a reloading page learns the same thing from `acknowledgedAt` when it
-    // seeds from /api/approvals), and it suppresses the push: an alert nobody can answer
-    // is worth even less on a phone than in a tab.
-    let acknowledgedReason: string | undefined;
-    // A turn Codeman started itself (the prompt-cache keep-alive, prompt-cache-keepwarm.ts)
-    // ends with the same stop hook and idle prompt as a real one. Both open pre-acknowledged,
-    // so no tab, toast or push asks a person to look at a session that wants nothing from them.
-    const keepAliveReason =
-      session?.keepAliveTurnActive && (event === 'stop' || event === 'idle_prompt') ? 'cache keep-alive' : undefined;
-    const approvalKind = APPROVAL_KIND_BY_EVENT[event];
-    // Only a human spends an idle alert, so a keep-alive turn leaves a pending idle item exactly
-    // as it found it: its stop does not resolve it, and its idle prompt does not replace it (a
-    // replacement would forget the item was unseen, or that a person had seen it). With no idle
-    // item pending, the keep-alive's idle prompt opens a pre-acknowledged one.
-    const keepsPendingIdle = keepAliveReason !== undefined && approvalInbox.getForSession(sessionId)?.kind === 'idle';
-    if (session && hooksAvailableForMode(session.mode, sessionHookOptions(session))) {
-      if (approvalKind === 'idle' && keepsPendingIdle) {
-        // Left in place: no new item, and the broadcast below carries the keep-alive reason.
-      } else if (approvalKind) {
-        const toolInput =
-          safeData.tool_input && typeof safeData.tool_input === 'object'
-            ? (safeData.tool_input as Record<string, unknown>)
-            : undefined;
-        const toolSummary = toolInput
-          ? [toolInput.command, toolInput.file_path, toolInput.description].find((v) => typeof v === 'string')
-          : undefined;
-        const item = approvalInbox.notePrompt({
-          sessionId,
-          sessionName,
-          kind: approvalKind,
-          toolName: typeof safeData.tool_name === 'string' ? safeData.tool_name : undefined,
-          toolSummary: typeof toolSummary === 'string' ? toolSummary : undefined,
-          message: typeof safeData.message === 'string' ? safeData.message : undefined,
-          cwd: typeof safeData.cwd === 'string' ? safeData.cwd : undefined,
-          // Supervised-hook CLIs (DeepSeek Harness): dialog keystrokes are unverifiable,
-          // so the item is an alert — answer in the terminal. Capability-gated, not by
-          // mode id, so a future supervised CLI inherits the same shape.
-          answerInTerminal: getCli(session.mode)?.capabilities.hooks === 'supervised',
-          // What the pane says is still running in the background. An idle prompt from a
-          // session that is watching its own work opens acknowledged, so it never arms an
-          // alert nobody can answer; notePrompt() carries the whole reasoning.
-          watching: session.watching,
-          preAcknowledged: keepAliveReason,
-          // Visible tmux frame first (it IS the dialog); raw byte-buffer tail as
-          // the fallback for direct-PTY sessions and the no-op test mux.
-          capture: () => {
-            const muxName = session.muxName;
-            const frame = muxName ? (ctx.mux.capturePaneBuffer?.(muxName) ?? null) : null;
-            return frame ?? session.terminalBuffer.slice(-8192) ?? null;
-          },
-        });
-        approvalId = item.id;
-        acknowledgedReason = item.acknowledgedReason;
-      } else if (APPROVAL_RESOLVING_EVENTS.has(event) && !keepsPendingIdle) {
-        approvalInbox.resolveForSession(sessionId, 'resolved_in_terminal');
-      }
+    const prevClaudeSessionId = session?.claudeSessionId;
+    const prevChainLength = session?.claudeSessionChain.length ?? 0;
+    // FIRST-HAND: this payload came from the CLI process itself and reached us
+    // because the pane's own $CODEMAN_SESSION_ID addressed it. No cwd, no
+    // timestamp, nothing a sibling pane on the same folder could win — so the
+    // response viewer can stop guessing entirely (see
+    // resolveActiveClaudeSessionIdFromHistory).
+    session?.adoptClaudeSessionId(data.session_id, { firstHand: true });
+    if (event === 'prompt_submitted') {
+      // Repairs `lastSubmitAt` for a pane driven straight from tmux: it was
+      // bumped only by input that flowed through Codeman's own write path, so
+      // it read 0 forever for those panes and every consumer of "when did this
+      // pane last submit" silently degraded.
+      // The prompt text tells a person's prompt from the keep-alive's (prompt-cache-keepwarm.ts).
+      session?.markPromptSubmitted(typeof data.prompt === 'string' ? data.prompt : undefined);
     }
+    // Persist when the conversation actually moved: `/clear` emits no
+    // completion event, so without this the successor id is lost on restart
+    // and recovery falls back to the launch conversation.
+    if (
+      session &&
+      (session.claudeSessionId !== prevClaudeSessionId || session.claudeSessionChain.length !== prevChainLength)
+    ) {
+      conversationChanged = true;
+      ctx.persistSessionState(session);
+    }
+    // Docker sessions: keep the case's resume seed following the LIVE
+    // conversation (post-/clear id switches), so a container stop/reboot
+    // relaunch resumes the right transcript.
+    if (session?.docker && session.claudeSessionId && session.claudeSessionId !== prevClaudeSessionId) {
+      void persistDockerCaseClaudeSessionId(getDataDir(), session.docker.containerName, session.claudeSessionId).catch(
+        () => {}
+      );
+    }
+  }
 
-    acknowledgedReason ??= keepAliveReason;
-    // The keep-alive turn's own idle prompt is the last thing it sends, so the window ends here
-    // rather than on a fixed clock that a slow turn could outlast.
-    if (keepAliveReason && event === 'idle_prompt') session?.endKeepAliveTurn();
+  // Sanitize forwarded data: only include known safe fields, limit size
+  const safeData = sanitizeHookData(data);
+  const session = ctx.sessions.get(sessionId);
+  const sessionName = session?.name ?? sessionId.slice(0, 8);
 
-    ctx.broadcast(`hook:${event}`, {
-      sessionId,
-      timestamp: Date.now(),
-      ...safeData,
-      ...(approvalId && { approvalId }),
-      ...(acknowledgedReason && { acknowledgedReason }),
-    });
-    // Full state ride-along, same shape as the working/idle handlers: the home
-    // screens rank the blocked group on lastActivityAt, and without this a
-    // permission prompt raised after page load kept ranking by whatever stamp
-    // the browser loaded with. Debounced, so a hook burst costs one broadcast.
-    ctx.broadcastSessionStateDebounced(sessionId);
-
-    // Send push notifications for hook events. Push Approve/Deny actions ride
-    // on approvalId, and the answer route refuses keystrokes for dsh dialogs
-    // (third-party TUI, unmeasured contract) — so a dsh push stays a plain
-    // notification instead of offering buttons whose answer would be refused.
-    // Nothing to push for a prompt that opened acknowledged: the agent is waiting for its
-    // own monitor or backgrounded shell, and a phone buzzing about it is the same false
-    // alarm as the tab alert, delivered where it is hardest to ignore.
-    if (!acknowledgedReason) {
-      ctx.sendPushNotifications(`hook:${event}`, {
+  // Approvals Inbox: prompt events open an item, dialog-closed/stop events
+  // clear it. Mode-gated like the wait signals above (hook events carry no
+  // identity beyond the shared per-instance secret, so a prompt claimed for a
+  // session that can never show one must not create an answerable item).
+  let approvalId: string | undefined;
+  // Set when the item opened ALREADY acknowledged, which today means the session is
+  // watching work it started itself. It rides the broadcast so a live page declines to
+  // arm the alert (a reloading page learns the same thing from `acknowledgedAt` when it
+  // seeds from /api/approvals), and it suppresses the push: an alert nobody can answer
+  // is worth even less on a phone than in a tab.
+  let acknowledgedReason: string | undefined;
+  // A turn Codeman started itself (the prompt-cache keep-alive, prompt-cache-keepwarm.ts)
+  // ends with the same stop hook and idle prompt as a real one. Both open pre-acknowledged,
+  // so no tab, toast or push asks a person to look at a session that wants nothing from them.
+  const keepAliveReason =
+    session?.keepAliveTurnActive && (event === 'stop' || event === 'idle_prompt') ? 'cache keep-alive' : undefined;
+  const approvalKind = APPROVAL_KIND_BY_EVENT[event];
+  // Only a human spends an idle alert, so a keep-alive turn leaves a pending idle item exactly
+  // as it found it: its stop does not resolve it, and its idle prompt does not replace it (a
+  // replacement would forget the item was unseen, or that a person had seen it). With no idle
+  // item pending, the keep-alive's idle prompt opens a pre-acknowledged one.
+  const keepsPendingIdle = keepAliveReason !== undefined && approvalInbox.getForSession(sessionId)?.kind === 'idle';
+  if (session && hooksAvailableForMode(session.mode, sessionHookOptions(session))) {
+    if (approvalKind === 'idle' && keepsPendingIdle) {
+      // Left in place: no new item, and the broadcast below carries the keep-alive reason.
+    } else if (approvalKind) {
+      const toolInput =
+        safeData.tool_input && typeof safeData.tool_input === 'object'
+          ? (safeData.tool_input as Record<string, unknown>)
+          : undefined;
+      const toolSummary = toolInput
+        ? [toolInput.command, toolInput.file_path, toolInput.description].find((v) => typeof v === 'string')
+        : undefined;
+      const item = approvalInbox.notePrompt({
         sessionId,
         sessionName,
-        ...safeData,
-        // Supervised-hook CLIs answer in the terminal: omit approvalId so push
-        // cannot offer Approve/Deny that the answer route would refuse.
-        ...(approvalId && session && getCli(session.mode)?.capabilities.hooks !== 'supervised' && { approvalId }),
+        kind: approvalKind,
+        toolName: typeof safeData.tool_name === 'string' ? safeData.tool_name : undefined,
+        toolSummary: typeof toolSummary === 'string' ? toolSummary : undefined,
+        message: typeof safeData.message === 'string' ? safeData.message : undefined,
+        cwd: typeof safeData.cwd === 'string' ? safeData.cwd : undefined,
+        // Supervised-hook CLIs (DeepSeek Harness): dialog keystrokes are unverifiable,
+        // so the item is an alert — answer in the terminal. Capability-gated, not by
+        // mode id, so a future supervised CLI inherits the same shape.
+        answerInTerminal: getCli(session.mode)?.capabilities.hooks === 'supervised',
+        // What the pane says is still running in the background. An idle prompt from a
+        // session that is watching its own work opens acknowledged, so it never arms an
+        // alert nobody can answer; notePrompt() carries the whole reasoning.
+        watching: session.watching,
+        preAcknowledged: keepAliveReason,
+        // Visible tmux frame first (it IS the dialog); raw byte-buffer tail as
+        // the fallback for direct-PTY sessions and the no-op test mux.
+        capture: () => {
+          const muxName = session.muxName;
+          const frame = muxName ? (ctx.mux.capturePaneBuffer?.(muxName) ?? null) : null;
+          return frame ?? session.terminalBuffer.slice(-8192) ?? null;
+        },
       });
+      approvalId = item.id;
+      acknowledgedReason = item.acknowledgedReason;
+    } else if (APPROVAL_RESOLVING_EVENTS.has(event) && !keepsPendingIdle) {
+      approvalInbox.resolveForSession(sessionId, 'resolved_in_terminal');
     }
+  }
 
-    // Track in run summary. `prompt_submitted` fires on EVERY prompt of every
-    // Claude pane; only the ones where the conversation actually moved (a /clear
-    // successor) carry information, and recording the rest would push a row into
-    // the Summary timeline and /api/search per turn and evict useful rows from
-    // the 1000-event FIFO (#367 merge-time fix). A keep-alive turn's stop and idle prompt are
-    // left out too: the summary files a `stop` as a warning, which the Away digest lists under
-    // Needs Attention, and that turn is Codeman's own, not the agent's.
-    const summaryTracker = ctx.runSummaryTrackers.get(sessionId);
-    if (summaryTracker && !keepAliveReason && (event !== 'prompt_submitted' || conversationChanged)) {
-      summaryTracker.recordHookEvent(event, safeData);
-    }
+  acknowledgedReason ??= keepAliveReason;
+  // The keep-alive turn's own idle prompt is the last thing it sends, so the window ends here
+  // rather than on a fixed clock that a slow turn could outlast.
+  if (keepAliveReason && event === 'idle_prompt') session?.endKeepAliveTurn();
 
-    return {};
+  ctx.broadcast(`hook:${event}`, {
+    sessionId,
+    timestamp: Date.now(),
+    ...safeData,
+    ...(approvalId && { approvalId }),
+    ...(acknowledgedReason && { acknowledgedReason }),
   });
+  // Full state ride-along, same shape as the working/idle handlers: the home
+  // screens rank the blocked group on lastActivityAt, and without this a
+  // permission prompt raised after page load kept ranking by whatever stamp
+  // the browser loaded with. Debounced, so a hook burst costs one broadcast.
+  ctx.broadcastSessionStateDebounced(sessionId);
+
+  // Send push notifications for hook events. Push Approve/Deny actions ride
+  // on approvalId, and the answer route refuses keystrokes for dsh dialogs
+  // (third-party TUI, unmeasured contract) — so a dsh push stays a plain
+  // notification instead of offering buttons whose answer would be refused.
+  // Nothing to push for a prompt that opened acknowledged: the agent is waiting for its
+  // own monitor or backgrounded shell, and a phone buzzing about it is the same false
+  // alarm as the tab alert, delivered where it is hardest to ignore.
+  if (!acknowledgedReason) {
+    ctx.sendPushNotifications(`hook:${event}`, {
+      sessionId,
+      sessionName,
+      ...safeData,
+      // Supervised-hook CLIs answer in the terminal: omit approvalId so push
+      // cannot offer Approve/Deny that the answer route would refuse.
+      ...(approvalId && session && getCli(session.mode)?.capabilities.hooks !== 'supervised' && { approvalId }),
+    });
+  }
+
+  // Track in run summary. `prompt_submitted` fires on EVERY prompt of every
+  // Claude pane; only the ones where the conversation actually moved (a /clear
+  // successor) carry information, and recording the rest would push a row into
+  // the Summary timeline and /api/search per turn and evict useful rows from
+  // the 1000-event FIFO (#367 merge-time fix). A keep-alive turn's stop and idle prompt are
+  // left out too: the summary files a `stop` as a warning, which the Away digest lists under
+  // Needs Attention, and that turn is Codeman's own, not the agent's.
+  const summaryTracker = ctx.runSummaryTrackers.get(sessionId);
+  if (summaryTracker && !keepAliveReason && (event !== 'prompt_submitted' || conversationChanged)) {
+    summaryTracker.recordHookEvent(event, safeData);
+  }
+
+  return {};
 }

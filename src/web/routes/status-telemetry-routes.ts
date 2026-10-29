@@ -8,7 +8,10 @@
  * (localhost-only; hook-secret-gated while a tunnel runs — see middleware/auth).
  *
  * Also records the session's model (`model.display_name`) as its reported model, which
- * `session:updated` publishes as `displayModel` for the session headers.
+ * `session:updated` publishes as `displayModel` for the session headers, and (fork) the
+ * session's own token/context/cost figures as `statusUsage`. What a report does to a
+ * session lives in `status-telemetry-apply.ts`, shared with remote (ssh) sessions, whose
+ * statusline arrives from a file on their machine instead (remote-session-signals.ts).
  *
  * Returns a compact plain-text status string for the exporter to print as the
  * in-terminal footer (print-through) when it has no statusline of the user's
@@ -19,24 +22,15 @@
 import { FastifyInstance } from 'fastify';
 import { StatusTelemetrySchema } from '../schemas.js';
 import { parseBody } from '../route-helpers.js';
-import {
-  parsePromptCache,
-  parseStatusTelemetry,
-  parseSessionStatus,
-  formatSessionStatusText,
-  telemetrySignature,
-  type RawStatuslinePayload,
-} from '../../usage-telemetry.js';
-import { SessionPromptCache, SessionStatusTelemetry } from '../sse-events.js';
-import { setLatestPlanUsage } from '../plan-usage-latest.js';
+import { parseSessionStatus, formatSessionStatusText, type RawStatuslinePayload } from '../../usage-telemetry.js';
 import type { SessionPort, EventPort, KeepWarmPort } from '../ports/index.js';
-import { getCli } from '../../config/cli-registry/index.js';
+import { createStatuslineApplier, type StatuslineApplier } from '../status-telemetry-apply.js';
 
-export function registerStatusTelemetryRoutes(app: FastifyInstance, ctx: SessionPort & EventPort & KeepWarmPort): void {
-  // Last broadcast telemetry signature per session — the statusline fires on
-  // every assistant message, so we only rebroadcast when the value changes.
-  const lastSig = new Map<string, string>();
-
+export function registerStatusTelemetryRoutes(
+  app: FastifyInstance,
+  ctx: SessionPort & EventPort & KeepWarmPort,
+  applier: StatuslineApplier = createStatuslineApplier(ctx)
+): void {
   app.post('/api/status-telemetry', async (req, reply) => {
     const { sessionId, data } = parseBody(StatusTelemetrySchema, req.body);
 
@@ -44,69 +38,14 @@ export function registerStatusTelemetryRoutes(app: FastifyInstance, ctx: Session
 
     // Unknown session: nothing to broadcast and nothing to print. Never a brand
     // word here, it would render as the statusline.
-    if (!ctx.sessions.has(sessionId)) {
-      lastSig.delete(sessionId);
+    const session = ctx.sessions.get(sessionId);
+    if (!session) {
+      applier.forget(sessionId);
       return '';
     }
 
     const payload = data as RawStatuslinePayload | undefined;
-
-    // Only a CLI that has a statusline exporter at all speaks for its own model and
-    // prompt-cache state: both ride the SAME statusline payload the exporter POSTs, so
-    // both are gated on capabilities.statusLineTelemetry (the gate that also decides
-    // whether the exporter is injected at all, in tmux-manager._resolveStatusLine).
-    const session = ctx.sessions.get(sessionId);
-    const reportsStatusLine = !!session && !!getCli(session.mode)?.capabilities.statusLineTelemetry;
-
-    // The model the CLI says it is running, for the session headers (displayModel). It
-    // rides every render, so it follows an in-session `/model`; the session dedupes and
-    // broadcasts only a change.
-    if (session && reportsStatusLine) {
-      session.noteReportedModel('statusline', payload?.model?.display_name);
-      // The version of the CLI actually running in the pane. The launch-time
-      // `--version` probe is cached for the server's lifetime, so after Claude Code
-      // updates itself this is the only source that follows it; it feeds the
-      // "detection untested on this version" hint (SessionState.cliVersionUntested).
-      session.noteReportedCliVersion(payload?.version);
-    }
-
-    // Prompt-cache state of the main conversation (Claude Code v2.1.251+): kept on the
-    // session for the Session Options readout and `toState()`, broadcast only when the
-    // report changes (the statusline fires on every assistant message). The broadcast
-    // carries the STORED object, so a compaction stamp set in setPromptCache rides along.
-    // Reports are applied in arrival order. When the exporter wraps a user's own statusline
-    // it backgrounds this POST (hooks-config.ts), so two sub-second loopback reports can
-    // arrive out of order; a stale one then briefly overwrites newer state until the next
-    // render corrects it. Accepted for a display-only readout rather than ordered here.
-    const promptCache = reportsStatusLine ? parsePromptCache(payload) : null;
-    if (promptCache) {
-      if (session?.setPromptCache(promptCache)) {
-        ctx.broadcast(SessionPromptCache, { sessionId, ...session.promptCache });
-        // Persisted on change, like a model change, so a crash restores the latest report.
-        ctx.persistSessionState(session);
-      }
-      // Every report moves `expires_at`, so the keep-warm re-evaluates on each one.
-      void ctx.keepWarm.schedule(sessionId);
-    }
-
-    // Plan-usage limits (account-wide) → broadcast to the header chip, when
-    // present and changed (the statusline fires on every assistant message).
-    const telemetry = parseStatusTelemetry(payload);
-    if (telemetry) {
-      const sig = telemetrySignature(telemetry);
-      if (lastSig.get(sessionId) !== sig) {
-        lastSig.set(sessionId, sig);
-        // Bound the map across long multi-session runs: prune dead sessions.
-        if (lastSig.size > 256) {
-          for (const id of [...lastSig.keys()]) {
-            if (!ctx.sessions.has(id)) lastSig.delete(id);
-          }
-        }
-        const update = { sessionId, ...telemetry };
-        const snapshot = setLatestPlanUsage(update); // replayed in the SSE init snapshot for fresh loads
-        ctx.broadcast(SessionStatusTelemetry, snapshot);
-      }
-    }
+    applier.apply(session, payload, { promptCache: true, planUsage: true });
 
     // In-terminal statusline footer → CURRENT SESSION status (model / tokens /
     // context %), NOT the plan limits. Available from the first render, even

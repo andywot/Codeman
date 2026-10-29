@@ -7,7 +7,7 @@
 // the launch's single quoting, Windows and api/shell accounts get none, and the saved
 // JSON parses into percentages with ISO reset times.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,12 +48,20 @@ describe('usage from session statuslines', () => {
     });
   });
 
-  it('adds nothing for Windows sessions or for api/shell accounts', () => {
+  it('adds nothing for Windows sessions, and no per-account usage for api/shell accounts', () => {
     expect(buildLaunch({ system: 'windows' }, account, undefined).args).not.toContain('--settings');
     expect(buildLaunch({ system: 'windows' }, undefined, undefined).args).not.toContain('--settings');
-    expect(
-      buildLaunch({ system: 'linux' }, { ...account, kind: 'shell', setupCommand: 'use-glm' }, undefined).args
-    ).toBe('');
+    // A shell (or api) account still gets the per-session statusline and the alert hooks
+    // (test/remote-session-signals.test.ts), but its reading is not an account's usage.
+    const { args } = buildLaunch(
+      { system: 'linux' },
+      { ...account, kind: 'shell', setupCommand: 'use-glm' },
+      undefined
+    );
+    const command = JSON.parse(args.match(/--settings '([^']*)'/)?.[1] as string).statusLine.command as string;
+    const home = mkdtempSync(join(tmpdir(), 'rc-status-'));
+    execFileSync('sh', ['-c', command], { input: payload, env: { ...process.env, HOME: home } });
+    expect(readdirSync(join(home, '.config/claude-rc/status'))).toEqual([]);
   });
 
   it("saves a machine-login session's reading with the email that login belongs to", () => {

@@ -73,6 +73,7 @@ import {
 } from './session-cli-registry-bridge.js';
 import { keepWarmOn } from './prompt-cache-keepwarm.js';
 import { ADOPTED_TMUX_NAME_RE, TMUX_SOCKET_NAME_RE } from './claude-discovery.js';
+import { REMOTE_SESSION_ENV } from './fleet.js';
 import type { CliEntry } from './config/cli-registry/types.js';
 import {
   resolveStatusLineCliCommand,
@@ -1301,9 +1302,17 @@ export function buildRemoteLaunchCommand(options: {
   // only an interactive login shell resolves (see that function's comment).
   const override = remote.commands?.[mode];
   let modeCommand: string;
+  // Fork (fleet.ts): the key the launch's hooks and statusLine name their files by on the
+  // machine (remote-session-signals.ts reads them), exported to the pane. The remote tmux
+  // session name, so a session re-attached after a server restart (a new id, the same remote
+  // name) still finds its files. Set by claude's own launch arm only; a host override runs
+  // whatever the admin wrote.
+  let signalsEnv = '';
   if (override) {
     modeCommand = override;
   } else if (mode === 'claude') {
+    const signalsKey = remoteTmuxSessionName(sessionId);
+    if (/^[A-Za-z0-9._-]+$/.test(signalsKey)) signalsEnv = `export ${REMOTE_SESSION_ENV}=${signalsKey} && `;
     // Deterministic conversation pinning for SSH-remote claude (mirrors the
     // docker-claude shape in claudeDockerPaneCommand, INCLUDING the distinct
     // resumeId branch it declares — this used to only mirror the same-id
@@ -1371,7 +1380,7 @@ export function buildRemoteLaunchCommand(options: {
   // Fork: tell the agent the terminal does 24-bit colour, as local panes are told.
   // ssh does not carry COLORTERM across, and without it Claude Code falls back to
   // the 16-colour palette (wrong mascot colour, dark prompt bars on a light skin).
-  const paneCommand = `cd ${shellescape(remote.remotePath)} && export COLORTERM=truecolor && ${modeCommand}`;
+  const paneCommand = `cd ${shellescape(remote.remotePath)} && export COLORTERM=truecolor && ${signalsEnv}${modeCommand}`;
 
   // The tmux command line, with `\;` separating commands so the config `set`s
   // apply on the SAME connection (and are idempotent on reattach). Options are
