@@ -177,6 +177,20 @@ export function registerWsRoutes(app: FastifyInstance, ctx: SessionPort, getHost
       // has asked yet (the first ask is the user opening the session here).
       let smallViewportDims: { cols: number; rows: number; viewportType: 'mobile' | 'tablet' } | null = null;
 
+      // Typing on a phone takes the pane from a desktop. The phone is told the
+      // geometry that took, as a resize answer would: its terminal may still hold
+      // the desktop width it adopted, and with the keyboard up it sends no resize
+      // of its own (its retry stands aside), so without this it would render the
+      // phone-width repaints at the desktop width, garbled, until the keyboard closed.
+      const takeWidthForTyping = (dims: { cols: number; rows: number; viewportType: 'mobile' | 'tablet' }) => {
+        const before = session.ptyGeometry;
+        session.noteSmallViewportActivity(dims);
+        const after = session.ptyGeometry;
+        if (after && (after.cols !== before?.cols || after.rows !== before?.rows) && socket.readyState === 1) {
+          socket.send(`{"t":"zc","c":${after.cols},"r":${after.rows}}`);
+        }
+      };
+
       // Set once an input frame could not be held behind a guarded submit's lease
       // (the hold queue was full). Nothing later from this socket is applied: it is
       // closed, and the browser reconnects and resends everything unACKed, in order.
@@ -197,7 +211,7 @@ export function registerWsRoutes(app: FastifyInstance, ctx: SessionPort, getHost
           // Typed input from a claim-holding desktop keeps the claim "hot"
           // and re-asserts the desktop layout after a mobile override.
           if (holdsDesktopClaim) session.noteDesktopActivity();
-          else if (smallViewportDims && msg.d.length > 0) session.noteSmallViewportActivity(smallViewportDims);
+          else if (smallViewportDims && msg.d.length > 0) takeWidthForTyping(smallViewportDims);
           // Browser keystrokes are the user's own, so they may name the tab.
           delivered = session.write(msg.d, { fromUser: true });
           // A session whose PTY is gone swallows the write. ACKing anyway told

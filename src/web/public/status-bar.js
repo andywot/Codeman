@@ -212,6 +212,8 @@ Object.assign(CodemanApp.prototype, {
           resetsAt: a.usage?.sevenDayResetsAt ?? null,
         }));
       this.renderStatusBar();
+      // The phone shows the same readings on its home screen (mobile-overview.js).
+      this._refreshMobileOverviewIfVisible?.();
     } catch {
       /* no accounts configured yet */
     }

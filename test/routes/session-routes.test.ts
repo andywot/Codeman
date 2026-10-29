@@ -1355,6 +1355,26 @@ describe('session-routes', () => {
       expect(harness.ctx._session.resize).toHaveBeenCalledWith(48, 28, { viewportType: 'mobile', force: undefined });
     });
 
+    it('fork: a phone sizing a session it opens takes the width, a desktop does not', async () => {
+      await harness.app.inject({
+        method: 'POST',
+        url: `/api/sessions/${harness.ctx._sessionId}/resize`,
+        payload: { cols: 48, rows: 28, viewportType: 'mobile' },
+      });
+      expect(harness.ctx._session.noteSmallViewportActivity).toHaveBeenCalledWith({
+        cols: 48,
+        rows: 28,
+        viewportType: 'mobile',
+      });
+      harness.ctx._session.noteSmallViewportActivity.mockClear();
+      await harness.app.inject({
+        method: 'POST',
+        url: `/api/sessions/${harness.ctx._sessionId}/resize`,
+        payload: { cols: 208, rows: 45, viewportType: 'desktop' },
+      });
+      expect(harness.ctx._session.noteSmallViewportActivity).not.toHaveBeenCalled();
+    });
+
     it('passes force resize through for redraw requests', async () => {
       const res = await harness.app.inject({
         method: 'POST',
