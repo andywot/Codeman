@@ -85,8 +85,8 @@ Object.assign(CodemanApp.prototype, {
 
   /** Machine identity for a session: its remote host, else this server. */
   _overviewMachineFor(session) {
-    const remote = session?.remote;
-    if (remote?.hostId) return { key: `host:${remote.hostId}`, label: remote.label || remote.hostId, remote: true };
+    const machine = this._machineNameOf?.(session?.remote);
+    if (machine) return { key: `machine:${machine}`, label: machine, remote: true };
     return { key: 'host:local', label: this._localMachineLabel?.() || 'This server', remote: false };
   },
 
@@ -214,7 +214,10 @@ Object.assign(CodemanApp.prototype, {
 
     const model = document.createElement('span');
     model.className = 'ob-model';
-    model.textContent = row.modeBadge || session.displayModel || '';
+    // Which system/account on the machine, then what the agent reports.
+    model.textContent = [this._machineVariantOf?.(session.remote), row.modeBadge || session.displayModel]
+      .filter(Boolean)
+      .join(' · ');
     model.setAttribute('data-i18n-skip', '');
 
     const state = document.createElement('span');

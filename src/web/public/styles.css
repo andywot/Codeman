@@ -23755,7 +23755,7 @@ html[data-tab-orientation="vertical"] .tab-rail-overview {
 html[data-tab-orientation="vertical"] .tab-rail-overview:hover {
   background: var(--control-bg-hover);
 }
-html[data-tab-orientation="vertical"] body:has(.welcome-overlay.visible.has-overview-board) .tab-rail-overview {
+html[data-tab-orientation="vertical"] body:has(.welcome-overlay.visible.has-overview-board) #tabRailOverview {
   background: rgba(var(--accent-rgb), 0.13);
   color: var(--accent-d);
 }
@@ -23763,4 +23763,205 @@ html[data-tab-orientation="vertical"] body:has(.welcome-overlay.visible.has-over
    where the editor area starts. */
 html[data-tab-orientation='vertical'] .welcome-overlay.has-overview-board {
   left: var(--tab-rail-width);
+}
+html[data-tab-orientation="vertical"] .tab-rail-new {
+  margin-top: 0;
+  color: var(--accent-d);
+}
+
+/* ── New session dialog (new-session.js) ─────────────────────────────────── */
+.ns-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: min(620px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--floating-bg);
+  color: var(--text);
+  box-shadow: var(--elevated-shadow);
+  font-family: var(--ui-font);
+}
+.ns-dialog::backdrop {
+  background: var(--modal-backdrop);
+}
+.ns-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 22px 18px;
+}
+.ns-head {
+  display: flex;
+  align-items: center;
+}
+.ns-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ns-close {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+}
+.ns-close:hover {
+  background: var(--control-bg-hover);
+}
+.ns-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.ns-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.ns-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ns-chip {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--bg-dark);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ns-chip:hover {
+  border-color: var(--control-border-hover);
+}
+.ns-chip[aria-checked='true'] {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-d);
+  font-weight: 600;
+}
+.ns-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--bg-dark);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.ns-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.ns-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.ns-recent-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+.ns-recent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'name where' 'path path';
+  gap: 1px 12px;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ns-recent:hover,
+.ns-recent:focus-visible {
+  background: var(--control-bg-hover);
+  outline: none;
+}
+.ns-recent-name {
+  grid-area: name;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ns-recent-where {
+  grid-area: where;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ns-recent-path {
+  grid-area: path;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ns-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--red);
+}
+.ns-error[hidden] {
+  display: none;
+}
+.ns-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+.ns-cancel,
+.ns-start {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ns-cancel {
+  border: 1px solid var(--control-border);
+  background: none;
+  color: var(--text);
+}
+.ns-start {
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.ns-start:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.ns-start:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ns-chip:focus-visible,
+.ns-cancel:focus-visible,
+.ns-start:focus-visible,
+.ns-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

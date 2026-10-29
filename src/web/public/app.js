@@ -5701,8 +5701,10 @@ class CodemanApp {
   _tabClusterIdentity(session, id) {
     if (document.documentElement.dataset.tabArrangement === 'machine') {
       // Group by where the agent runs: its remote host, else this server.
-      const remote = session.remote;
-      if (remote?.hostId) return { key: `host:${remote.hostId}`, label: remote.label || remote.hostId };
+      // Hosts labelled "Machine · Variant" (one per system or account on the
+      // same PC) share a section: the machine is the part before the first dot.
+      const machine = this._machineNameOf(session.remote);
+      if (machine) return { key: `machine:${machine}`, label: machine };
       return { key: 'host:local', label: this._localMachineLabel() };
     }
     const dir = (session.workingDir || '').replace(/\/+$/, '');
@@ -5711,6 +5713,23 @@ class CodemanApp {
     if (match) return { key: match.path, label: match.name || '' };
     if (dir) return { key: dir, label: dir.split('/').pop() || dir };
     return { key: `session:${id}`, label: '' };
+  }
+
+  /**
+   * The machine a remote host belongs to: its label up to the first " · "
+   * ("Desktop · WSL · GLM" is the machine "Desktop"), else its id. Null for a
+   * session on this server.
+   */
+  _machineNameOf(remote) {
+    if (!remote?.hostId) return null;
+    const label = String(remote.label || '').trim();
+    return (label.split(' · ')[0] || '').trim() || remote.hostId;
+  }
+
+  /** The variant part of a host label ("WSL · GLM"), or '' when it has none. */
+  _machineVariantOf(remote) {
+    const parts = String(remote?.label || '').split(' · ');
+    return parts.length > 1 ? parts.slice(1).join(' · ') : '';
   }
 
   /** Name of the machine Codeman itself runs on, for the machine grouping. */
