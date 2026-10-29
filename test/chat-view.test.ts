@@ -191,3 +191,32 @@ describe('parseScreenOptions', () => {
     expect(chat.parseScreenOptions(['nothing to choose'])).toBeNull();
   });
 });
+
+describe('context reading', () => {
+  const chat = loadChatView();
+
+  it('reads the newest main-thread usage and sizes the window from the model', () => {
+    const entries = [
+      { role: 'assistant', model: 'claude-opus-5-5', usage: { context: 100_000, output: 1 }, blocks: [] },
+      { role: 'assistant', sidechain: true, model: 'claude-haiku-5-5', usage: { context: 9, output: 1 }, blocks: [] },
+      { role: 'user', blocks: [] },
+    ];
+    expect(chat.latestChatContext(entries)).toEqual({ used: 100_000, limit: 1_000_000, model: 'claude-opus-5-5' });
+    expect(chat.chatContextLimit('claude-3-7-sonnet')).toBe(200_000);
+    expect(chat.chatContextLimit('claude-sonnet-4-6[1m]')).toBe(1_000_000);
+    expect(chat.latestChatContext([])).toBeNull();
+  });
+
+  it('takes usage from the log line', () => {
+    const entry = parseChatLine(
+      line({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'text', text: 'x' }],
+          usage: { input_tokens: 10, cache_read_input_tokens: 400, cache_creation_input_tokens: 90, output_tokens: 7 },
+        },
+      })
+    );
+    expect(entry?.usage).toEqual({ context: 500, output: 7 });
+  });
+});

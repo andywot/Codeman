@@ -57,9 +57,20 @@ const aaDesktop: SessionRemote = {
 
 const SESSION_ID = 'cod107chk';
 
+// Fork: every host shares one ssh connection unless it sets its own ControlMaster/ControlPath.
+const SHARED = ['-o ControlMaster=auto', '-o ControlPath=/tmp/claude-rc-ssh-%C', '-o ControlPersist=600'];
+
+describe('fork: shared ssh connection', () => {
+  it('is added by default and left out when the host configures its own', () => {
+    expect(buildSshConnectionArgs(baseRemote).slice(-3)).toEqual(SHARED);
+    const own = buildSshConnectionArgs({ ...baseRemote, extraSshOptions: ['ControlPath=/x/%C'] });
+    expect(own.join(' ')).not.toContain('claude-rc-ssh');
+  });
+});
+
 describe('COD-107 buildSshConnectionArgs — shared ssh connection tokens', () => {
   it('always leads with -o BatchMode=yes then the default -o ConnectTimeout=10', () => {
-    expect(buildSshConnectionArgs(baseRemote)).toEqual(['ssh', '-o BatchMode=yes', '-o ConnectTimeout=10']);
+    expect(buildSshConnectionArgs(baseRemote)).toEqual(['ssh', '-o BatchMode=yes', '-o ConnectTimeout=10', ...SHARED]);
   });
 
   it('emits the full aa-desktop option set in order with escaping + %h %p intact', () => {
@@ -115,12 +126,13 @@ describe('COD-107 buildSshConnectionArgs — shared ssh connection tokens', () =
   });
 
   it('empty options ⇒ BatchMode + the default ConnectTimeout (+ -p only when set)', () => {
-    expect(buildSshConnectionArgs(baseRemote)).toEqual(['ssh', '-o BatchMode=yes', '-o ConnectTimeout=10']);
+    expect(buildSshConnectionArgs(baseRemote)).toEqual(['ssh', '-o BatchMode=yes', '-o ConnectTimeout=10', ...SHARED]);
     expect(buildSshConnectionArgs({ ...baseRemote, port: 2200 })).toEqual([
       'ssh',
       '-o BatchMode=yes',
       '-o ConnectTimeout=10',
       '-p 2200',
+      ...SHARED,
     ]);
   });
 
@@ -183,7 +195,7 @@ describe('COD-107 buildRemoteLaunchCommand — threads connection args', () => {
       `set -t ${remoteName} remain-on-exit failed`,
     ].join(' \\; ');
     // Connection args (with the default -o ConnectTimeout=10) sit after -t.
-    const expected = `ssh -o BatchMode=yes -t -o ConnectTimeout=10 ${remoteSshTarget(baseRemote)} ${sh(withRemoteTmuxPath(tmuxInvocation))}`;
+    const expected = `ssh -o BatchMode=yes -t -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/claude-rc-ssh-%C -o ControlPersist=600 ${remoteSshTarget(baseRemote)} ${sh(withRemoteTmuxPath(tmuxInvocation))}`;
     expect(command).toBe(expected);
   });
 
@@ -193,7 +205,9 @@ describe('COD-107 buildRemoteLaunchCommand — threads connection args', () => {
       remote: { ...baseRemote, port: 2222 },
       sessionId: SESSION_ID,
     });
-    expect(command).toMatch(/^ssh -o BatchMode=yes -t -o ConnectTimeout=10 -p 2222 ubuntu@10\.0\.0\.42 /);
+    expect(command).toMatch(
+      /^ssh -o BatchMode=yes -t -o ConnectTimeout=10 -p 2222 -o ControlMaster=auto -o ControlPath=\/tmp\/claude-rc-ssh-%C -o ControlPersist=600 ubuntu@10\.0\.0\.42 /
+    );
   });
 });
 
@@ -211,7 +225,7 @@ describe('COD-107 buildRemoteTmuxCheckCommand — same connection options as the
 
   it('no advanced options preserve the ssh prefix and wrap the tmux probe', () => {
     expect(buildRemoteTmuxCheckCommand({ username: 'ubuntu', host: '10.0.0.42' })).toBe(
-      `ssh -o BatchMode=yes -o ConnectTimeout=10 ubuntu@10.0.0.42 ${shellescape(withRemoteTmuxPath('command -v tmux'))}`
+      `ssh -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/claude-rc-ssh-%C -o ControlPersist=600 ubuntu@10.0.0.42 ${shellescape(withRemoteTmuxPath('command -v tmux'))}`
     );
     expect(buildRemoteTmuxCheckCommand({ username: 'ubuntu', host: '10.0.0.42', port: 2222 })).toContain('-p 2222');
   });
@@ -223,7 +237,7 @@ describe('buildRemoteCliVersionProbeCommand: remote CLI version over the same co
     // Same PATH-resolution wrapper as defaultRemoteCommandForMode: a bare
     // `claude --version` over ssh sees only sshd's minimal PATH (exit 127).
     expect(cmd).toBe(
-      'ssh -o BatchMode=yes -o ConnectTimeout=10 ubuntu@10.0.0.42 ' +
+      'ssh -o BatchMode=yes -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=/tmp/claude-rc-ssh-%C -o ControlPersist=600 ubuntu@10.0.0.42 ' +
         `'exec "\${SHELL:-/bin/sh}" -i -l -c '\\''claude --version'\\'''`
     );
   });

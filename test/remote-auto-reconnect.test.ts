@@ -232,7 +232,7 @@ describe('remote has-session probe (pure)', () => {
     // Literal pin: the session name is shellescaped inside the remote command,
     // which is itself one shellescaped ssh argument.
     expect(cmd).toBe(
-      `ssh -o BatchMode=yes -o ConnectTimeout=10 -p 2222 dev@box ${shellescape(withRemoteTmuxPath("tmux -L codeman-remote has-session -t 'codeman-ssh-abc' 2>/dev/null"))}`
+      `ssh -o BatchMode=yes -o ConnectTimeout=10 -p 2222 -o ControlMaster=auto -o ControlPath=/tmp/claude-rc-ssh-%C -o ControlPersist=600 dev@box ${shellescape(withRemoteTmuxPath("tmux -L codeman-remote has-session -t 'codeman-ssh-abc' 2>/dev/null"))}`
     );
   });
 

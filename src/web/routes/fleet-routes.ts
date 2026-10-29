@@ -199,13 +199,8 @@ export function registerFleetRoutes(app: FastifyInstance): void {
         machine: machine.name,
         system,
         // LAN machines: trust the host key on first connect (a later change still fails).
-        // One reused connection per machine: later commands skip the ssh handshake.
-        extraSshOptions: [
-          'StrictHostKeyChecking=accept-new',
-          'ControlMaster=auto',
-          'ControlPath=/tmp/claude-rc-ssh-%C',
-          'ControlPersist=600',
-        ],
+        // Connection sharing is added for every host by buildSshConnectionArgs.
+        extraSshOptions: ['StrictHostKeyChecking=accept-new'],
       };
       const checked = RemoteHostSchema.safeParse(candidate);
       if (!checked.success) {

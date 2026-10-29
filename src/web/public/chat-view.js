@@ -266,8 +266,41 @@ function parseScreenOptions(lines) {
   return { title, options };
 }
 
+/**
+ * Context window for a model id. Claude Code's 5-series models run with a 1M window
+ * (what `/context` reports for them); older ids default to 200k unless tagged [1m].
+ */
+function chatContextLimit(model) {
+  const m = String(model || '').toLowerCase();
+  if (m.includes('[1m]') || /claude-(opus|sonnet|fable)-5/.test(m)) return 1_000_000;
+  return 200_000;
+}
+
+/** The newest context reading in a list of log entries, or null. */
+function latestChatContext(entries) {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.role === 'assistant' && !e.sidechain && e.usage && e.usage.context > 0) {
+      return { used: e.usage.context, limit: chatContextLimit(e.model), model: e.model || '' };
+    }
+  }
+  return null;
+}
+
+function chatTokens(n) {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
+}
+
 if (typeof window !== 'undefined') {
-  window.CodemanChat = { buildChatItems, parseScreenOptions, chatActivitySummary, chatToolTitle };
+  window.CodemanChat = {
+    buildChatItems,
+    parseScreenOptions,
+    chatActivitySummary,
+    chatToolTitle,
+    chatContextLimit,
+    latestChatContext,
+    chatTokens,
+  };
 }
 
 Object.assign(CodemanApp.prototype, {
@@ -363,6 +396,7 @@ Object.assign(CodemanApp.prototype, {
           <div class="chat-composer-row">
             <button type="button" class="chat-round chat-attach" data-chat="attach" aria-label="Attach photos or files" title="Attach">${CHAT_ICONS.plus}</button>
             <span class="chat-model" title="Model"></span>
+            <span class="chat-context" hidden></span>
             <span class="chat-row-spacer"></span>
             <button type="button" class="chat-pill chat-sendnow" data-chat="send-now" hidden title="Interrupt Claude and send this now">Send now</button>
             <button type="button" class="chat-round chat-send" data-chat="send" aria-label="Send">${CHAT_ICONS.send}</button>
@@ -456,6 +490,8 @@ Object.assign(CodemanApp.prototype, {
     this._chatTerminalPill(mode === 'terminal' && !!id && this._chatSupported(id));
 
     if (showHome) this._chatRenderHome();
+    // Keep the active session's log read in terminal mode too, for the context reading.
+    if (!showChat && id && this._chatSupported(id)) this._chatPoll(id);
     if (showChat) {
       if (this._chatShownId !== id) {
         this._chatShownId = id;
@@ -514,6 +550,8 @@ Object.assign(CodemanApp.prototype, {
         s.entries.push(...data.entries);
         if (this._chatShownId === id) this._chatRender(id);
       }
+      const context = latestChatContext(s.entries);
+      if (context) s.context = context;
       s.error = null;
     } catch (err) {
       s.error = err.message;
@@ -900,6 +938,24 @@ Object.assign(CodemanApp.prototype, {
     send.title = stopMode ? 'Stop' : working ? 'Send when Claude finishes this step' : 'Send';
     send.disabled = !stopMode && !hasText;
     view.querySelector('.chat-sendnow').hidden = !(working && hasText);
+
+    const chip = view.querySelector('.chat-context');
+    const ctx = s.context;
+    chip.hidden = !ctx;
+    if (ctx) {
+      const pct = Math.min(100, Math.round((ctx.used / ctx.limit) * 100));
+      const sig = `${ctx.used}/${ctx.limit}`;
+      if (chip.dataset.sig !== sig) {
+        chip.dataset.sig = sig;
+        chip.className = `chat-context${pct >= 80 ? ' is-high' : pct >= 60 ? ' is-mid' : ''}`;
+        chip.style.setProperty('--p', String(pct));
+        chip.innerHTML =
+          '<span class="chat-context-ring" aria-hidden="true"></span><span class="chat-context-pct"></span>';
+        chip.querySelector('.chat-context-pct').textContent = `${pct}%`;
+        chip.title = `Context: ${chatTokens(ctx.used)} of ${chatTokens(ctx.limit)} tokens`;
+        chip.setAttribute('aria-label', chip.title);
+      }
+    }
   },
 
   _chatPromptCard(screen, question) {
@@ -1182,6 +1238,8 @@ Object.assign(CodemanApp.prototype, {
       }
     });
     this._bindResponseViewerInteractions?.(view.querySelector('.chat-log'));
+    view.querySelector('.chat-title').addEventListener('dblclick', () => this._chatRenameTitle());
+    view.querySelector('.chat-title').title = 'Double-click to rename';
 
     view.querySelector('.chat-scroll').addEventListener('scroll', (event) => {
       if (event.target.scrollTop < 40 && this._chatShownId) this._chatLoadEarlier(this._chatShownId);
@@ -1300,6 +1358,61 @@ Object.assign(CodemanApp.prototype, {
     list.replaceChildren(frag);
   },
 
+  /** Context reading for a session, or null (the status bar shows the active one). */
+  chatContextFor(id) {
+    return (id && this._chatSessions?.get(id)?.context) || null;
+  },
+
+  /** Inline rename of the conversation title (double-click or double-tap). */
+  _chatRenameTitle() {
+    const id = this._chatShownId;
+    const view = this._chatViewEl();
+    const title = view?.querySelector('.chat-title');
+    if (!id || !title || title.isContentEditable) return;
+    const before = title.textContent;
+    title.contentEditable = 'plaintext-only';
+    title.classList.add('is-editing');
+    title.focus();
+    document.getSelection()?.selectAllChildren(title);
+    const finish = async (save) => {
+      title.removeEventListener('keydown', onKey);
+      title.removeEventListener('blur', onBlur);
+      title.contentEditable = 'false';
+      title.classList.remove('is-editing');
+      const name = title.textContent.replace(/\s+/g, ' ').trim();
+      if (!save || !name || name === before) {
+        title.textContent = before;
+        return;
+      }
+      try {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/name`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const session = this.sessions.get(id);
+        if (session) session.name = name;
+        this.renderSessionTabs?.();
+      } catch (err) {
+        title.textContent = before;
+        this.showToast?.(`Rename failed: ${err.message}`, 'error');
+      }
+    };
+    const onKey = (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        finish(false);
+      }
+    };
+    const onBlur = () => finish(true);
+    title.addEventListener('keydown', onKey);
+    title.addEventListener('blur', onBlur);
+  },
+
   _chatAgo(ms) {
     const s = Math.max(0, (Date.now() - ms) / 1000);
     if (s < 60) return 'now';
@@ -1323,6 +1436,13 @@ Object.assign(CodemanApp.prototype, {
     this.chatSync?.();
     return result;
   };
+  // Double-click a session tab or rail row to rename it (right-click still works too).
+  document.addEventListener('dblclick', (event) => {
+    const tab = event.target.closest?.('.session-tab[data-id]');
+    if (!tab || event.target.closest('input, button, .tab-rename-input')) return;
+    event.preventDefault();
+    window.app?.startInlineRename?.(tab.dataset.id);
+  });
   window.addEventListener('popstate', () => {
     const app = window.app;
     if (!app?._chatIsPhone?.()) return;

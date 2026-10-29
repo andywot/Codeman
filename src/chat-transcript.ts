@@ -54,6 +54,8 @@ export interface ChatEntry {
   /** Text-only meta prompts Claude Code injects (caveats, reminders). */
   meta?: boolean;
   model?: string;
+  /** Assistant turns: tokens the request carried (the context size at that point) and wrote. */
+  usage?: { context: number; output: number };
   /** Sent while Claude was working (Claude Code queued it into the running turn). */
   queued?: boolean;
   blocks: ChatBlock[];
@@ -170,6 +172,14 @@ export function parseChatLine(line: string): ChatEntry | null {
     }
   }
   if (blocks.length === 0) return null;
+  const u = (message as { usage?: Record<string, unknown> }).usage;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const usage = u
+    ? {
+        context: num(u.input_tokens) + num(u.cache_read_input_tokens) + num(u.cache_creation_input_tokens),
+        output: num(u.output_tokens),
+      }
+    : null;
   return {
     uuid: String(raw.uuid ?? ''),
     role: type,
@@ -177,6 +187,7 @@ export function parseChatLine(line: string): ChatEntry | null {
     ...(raw.isSidechain === true ? { sidechain: true } : {}),
     ...(raw.isMeta === true ? { meta: true } : {}),
     ...(type === 'assistant' && message.model ? { model: message.model } : {}),
+    ...(type === 'assistant' && usage ? { usage } : {}),
     blocks,
   };
 }

@@ -957,3 +957,42 @@ html[data-chat-phone='on']:is([data-chat='home'], [data-chat='session']) body {
 .approvals-drawer:not(.open) {
   box-shadow: none;
 }
+
+/* Context window chip in the composer: a ring filled to the share used. */
+.chat-context {
+  --p: 0;
+  --ring: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 5px 10px 5px 7px;
+}
+.chat-context[hidden] {
+  display: none;
+}
+.chat-context.is-mid {
+  --ring: var(--yellow);
+}
+.chat-context.is-high {
+  --ring: var(--red);
+  color: var(--red);
+}
+.chat-context-ring {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring) calc(var(--p) * 1%), var(--border-light) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+  mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+}
+.chat-title.is-editing {
+  outline: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  text-overflow: clip;
+}

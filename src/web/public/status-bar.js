@@ -84,6 +84,25 @@ Object.assign(CodemanApp.prototype, {
     );
     if (working) parts.push(this._statusBarItem(`${working} working`, { cls: 'rc-quiet' }));
 
+    // The active session's context window, read from its conversation log (chat-view.js).
+    const ctx = this.chatContextFor?.(this.activeSessionId);
+    if (ctx && window.CodemanChat) {
+      const pct = Math.min(100, Math.round((ctx.used / ctx.limit) * 100));
+      const { chatTokens } = window.CodemanChat;
+      const item = this._statusBarItem('context', { cls: 'rc-account rc-context' });
+      const ring = document.createElement('span');
+      ring.className = `rc-ring${pct >= 80 ? ' rc-ring--high' : pct >= 50 ? ' rc-ring--mid' : ''}`;
+      ring.style.setProperty('--p', String(pct));
+      ring.setAttribute('aria-hidden', 'true');
+      const tag = document.createElement('span');
+      tag.className = 'rc-ring-key';
+      tag.textContent = `${pct}%`;
+      item.append(ring, tag);
+      item.title = `This session's context: ${chatTokens(ctx.used)} of ${chatTokens(ctx.limit)} tokens`;
+      item.setAttribute('aria-label', item.title);
+      parts.push(item);
+    }
+
     const spacer = document.createElement('span');
     spacer.className = 'rc-status-spacer';
     parts.push(spacer);
