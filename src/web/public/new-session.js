@@ -672,3 +672,38 @@ Object.assign(CodemanApp.prototype, {
     if (this.sessions.has(id)) this.selectSession(id);
   },
 });
+
+// The Ctrl+K palette's "New session" row (panels-ui.js) ran the toolbar's Run
+// in the toolbar's case: a LOCAL session on the server, labelled "Run Claude in
+// <case>". Claude RC starts sessions here instead, so the row opens this dialog,
+// names no case and carries no agent picker (the dialog picks the machine,
+// folder, account and model). Wrapped rather than edited so the upstream
+// palette and its tests stay as they are.
+{
+  const upstreamItem = CodemanApp.prototype._buildCommandPaletteNewSessionItem;
+  const upstreamActivate = CodemanApp.prototype.activateCommandPaletteItem;
+  const upstreamArrow = CodemanApp.prototype._commandPaletteArrowCyclesAgent;
+  const upstreamPicker = CodemanApp.prototype._renderCommandPaletteAgentPicker;
+  Object.assign(CodemanApp.prototype, {
+    _buildCommandPaletteNewSessionItem(query = '') {
+      const item = upstreamItem.call(this, query);
+      return { ...item, subtitle: 'Machine, folder, account', newSessionDialog: true };
+    },
+    _renderCommandPaletteAgentPicker(mode, caseName) {
+      const row = (this.commandPaletteItems || []).find((item) => item?.type === 'new-session');
+      return row?.newSessionDialog ? '' : upstreamPicker.call(this, mode, caseName);
+    },
+    _commandPaletteArrowCyclesAgent(e) {
+      const active = (this.commandPaletteItems || [])[this.commandPaletteActiveIndex || 0];
+      return active?.newSessionDialog ? false : upstreamArrow.call(this, e);
+    },
+    async activateCommandPaletteItem(index = this.commandPaletteActiveIndex || 0) {
+      const item = (this.commandPaletteItems || [])[index];
+      if (item?.newSessionDialog) {
+        this.closeCommandPalette();
+        return this.openNewSessionFlow();
+      }
+      return upstreamActivate.call(this, index);
+    },
+  });
+}

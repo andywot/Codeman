@@ -606,8 +606,11 @@ Object.assign(CodemanApp.prototype, {
     const mode = this.runMode || 'claude';
     // Fork: work starts in the New session sheet (machine, system, folder,
     // account, model) as it does on desktop; on a phone this button was the
-    // only way in, so it opens the sheet. The caret keeps the quick Run picker.
+    // only way in, so it opens the sheet. The caret's quick Run picker started a
+    // LOCAL session in the toolbar's case (Claude RC keeps cases out of sight),
+    // so with the sheet available the button stands alone.
     const newSession = this._mobileOverviewOpensNewSession();
+    if (newSession) group.classList.add('mobile-overview-run-group--single');
     const run = document.createElement('button');
     run.className = `btn-toolbar btn-run mode-${mode} mobile-overview-run`;
     run.type = 'button';
@@ -635,7 +638,7 @@ Object.assign(CodemanApp.prototype, {
     // line-height says. A path is centered by geometry. Same shape the toolbar's
     // run-mode gear uses.
     caret.appendChild(this._buildMobileOverviewChevron());
-    group.appendChild(caret);
+    if (!newSession) group.appendChild(caret);
 
     top.appendChild(group);
     wrap.appendChild(top);
@@ -842,12 +845,8 @@ Object.assign(CodemanApp.prototype, {
     name.className = 'session-name';
     name.textContent = row.name;
     line1.appendChild(name);
-    if (row.caseName) {
-      const meta = document.createElement('span');
-      meta.className = 'mobile-overview-row-case case-name';
-      meta.textContent = ' · ' + row.caseName;
-      line1.appendChild(meta);
-    }
+    // Fork: no ` · <case>` after the name. Cases are plumbing in Claude RC, and
+    // the folder is already on the line below.
     body.appendChild(line1);
 
     const line2 = document.createElement('span');
@@ -1101,7 +1100,8 @@ Object.assign(CodemanApp.prototype, {
     sub.className = 'mobile-overview-row-sub';
     sub.setAttribute('data-i18n-skip', '');
     const when = row.at && this._formatTimeAgo ? this._formatTimeAgo(row.at) : '';
-    sub.textContent = [row.caseName || row.dir, when].filter(Boolean).join(' · ');
+    // Fork: the folder, never the case name (cases are plumbing here).
+    sub.textContent = [row.dir, when].filter(Boolean).join(' · ');
     body.appendChild(sub);
 
     item.appendChild(body);

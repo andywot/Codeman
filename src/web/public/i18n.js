@@ -490,8 +490,8 @@
     'Tall Tabs (Name + Folder)': '双行标签（名称 + 文件夹）',
     'Pop-out Button on Tabs': '标签页弹出窗口按钮',
     'New Session Button on Tabs': '标签页新建会话按钮',
-    'A + on the tab that starts a session in the same case and group, in any installed CLI.':
-      '标签页上的 + 按钮，可在同一案例和分组中，用任一已安装的 CLI 启动新会话。',
+    'A + on the tab that starts a session in the same folder and group, in any installed CLI.':
+      '标签页上的 + 按钮，可在同一文件夹和分组中，用任一已安装的 CLI 启动新会话。',
     'CLI Logos on Tabs': '标签页上的 CLI 图标',
     "Show each agent's CLI logo before the session name on tabs and the home screen's tab list. Off leaves the status dot and the shell's SH badge. Tiles, split headers and the Run menus keep their logos.":
       '在标签页和主界面的标签列表中，于会话名称前显示每个智能体的 CLI 图标。关闭后仍保留状态圆点和 Shell 的 SH 标记。平铺、分屏标题栏和运行菜单中的图标不受影响。',
@@ -502,8 +502,8 @@
     // "Tiles" is 磁贴, never 平铺: that is the tile grid's word (the Tiles
     // button), and "Tiles (label over value)" must not read as the grid.
     'Tab Layout': '标签页布局',
-    'By state: a row each for needs you, waiting, working and idle. By case: one box per case. Ledger: an aligned column grid. Classic: the single list, as before. By state and By case group the side rail and sidebar too. Alt+1..9 keeps the tab order.':
-      '按状态：需要你、等待中、工作中和空闲各占一行。按案例：每个案例一个框。台账：对齐的列网格。经典：与以前相同的单一列表。按状态和按案例也会为侧边标签栏和侧边栏分组。Alt+1..9 仍按标签页顺序切换。',
+    'By machine: one section per PC. By state: a row each for needs you, waiting, working and idle. Ledger: an aligned column grid. Classic: the single list. Alt+1..9 keeps the tab order.':
+      '按机器：每台电脑一个分区。按状态：需要你、等待中、工作中和空闲各占一行。台账：对齐的列网格。经典：单一列表。Alt+1..9 仍按标签页顺序切换。',
     'By state (rows per state)': '按状态（每种状态一行）',
     'By case (clusters)': '按案例（分组框）',
     'Ledger (aligned columns)': '台账（对齐的列）',

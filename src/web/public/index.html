@@ -66,7 +66,7 @@
        app.js, NOT the handheld storage-key test `m`. Use a different predicate
        here and boot will contradict this value, animating the drawer open by
        itself on every load between 768 and 1023px. -->
-  <script>try{var m=window.innerWidth<768||(('ontouchstart' in window||navigator.maxTouchPoints>0)&&window.innerWidth<1024);var k=m?'codeman-app-settings-mobile':'codeman-app-settings';var A=JSON.parse(localStorage.getItem(k)||'{}');if(!localStorage.getItem('codeman:workbench-v1')){['tabOrientation','tabArrangement','tabRailDetail','sessionListLayout'].forEach(function(x){delete A[x];});localStorage.setItem(k,JSON.stringify(A));localStorage.setItem('codeman:workbench-v1','1');}var L=A.sessionListLayout;var F=Number(A.sessionSidebarFontSize);var solo=/^\/session\//.test(location.pathname);var C=localStorage.getItem('codeman-sidebar-collapsed');var S=(L==='sidebar'||L==='sidebar-rich')&&!solo;document.documentElement.dataset.sessionList=S?'sidebar':'header';document.documentElement.dataset.sidebarDetail=(S&&L==='sidebar-rich')?'rich':'simple';document.documentElement.dataset.sidebar=(C===null?window.innerWidth<1024:C==='1')?'collapsed':'expanded';var V=(A.tabOrientation||'vertical')==='vertical'&&!S&&!solo&&window.innerWidth>=768;document.documentElement.dataset.tabOrientation=V?'vertical':'horizontal';document.documentElement.dataset.tabRailDetail=(A.tabRailDetail==='rich')?'rich':'simple';document.documentElement.dataset.tabRailSort=(A.tabRailSort==='manual')?'manual':'activity';var T=A.tabArrangement===undefined?'machine':A.tabArrangement;document.documentElement.dataset.tabArrangement=(T==='state'||T==='case'||T==='ledger'||T==='machine')?T:'classic';document.documentElement.dataset.tabStateOrder=(A.tabStateOrder==='urgent-last')?'urgent-last':'urgent-first';document.documentElement.dataset.tabLogos=(A.showTabCliLogos===false)?'off':'on';var H=A.headerStatsStyle;document.documentElement.dataset.headerStats=(window.innerWidth<768||solo)?'classic':(H==='classic'||H==='tiles')?H:'compact';var W=Number(A.tabRailWidth);if(V){if(Number.isInteger(W)&&W>=208&&W<=360)document.documentElement.style.setProperty('--tab-rail-width',W+'px');else if(document.documentElement.dataset.tabRailDetail!=='simple')document.documentElement.style.setProperty('--tab-rail-width','320px');}if(Number.isInteger(F)&&F>=11&&F<=18)document.documentElement.style.setProperty('--session-sidebar-name-font-size',F+'px');}catch(e){document.documentElement.dataset.sessionList='header';document.documentElement.dataset.sidebarDetail='simple';document.documentElement.dataset.sidebar='expanded';document.documentElement.dataset.tabOrientation='horizontal';document.documentElement.dataset.tabRailDetail='rich';document.documentElement.dataset.tabRailSort='activity';document.documentElement.dataset.tabArrangement='classic';document.documentElement.dataset.tabStateOrder='urgent-first';document.documentElement.dataset.headerStats='classic';document.documentElement.dataset.tabLogos='on';}</script>
+  <script>try{var m=window.innerWidth<768||(('ontouchstart' in window||navigator.maxTouchPoints>0)&&window.innerWidth<1024);var k=m?'codeman-app-settings-mobile':'codeman-app-settings';var A=JSON.parse(localStorage.getItem(k)||'{}');if(!localStorage.getItem('codeman:workbench-v1')){['tabOrientation','tabArrangement','tabRailDetail','sessionListLayout'].forEach(function(x){delete A[x];});localStorage.setItem(k,JSON.stringify(A));localStorage.setItem('codeman:workbench-v1','1');}var L=A.sessionListLayout;var F=Number(A.sessionSidebarFontSize);var solo=/^\/session\//.test(location.pathname);var C=localStorage.getItem('codeman-sidebar-collapsed');var S=(L==='sidebar'||L==='sidebar-rich')&&!solo;document.documentElement.dataset.sessionList=S?'sidebar':'header';document.documentElement.dataset.sidebarDetail=(S&&L==='sidebar-rich')?'rich':'simple';document.documentElement.dataset.sidebar=(C===null?window.innerWidth<1024:C==='1')?'collapsed':'expanded';var V=(A.tabOrientation||'vertical')==='vertical'&&!S&&!solo&&window.innerWidth>=768;document.documentElement.dataset.tabOrientation=V?'vertical':'horizontal';document.documentElement.dataset.tabRailDetail=(A.tabRailDetail==='rich')?'rich':'simple';document.documentElement.dataset.tabRailSort=(A.tabRailSort==='manual')?'manual':'activity';var T=A.tabArrangement===undefined||A.tabArrangement==='case'?'machine':A.tabArrangement;document.documentElement.dataset.tabArrangement=(T==='state'||T==='case'||T==='ledger'||T==='machine')?T:'classic';document.documentElement.dataset.tabStateOrder=(A.tabStateOrder==='urgent-last')?'urgent-last':'urgent-first';document.documentElement.dataset.tabLogos=(A.showTabCliLogos===false)?'off':'on';var H=A.headerStatsStyle;document.documentElement.dataset.headerStats=(window.innerWidth<768||solo)?'classic':(H==='classic'||H==='tiles')?H:'compact';var W=Number(A.tabRailWidth);if(V){if(Number.isInteger(W)&&W>=208&&W<=360)document.documentElement.style.setProperty('--tab-rail-width',W+'px');else if(document.documentElement.dataset.tabRailDetail!=='simple')document.documentElement.style.setProperty('--tab-rail-width','320px');}if(Number.isInteger(F)&&F>=11&&F<=18)document.documentElement.style.setProperty('--session-sidebar-name-font-size',F+'px');}catch(e){document.documentElement.dataset.sessionList='header';document.documentElement.dataset.sidebarDetail='simple';document.documentElement.dataset.sidebar='expanded';document.documentElement.dataset.tabOrientation='horizontal';document.documentElement.dataset.tabRailDetail='rich';document.documentElement.dataset.tabRailSort='activity';document.documentElement.dataset.tabArrangement='classic';document.documentElement.dataset.tabStateOrder='urgent-first';document.documentElement.dataset.headerStats='classic';document.documentElement.dataset.tabLogos='on';}</script>
   <!-- Inline critical CSS for instant skeleton paint (before styles.css loads) -->
   <style>
     .loading-skeleton{display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg-dark,#11151c)}
@@ -2410,15 +2410,14 @@
               <div class="set-group">
                 <div class="set-group-head"><h4>Tabs</h4><span class="set-scope">device</span></div>
                 <div class="set-group-body">
-                  <div class="set-row has-field" data-search="tab layout grouping group by state triage needs you waiting working idle case clusters ledger columns classic old new">
+                  <div class="set-row has-field" data-search="tab layout grouping group by machine state triage needs you waiting working idle ledger columns classic old new">
                     <div class="set-row-text">
                       <span class="set-row-label">Tab Layout</span>
-                      <span class="set-row-desc">By state: a row each for needs you, waiting, working and idle. By case: one box per case. Ledger: an aligned column grid. Classic: the single list, as before. By state and By case group the side rail and sidebar too. Alt+1..9 keeps the tab order.</span>
+                      <span class="set-row-desc">By machine: one section per PC. By state: a row each for needs you, waiting, working and idle. Ledger: an aligned column grid. Classic: the single list. Alt+1..9 keeps the tab order.</span>
                     </div>
                     <select id="appSettingsTabArrangement" class="set-select">
                       <option value="state">By state (rows per state)</option>
                       <option value="machine">By machine (default)</option>
-                      <option value="case">By case (clusters)</option>
                       <option value="ledger">Ledger (aligned columns)</option>
                       <option value="classic">Classic</option>
                     </select>
@@ -2456,7 +2455,7 @@
                   <div class="set-row has-field" data-search="tab rail sort order activity manual drag reorder">
                     <div class="set-row-text">
                       <span class="set-row-label">Vertical Rail Order</span>
-                      <span class="set-row-desc">By activity uses the home screen's order: blocked on you first, then whatever has been running longest, then the most recently quiet. Manual keeps your tab order and is the only mode you can drag rows in. With Tab Layout by state or by case it orders the rows inside each section. Alt+1..9 always follows the tab order either way.</span>
+                      <span class="set-row-desc">By activity uses the home screen's order: blocked on you first, then whatever has been running longest, then the most recently quiet. Manual keeps your tab order and is the only mode you can drag rows in. With Tab Layout by machine or by state it orders the rows inside each section. Alt+1..9 always follows the tab order either way.</span>
                     </div>
                     <select id="appSettingsTabRailSort" class="set-select">
                       <option value="activity">By activity (home screen order)</option>
@@ -2523,7 +2522,7 @@
                   <div class="set-row" data-search="new session plus add tab same case group cli">
                     <div class="set-row-text">
                       <span class="set-row-label">New Session Button on Tabs</span>
-                      <span class="set-row-desc">A + on the tab that starts a session in the same case and group, in any installed CLI.</span>
+                      <span class="set-row-desc">A + on the tab that starts a session in the same folder and group, in any installed CLI.</span>
                     </div>
                     <label class="switch switch-sm"><input type="checkbox" id="appSettingsShowTabNewButton"><span class="slider"></span></label>
                   </div>
@@ -2544,7 +2543,7 @@
                   <div class="set-row" id="appSettingsAutoNameSessionsItem" data-search="auto name session title first prompt tab rename">
                     <div class="set-row-text">
                       <span class="set-row-label">Auto-name Sessions <span class="set-tag">synced</span></span>
-                      <span class="set-row-desc">Title a new tab after its first prompt, keeping the case prefix. Renamed tabs are never touched.</span>
+                      <span class="set-row-desc">Title a new tab after its first prompt. Renamed tabs are never touched.</span>
                     </div>
                     <label class="switch switch-sm"><input type="checkbox" id="appSettingsAutoNameSessions"><span class="slider"></span></label>
                   </div>
@@ -2640,7 +2639,7 @@
 
               <div class="set-group">
                 <div class="set-group-head"><h4>New Claude sessions</h4><span class="set-scope">synced</span></div>
-                <p class="set-group-hint">A soft default, pinned via the case's .claude/settings.local.json. /model still switches inside a running session.</p>
+                <p class="set-group-hint">A soft default, pinned via the folder's .claude/settings.local.json. /model still switches inside a running session.</p>
                 <div class="set-group-body">
                   <!-- Cards are built from the select below by settings-ui.js, which keeps
                        the select as the single source of truth for load/save. -->
@@ -2957,7 +2956,7 @@
                   <div class="set-row" data-search="workspace hooks alerts approvals notifications settings.local.json">
                     <div class="set-row-text">
                       <span class="set-row-label">Workspace Hooks</span>
-                      <span class="set-row-desc">Install Codeman's hooks in each Claude workspace, so tab alerts, the Approvals Inbox and idle detection also work in linked cases and existing repos. Off leaves your repos untouched.</span>
+                      <span class="set-row-desc">Install Codeman's hooks in each Claude workspace, so tab alerts, the Approvals Inbox and idle detection also work in existing repos. Off leaves your repos untouched.</span>
                     </div>
                     <label class="switch switch-sm"><input type="checkbox" id="appSettingsWorkspaceHooks"><span class="slider"></span></label>
                   </div>
@@ -3401,7 +3400,7 @@
                   <div class="set-row has-field" data-search="claude.md template path new cases">
                     <div class="set-row-text">
                       <span class="set-row-label">CLAUDE.md template</span>
-                      <span class="set-row-desc">Used when creating new cases. Leave empty for the built-in template.</span>
+                      <span class="set-row-desc">Used when Claude RC scaffolds a new folder. Leave empty for the built-in template.</span>
                     </div>
                     <input type="text" id="appSettingsClaudeMdPath" class="set-input" placeholder="/path/to/CLAUDE.md template">
                   </div>
@@ -3421,7 +3420,7 @@
                   <div class="set-row" data-search="config backup snapshot settings clis restore retention keep">
                     <div class="set-row-text">
                       <span class="set-row-label">Back up my configuration</span>
-                      <span class="set-row-desc">Keeps timestamped copies of your settings, CLI overrides, custom endpoints, webhook, linked cases and (in multi-user mode) accounts. A copy is made at startup and whenever one of them changes. Some of these files hold credentials, so each copy is private to this user (mode 0700/0600).</span>
+                      <span class="set-row-desc">Keeps timestamped copies of your settings, CLI overrides, custom endpoints, webhook, linked folders and (in multi-user mode) accounts. A copy is made at startup and whenever one of them changes. Some of these files hold credentials, so each copy is private to this user (mode 0700/0600).</span>
                     </div>
                     <label class="switch switch-sm"><input type="checkbox" id="appSettingsConfigBackup"><span class="slider"></span></label>
                   </div>
@@ -4342,43 +4341,41 @@
   </div>
 
   <!-- Session Lifecycle Audit Log (floating window) -->
-  <div id="lifecycleWindow" style="display:none;position:fixed;z-index:2000;top:60px;left:50%;transform:translateX(-50%);width:900px;max-width:95vw;min-width:400px;min-height:250px;height:520px;background:#111;border:1px solid #333;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,0.6);resize:both;overflow:hidden">
-    <div id="lifecycleWindowHeader" style="display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#1a1a2e;border-bottom:1px solid #333;cursor:move;user-select:none;border-radius:8px 8px 0 0">
-      <span style="color:#e0e0e0;font-size:13px;font-weight:600">Session Lifecycle Log</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <div style="display:flex;gap:6px;flex-wrap:nowrap">
-          <select id="lifecycleFilterEvent" style="background:#0d0d0d;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:2px 6px;font-size:11px">
-            <option value="">All Events</option>
-            <option value="created">Created</option>
-            <option value="started">Started</option>
-            <option value="exit">Exit</option>
-            <option value="deleted">Deleted</option>
-            <option value="recovered">Recovered</option>
-            <option value="stale_cleaned">Stale Cleaned</option>
-            <option value="mux_died">Mux Died</option>
-            <option value="server_started">Server Started</option>
-            <option value="server_stopped">Server Stopped</option>
-          </select>
-          <input id="lifecycleFilterSession" type="text" placeholder="Session ID..." style="background:#0d0d0d;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:2px 6px;font-size:11px;width:120px">
-          <button onclick="app.loadLifecycleLog()" style="background:#333;color:#ccc;border:1px solid #444;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">Refresh</button>
-        </div>
-        <button onclick="app.closeLifecycleLog()" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;padding:0 4px;line-height:1" aria-label="Close">&times;</button>
+  <div id="lifecycleWindow" class="lifecycle-window" style="display:none">
+    <div id="lifecycleWindowHeader" class="lifecycle-window-header">
+      <span class="lifecycle-window-title">Session Lifecycle Log</span>
+      <div class="lifecycle-window-tools">
+        <select id="lifecycleFilterEvent" class="lifecycle-input">
+          <option value="">All Events</option>
+          <option value="created">Created</option>
+          <option value="started">Started</option>
+          <option value="exit">Exit</option>
+          <option value="deleted">Deleted</option>
+          <option value="recovered">Recovered</option>
+          <option value="stale_cleaned">Stale Cleaned</option>
+          <option value="mux_died">Mux Died</option>
+          <option value="server_started">Server Started</option>
+          <option value="server_stopped">Server Stopped</option>
+        </select>
+        <input id="lifecycleFilterSession" class="lifecycle-input lifecycle-input--id" type="text" placeholder="Session ID...">
+        <button class="lifecycle-btn" onclick="app.loadLifecycleLog()">Refresh</button>
+        <button class="lifecycle-close" onclick="app.closeLifecycleLog()" aria-label="Close">&times;</button>
       </div>
     </div>
-    <div style="overflow:auto;height:calc(100% - 36px);padding:4px 0">
-      <table id="lifecycleTable" style="width:100%;border-collapse:collapse;font-size:12px;font-family:monospace">
+    <div class="lifecycle-window-body">
+      <table id="lifecycleTable" class="lifecycle-table">
         <thead>
-          <tr style="color:#888;text-align:left;border-bottom:1px solid #333;position:sticky;top:0;background:#111">
-            <th style="padding:4px 8px">Time</th>
-            <th style="padding:4px 8px">Event</th>
-            <th style="padding:4px 8px">Session</th>
-            <th style="padding:4px 8px">Reason</th>
-            <th style="padding:4px 8px">Extra</th>
+          <tr>
+            <th>Time</th>
+            <th>Event</th>
+            <th>Session</th>
+            <th>Reason</th>
+            <th>Extra</th>
           </tr>
         </thead>
         <tbody id="lifecycleTableBody"></tbody>
       </table>
-      <div id="lifecycleEmpty" style="color:#666;text-align:center;padding:20px;display:none">No lifecycle entries found</div>
+      <div id="lifecycleEmpty" class="lifecycle-empty" style="display:none">No lifecycle entries found</div>
     </div>
   </div>
 

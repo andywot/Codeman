@@ -1969,7 +1969,8 @@ Object.assign(CodemanApp.prototype, {
           <head>
             <title>Subagent ${escapeHtml(agentId)} Transcript</title>
             <style>
-              body { background: #1a1a2e; color: #eee; font-family: monospace; padding: 20px; }
+              body { background: #faf4f2; color: #29242a; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; padding: 20px; }
+              h2 { font-family: system-ui, sans-serif; font-size: 16px; }
               pre { white-space: pre-wrap; word-wrap: break-word; }
             </style>
           </head>
@@ -7011,29 +7012,29 @@ Object.assign(CodemanApp.prototype, {
 
   _showClipboardFallback(text) {
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center';
+    overlay.style.cssText = 'position:fixed;inset:0;background:var(--modal-backdrop);z-index:10000;display:flex;align-items:center;justify-content:center';
 
     const modal = document.createElement('div');
-    modal.style.cssText = 'background:#1e1e2e;border:1px solid #444;border-radius:8px;padding:16px;max-width:600px;width:90%;max-height:60vh;display:flex;flex-direction:column;gap:12px';
+    modal.style.cssText = 'background:var(--bg-dark);border:1px solid var(--border-light);border-radius:6px;box-shadow:var(--elevated-shadow);padding:16px;max-width:600px;width:90%;max-height:60vh;display:flex;flex-direction:column;gap:12px';
 
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
     const title = document.createElement('span');
-    title.style.cssText = 'color:#cdd6f4;font-weight:600';
+    title.style.cssText = 'color:var(--text);font-size:var(--fs-base);font-weight:600';
     title.textContent = 'Clipboard (browser blocked auto-copy)';
     const closeBtn = document.createElement('button');
-    closeBtn.style.cssText = 'background:none;border:none;color:#cdd6f4;font-size:18px;cursor:pointer';
+    closeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:var(--fs-lg);cursor:pointer';
     closeBtn.textContent = '\u00d7';
     header.appendChild(title);
     header.appendChild(closeBtn);
 
     const textarea = document.createElement('textarea');
     textarea.readOnly = true;
-    textarea.style.cssText = 'background:#181825;color:#cdd6f4;border:1px solid #555;border-radius:4px;padding:8px;font-family:monospace;font-size:13px;resize:none;height:200px;width:100%';
+    textarea.style.cssText = 'background:var(--bg-input);color:var(--text);border:1px solid var(--control-border);border-radius:4px;padding:8px;font-family:var(--font-mono);font-size:var(--fs-base);resize:none;height:200px;width:100%';
     textarea.value = text;
 
     const copyBtn = document.createElement('button');
-    copyBtn.style.cssText = 'background:#89b4fa;color:#1e1e2e;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font-weight:600';
+    copyBtn.style.cssText = 'background:var(--accent);color:var(--accent-ink);border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:var(--fs-base);font-weight:600';
     copyBtn.textContent = 'Copy to Clipboard';
 
     modal.appendChild(header);

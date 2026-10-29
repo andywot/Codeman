@@ -97,14 +97,17 @@ describe('resolveHeaderStatsStyle', () => {
 });
 
 describe('resolveTabArrangement', () => {
-  it("defaults to 'machine' and honours only the five known layouts", () => {
+  it("defaults to 'machine' and honours only the four offered layouts", () => {
     // Lives here because this file already loads settings-ui.js's resolvers.
     const app = makeApp();
     expect(app.resolveTabArrangement({})).toBe('machine');
     expect(app.resolveTabArrangement(undefined)).toBe('machine');
-    for (const value of ['state', 'case', 'ledger', 'machine', 'classic']) {
+    for (const value of ['state', 'ledger', 'machine', 'classic']) {
       expect(app.resolveTabArrangement({ tabArrangement: value })).toBe(value);
     }
+    // Fork difference: the case clusters are not offered (cases are plumbing in
+    // Claude RC), so a stored 'case' reads as the machine grouping.
+    expect(app.resolveTabArrangement({ tabArrangement: 'case' })).toBe('machine');
     expect(app.resolveTabArrangement({ tabArrangement: 'neon' })).toBe('classic');
   });
 });

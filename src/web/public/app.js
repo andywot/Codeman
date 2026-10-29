@@ -9245,6 +9245,15 @@ class CodemanApp {
   }
 
   getSessionName(session) {
+    // Fork: a generated `w<n>-<case>` / `s<n>-<case>` placeholder names the
+    // case, which Claude RC keeps out of sight (sessions start from New session
+    // and their case is plumbing). Show the folder instead; the full name stays
+    // on session.name for rename, search and the API. Keyed on the server's own
+    // `nameSource`, so a name the user typed is never rewritten.
+    if (session.name && session.nameSource === 'placeholder' && /^[ws]\d+-[a-zA-Z0-9_-]+$/.test(session.name)) {
+      const folder = (session.workingDir || '').replace(/\/+$/, '').split('/').pop();
+      if (folder) return folder;
+    }
     // Use custom name if set
     if (session.name) {
       return session.name;

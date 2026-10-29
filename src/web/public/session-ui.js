@@ -3389,7 +3389,7 @@ Object.assign(CodemanApp.prototype, {
       const prefixLabel = document.createElement('span');
       prefixLabel.className = 'tab-rename-prefix';
       prefixLabel.textContent = parsed.prefix + ': ';
-      prefixLabel.style.cssText = 'color: var(--text-muted); font-size: 0.75rem; white-space: nowrap;';
+      prefixLabel.style.cssText = 'color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap;';
       tabName.appendChild(prefixLabel);
     }
 
@@ -3405,7 +3405,7 @@ Object.assign(CodemanApp.prototype, {
     const inSidebar = !inRail && !!this.isSessionSidebarActive?.();
     const renameWidth = inRail ? 'auto' : inSidebar ? '100%' : '80px';
     const renameMinWidth = inRail || inSidebar ? '4rem' : '0';
-    input.style.cssText = `width: ${renameWidth}; min-width: ${renameMinWidth}; font-size: 0.75rem; padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--accent); border-radius: 3px; color: var(--text); outline: none;`;
+    input.style.cssText = `width: ${renameWidth}; min-width: ${renameMinWidth}; font-size: var(--fs-sm); padding: 2px 4px; background: var(--bg-input); border: 1px solid var(--accent); border-radius: 3px; color: var(--text); outline: none;`;
 
     tabName.appendChild(input);
     input.focus();

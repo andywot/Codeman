@@ -446,7 +446,8 @@ Object.assign(CodemanApp.prototype, {
     const line2 = document.createElement('span');
     line2.className = 'home-sessions-row-sub';
     line2.setAttribute('data-i18n-skip', '');
-    line2.textContent = row.caseName || row.dir || row.mode;
+    // Fork: the folder, never the case name (cases are plumbing here).
+    line2.textContent = row.dir || row.mode;
     body.appendChild(line2);
 
     item.appendChild(body);

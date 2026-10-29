@@ -831,7 +831,9 @@ describe('showTabNewButton stays per-device and OFF by default', () => {
       '"New session in this tab\'s case"',
       '"This tab\'s folder is not a case, so there is nothing to start beside it."',
       "'New Session Button on Tabs'",
-      "'A + on the tab that starts a session in the same case and group, in any installed CLI.'",
+      // Fork difference: the settings row says "folder", not "case" (Claude RC
+      // keeps cases out of sight).
+      "'A + on the tab that starts a session in the same folder and group, in any installed CLI.'",
     ]) {
       expect(i18n).toContain(`${text}:`);
     }

@@ -3228,7 +3228,7 @@ html:not(.tabs-show-new) .session-tab .tab-new {
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
-  font: 700 1rem/1 monospace;
+  font: 700 var(--fs-lg)/1 var(--font-mono);
   cursor: pointer;
 }
 
@@ -3315,7 +3315,7 @@ html[data-tab-orientation='vertical'].tab-rail-compact .session-tab .tab-actions
 .tab-rail-action-menu .tab-rail-action-menu-note {
   padding: 0.45rem 0.6rem;
   color: var(--text-muted);
-  font-size: 0.85em;
+  font-size: var(--fs-xs);
   cursor: default;
 }
 
@@ -9034,7 +9034,7 @@ html[data-skin="og"] .welcome-primary:hover {
   background: transparent;
   border: none;
   color: var(--text-dim);
-  font-size: 1.5rem;
+  font-size: var(--fs-xl);
   cursor: pointer;
   line-height: 1;
 }
@@ -9882,14 +9882,14 @@ kbd {
 .toast {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  gap: 8px;
+  background: var(--floating-bg);
+  border: 1px solid var(--border-light);
   border-radius: 6px;
-  padding: 0.6rem 1rem;
+  padding: 8px 10px 8px 12px;
   font-size: var(--fs-base);
   color: var(--text);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--elevated-shadow);
   transform: translateX(100%);
   opacity: 0;
   transition: all 0.2s ease;
@@ -9916,9 +9916,9 @@ kbd {
   flex-shrink: 0;
   background: none;
   border: none;
-  color: inherit;
-  opacity: 0.6;
-  font-size: var(--fs-xl);
+  color: var(--text-dim);
+  opacity: 0.8;
+  font-size: var(--fs-lg);
   line-height: 1;
   padding: 0 0.15rem;
   cursor: pointer;
@@ -10045,10 +10045,46 @@ kbd {
   border-color: var(--text-muted, var(--border));
 }
 
-.toast-success { border-color: rgba(34, 197, 94, 0.4); }
-.toast-error { border-color: rgba(239, 68, 68, 0.4); }
-.toast-warning { border-color: rgba(234, 179, 8, 0.4); }
-.toast-info { border-color: rgba(59, 130, 246, 0.4); }
+/* The state is a mark before the message, in the skin's state colours; the
+   card itself stays neutral (a blue info border read as a selection). */
+.toast-success,
+.toast-error,
+.toast-warning,
+.toast-info {
+  border-color: var(--border-light);
+}
+.toast:is(.toast-success, .toast-error, .toast-warning, .toast-info)::before {
+  content: '';
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.toast-success::before { background: var(--green) !important; }
+.toast-error::before { background: var(--red) !important; }
+.toast-warning::before { background: var(--yellow) !important; }
+.toast-info::before { background: var(--teal) !important; }
+/* showToast() writes its action button's look inline (a translucent white pill
+   for the old dark card, pinned byte for byte by test/security-notices.test.ts);
+   on a skin's own card it has to read as a button. */
+.toast > button:not(.toast-close) {
+  flex-shrink: 0;
+  margin-left: 8px !important;
+  padding: 0 10px !important;
+  height: 24px;
+  background: var(--bg-dark) !important;
+  border: 1px solid var(--control-border) !important;
+  border-radius: var(--btn-radius) !important;
+  color: var(--text) !important;
+  font-family: inherit;
+  font-size: var(--fs-sm) !important;
+  font-weight: 600;
+}
+.toast > button:not(.toast-close):hover {
+  border-color: var(--control-border-hover) !important;
+  background: var(--control-bg) !important;
+}
 
 /* Security notice card (security-notices.json; showSecurityNotice / showUpdateNotice in
    panels-ui.js). Its own card in the toast stack, never the plain pill, and in the SAME
@@ -14879,7 +14915,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 22px;
+  font-size: var(--fs-xl);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
@@ -15007,23 +15043,21 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .rv-text h1, .response-viewer-body > h1 {
-  font-size: 1.55em;
+  font-size: var(--fs-xl);
   padding-bottom: 0.3em;
   border-bottom: 1px solid var(--border);
 }
 .rv-text h2, .response-viewer-body > h2 {
-  font-size: 1.3em;
-  color: var(--yellow);
+  font-size: var(--fs-lg);
+  color: var(--text);
 }
 .rv-text h3, .response-viewer-body > h3 {
-  font-size: 1.13em;
-  color: var(--accent);
+  font-size: var(--fs-md);
+  color: var(--text);
 }
 .rv-text h4, .response-viewer-body > h4 {
-  font-size: 1em;
+  font-size: var(--fs-base);
   color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .rv-text code,
@@ -15033,7 +15067,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   padding: 1px 6px;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: var(--fs-sm);
 }
 
 /* Descendant (not child) combinator: code blocks are wrapped in .rv-code-wrap,
@@ -15272,7 +15306,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
    narrow on a phone. Colour/underline come from the .rv-text a rule above. */
 .rv-text a.rv-path {
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: var(--fs-sm);
   word-break: break-all;
   cursor: pointer;
 }
@@ -15301,7 +15335,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   border-collapse: collapse;
   margin: 0;
   width: 100%;
-  font-size: 0.92em;
+  font-size: var(--fs-base);
   line-height: 1.55;
 }
 
@@ -15365,11 +15399,10 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 20px 22px 28px;
-  /* Proportional font for prose — monospace only for code/pre */
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
-    'Hiragino Sans GB', 'Segoe UI', 'Helvetica Neue', Helvetica, Arial,
-    'Noto Sans CJK SC', sans-serif;
-  font-size: var(--fs-lg);
+  /* Proportional font for prose — monospace only for code/pre. The UI face,
+     with the CJK system faces behind it for Chinese replies. */
+  font-family: var(--ui-font), 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', sans-serif;
+  font-size: var(--fs-md);
   line-height: 1.7;
   color: var(--text);
   /* Comfortable reading width on wider viewports */
@@ -15799,7 +15832,7 @@ body.touch-device.cjk-input-visible .main {
   width: 36px;
   height: 36px;
   color: var(--text-muted);
-  font-size: 1.5rem;
+  font-size: var(--fs-xl);
   background: transparent;
   border: 0;
   border-radius: 8px;
@@ -16152,7 +16185,7 @@ body.touch-device.cjk-input-visible .main {
 .path-preview-close {
   width: 38px;
   height: 38px;
-  font-size: 1.5rem;
+  font-size: var(--fs-xl);
   cursor: pointer;
 }
 
@@ -17435,14 +17468,14 @@ html:not([data-skin="og"]) {
 .reboot-restore-banner {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 1rem;
-  background: linear-gradient(90deg, #b45309, #92400e);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
-  color: #fff;
-  font-size: var(--fs-base);
+  gap: 8px;
+  padding: 6px 12px;
+  /* The skin's amber as a tint over its ground, like the host-wake banner. */
+  background: color-mix(in srgb, var(--yellow) 12%, var(--bg-dark));
+  border-bottom: 1px solid color-mix(in srgb, var(--yellow) 50%, var(--bg-dark));
+  color: var(--text);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  letter-spacing: 0.01em;
   flex-shrink: 0;
   z-index: 1250;
 }
@@ -17453,7 +17486,8 @@ html:not([data-skin="og"]) {
 
 .reboot-restore-banner-icon {
   flex-shrink: 0;
-  font-size: var(--fs-lg);
+  color: var(--yellow);
+  font-size: var(--fs-md);
   line-height: 1;
 }
 
@@ -17462,7 +17496,7 @@ html:not([data-skin="og"]) {
 }
 
 .reboot-restore-banner-detail {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-dim);
   font-weight: 500;
   /* A flex item will not shrink below its content width at the default
      `min-width: auto`, so without this the session names push the buttons out of
@@ -17474,7 +17508,7 @@ html:not([data-skin="og"]) {
 }
 
 .reboot-restore-banner-note {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-dim);
   font-weight: 500;
   white-space: nowrap;
   margin-left: auto;
@@ -17483,11 +17517,13 @@ html:not([data-skin="og"]) {
 .reboot-restore-banner-accept,
 .reboot-restore-banner-dismiss {
   flex-shrink: 0;
-  padding: 0.2rem 0.6rem;
-  border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--btn-radius);
+  border: 1px solid var(--control-border);
+  background: var(--bg-dark);
+  color: var(--text);
+  font-family: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
@@ -17495,7 +17531,8 @@ html:not([data-skin="og"]) {
 
 .reboot-restore-banner-accept:hover,
 .reboot-restore-banner-dismiss:hover {
-  background: rgba(255, 255, 255, 0.24);
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
 }
 
 .reboot-restore-banner-accept:disabled {
@@ -17504,22 +17541,24 @@ html:not([data-skin="og"]) {
 }
 
 .reboot-restore-banner-dismiss {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: transparent;
   background: transparent;
+  color: var(--text-dim);
   font-weight: 500;
 }
 
 .offline-banner {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 1rem;
-  background: linear-gradient(90deg, #b91c1c, #991b1b);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
-  color: #fff;
-  font-size: var(--fs-base);
+  gap: 8px;
+  padding: 6px 12px;
+  /* A tint of the skin's red over its ground, never a fixed crimson: the light
+     skins drew a dark red bar across a light window. */
+  background: color-mix(in srgb, var(--red) 10%, var(--bg-dark));
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 45%, var(--bg-dark));
+  color: var(--text);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  letter-spacing: 0.01em;
   flex-shrink: 0;
   z-index: 1250;
 }
@@ -17529,10 +17568,10 @@ html:not([data-skin="og"]) {
 }
 
 .offline-banner-dot {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--red);
   flex-shrink: 0;
   animation: offline-banner-pulse 1.4s ease-in-out infinite;
 }
@@ -17542,6 +17581,12 @@ html:not([data-skin="og"]) {
   50% { opacity: 0.25; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .offline-banner-dot {
+    animation: none;
+  }
+}
+
 .offline-banner-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -17549,7 +17594,9 @@ html:not([data-skin="og"]) {
 }
 
 .offline-banner-detail {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   font-weight: 500;
   white-space: nowrap;
   margin-left: auto;
@@ -17557,11 +17604,12 @@ html:not([data-skin="og"]) {
 
 .offline-banner-retry {
   flex-shrink: 0;
-  padding: 0.2rem 0.6rem;
-  border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--btn-radius);
+  border: 1px solid var(--control-border);
+  background: var(--bg-dark);
+  color: var(--text);
   font-size: var(--fs-sm);
   font-weight: 600;
   font-family: inherit;
@@ -17569,14 +17617,20 @@ html:not([data-skin="og"]) {
 }
 
 .offline-banner-retry:hover {
-  background: rgba(255, 255, 255, 0.24);
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
 }
 
 /* Remote-host unreachable (host asleep, can be woken). Reuses the offline-banner
    layout and children; amber instead of red because the Codeman session itself is
    perfectly healthy — only the machine is asleep. */
 .host-wake-banner {
-  background: linear-gradient(90deg, #b45309, #92400e);
+  background: color-mix(in srgb, var(--yellow) 12%, var(--bg-dark));
+  border-bottom-color: color-mix(in srgb, var(--yellow) 50%, var(--bg-dark));
+}
+
+.host-wake-banner .offline-banner-dot {
+  background: var(--yellow);
 }
 
 .host-wake-banner .offline-banner-retry:disabled {
@@ -17598,7 +17652,9 @@ html:not([data-skin="og"]) {
   padding: 20px;
   padding-top: calc(20px + var(--safe-area-top));
   padding-bottom: calc(20px + var(--safe-area-bottom));
-  background: rgba(6, 8, 12, 0.93);
+  /* The skin's own ground, mostly opaque: the cached view behind is not worth
+     reading until the server answers. */
+  background: color-mix(in srgb, var(--bg-dark) 90%, transparent);
   overflow-y: auto;
 }
 
@@ -17628,41 +17684,41 @@ html:not([data-skin="og"]) {
 .offline-overlay-card {
   width: min(420px, 100%);
   box-sizing: border-box;
-  padding: 26px 24px 22px;
-  border-radius: 14px;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  background: #16181d;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
-  color: #f3f6fa;
+  padding: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-dark);
+  box-shadow: var(--elevated-shadow);
+  color: var(--text);
   text-align: center;
 }
 
 .offline-overlay-icon {
-  color: #ef4444;
+  color: var(--red);
   margin-bottom: 10px;
 }
 
 .offline-overlay-title {
   margin: 0 0 8px;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-lg);
   font-weight: 700;
-  color: #fff;
+  color: var(--text);
 }
 
 .offline-overlay-body {
   margin: 0 0 14px;
   font-size: var(--fs-base);
   line-height: 1.45;
-  color: #b9c0cc;
+  color: var(--text-dim);
 }
 
 .offline-overlay-host {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  color: #8b93a1;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
   padding: 6px 10px;
   margin-bottom: 14px;
   word-break: break-all;
@@ -17675,12 +17731,12 @@ html:not([data-skin="og"]) {
   text-align: left;
   font-size: var(--fs-base);
   line-height: 1.7;
-  color: #a7aebb;
+  color: var(--text-dim);
 }
 
 .offline-overlay-hints li::before {
   content: '›';
-  color: #ef4444;
+  color: var(--red);
   font-weight: 700;
   margin-right: 8px;
 }
@@ -17693,11 +17749,12 @@ html:not([data-skin="og"]) {
 }
 
 .offline-overlay-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 7px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e7ebf2;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--btn-radius);
+  border: 1px solid var(--control-border);
+  background: var(--bg-dark);
+  color: var(--text);
   font-size: var(--fs-base);
   font-weight: 600;
   font-family: inherit;
@@ -17705,23 +17762,26 @@ html:not([data-skin="og"]) {
 }
 
 .offline-overlay-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
 }
 
 .offline-overlay-btn--primary {
-  background: #dc2626;
-  border-color: #dc2626;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .offline-overlay-btn--primary:hover {
-  background: #ef4444;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .offline-overlay-status {
   margin-top: 14px;
-  font-size: var(--fs-sm);
-  color: #8b93a1;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
   min-height: 1em;
 }
 
@@ -24039,6 +24099,25 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
   display: none !important;
 }
 
+/* Cases are plumbing here: sessions start from New session (machine, system,
+   folder, account, model), which links the case itself. The toolbar's Run
+   split, instance stepper, Run Shell and case picker (desktop hid them with the
+   rest of the toolbar's left side; phones and tablets still drew "Run CC" and a
+   "testcase" button) all start a LOCAL session on the server, so they go. The
+   markup stays: session-ui.js and the run paths read these elements. Stop and
+   the phone's Enter, Attach and Settings remain. */
+footer.toolbar :is(
+  .run-btn-group,
+  .tab-count-group,
+  .btn-shell,
+  .case-select-group,
+  .btn-case-mobile,
+  .btn-case-settings-mobile,
+  .case-settings-popover-mobile
+) {
+  display: none !important;
+}
+
 /* ── Fork: status bar ──────────────────────────────────────────────────────
    On desktop the bottom toolbar becomes an editor-style status line; the
    Run/Shell/case controls moved into the New session dialog. */
@@ -25152,4 +25231,620 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
    rule that sets a font on a control, monospace included, still wins. */
 :where(html[data-skin="monokai-pro-light"]) :where(button, input, select, textarea) {
   font-family: inherit;
+}
+
+/* ── Fork: light everywhere ────────────────────────────────────────────────
+   The older upstream panels (log windows, the lifecycle log, subagent windows,
+   the response viewer, the file viewer, dialogs and popovers) were drawn for
+   the dark default with literal colours. These rules repaint them from the
+   skin's tokens, so they follow whichever skin is on; nothing here is a new
+   colour. Type stays on the one scale (--fs-*), the UI face for words and
+   JetBrains Mono (--font-mono) for paths, numbers and code. */
+
+/* Session lifecycle log (settings-ui.js openLifecycleLog). Its markup carried
+   inline dark styles; these classes are the whole look now. */
+.lifecycle-window {
+  position: fixed;
+  z-index: 2000;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  max-width: 95vw;
+  min-width: 400px;
+  min-height: 250px;
+  height: 520px;
+  flex-direction: column;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  box-shadow: var(--elevated-shadow);
+  resize: both;
+  overflow: hidden;
+  color: var(--text);
+}
+.lifecycle-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px 6px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+}
+.lifecycle-window-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.lifecycle-window-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lifecycle-input,
+.lifecycle-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--btn-radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+}
+.lifecycle-input--id {
+  width: 120px;
+  font-family: var(--font-mono);
+}
+.lifecycle-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.lifecycle-btn {
+  background: var(--bg-dark);
+  font-weight: 600;
+  cursor: pointer;
+}
+.lifecycle-btn:hover {
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
+}
+.lifecycle-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--btn-radius);
+  background: none;
+  color: var(--text-dim);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+.lifecycle-close:hover {
+  background: var(--control-bg);
+  color: var(--text);
+}
+.lifecycle-window-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.lifecycle-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.lifecycle-table th {
+  position: sticky;
+  top: 0;
+  padding: 6px 8px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--ui-font);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-align: left;
+}
+.lifecycle-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.lifecycle-table .lc-time {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.lifecycle-table .lc-name {
+  color: var(--text);
+}
+.lifecycle-table .lc-reason {
+  color: var(--text-dim);
+}
+.lifecycle-table .lc-extra {
+  color: var(--text-muted);
+}
+.lc-ev {
+  font-weight: 600;
+}
+.lc-ev--ok {
+  color: var(--green);
+}
+.lc-ev--warn {
+  color: var(--yellow);
+}
+.lc-ev--bad {
+  color: var(--red);
+}
+.lc-ev--quiet {
+  color: var(--text-muted);
+}
+.lifecycle-empty {
+  padding: 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Code, keys and samples take the data face. Without this, <code> in setting
+   descriptions and <kbd> fell to the browser's own monospace (DejaVu Sans Mono
+   on Linux and Android, Courier on iOS). Zero specificity: any rule that sets
+   a face on one of them still wins. */
+:where(code, kbd, samp, pre) {
+  font-family: var(--font-mono);
+}
+/* A bare .btn (the shortcut overlay's footer, a few dialogs) has no base rule
+   and fell to the browser's 13.33px button font. */
+:where(button.btn) {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+
+/* Floating windows: log viewer, subagent windows, plan agents. One chrome for
+   all of them, the editor's: the skin's ground, a card-tinted title bar, 1px
+   rules and the overlay shadow. The emoji title glyphs (📄, 🤖) drew as tofu or
+   as clip-art beside the workbench's line icons; the filename or description
+   says what the window is. */
+:is(.log-viewer-window, .subagent-window, .plan-subagent-window) {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  box-shadow: var(--elevated-shadow);
+}
+:is(.log-viewer-window-header, .subagent-window-header) {
+  padding: 6px 8px 6px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+:is(.log-viewer-window-title, .subagent-window-title) .icon {
+  display: none;
+}
+.subagent-window-title .id {
+  font-family: var(--ui-font);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* State pills: the state colour as ink on its own tint. White on the skin's
+   green or accent was under 4:1 at this size. */
+:is(.log-viewer-window-title, .subagent-window-title) .status {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1.5;
+}
+:is(.log-viewer-window-title .status.streaming, .subagent-window-title .status.active) {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+.subagent-window-title .status.idle {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: var(--yellow);
+}
+.subagent-window-title .status.completed,
+.log-viewer-window-title .status.disconnected {
+  background: var(--control-bg);
+  color: var(--text-dim);
+}
+.log-viewer-window-title .status.error {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+:is(.log-viewer-window-actions, .subagent-window-actions) button {
+  border-radius: var(--btn-radius);
+  color: var(--text-dim);
+}
+:is(.log-viewer-window-actions, .subagent-window-actions) button:hover {
+  background: var(--control-bg);
+  color: var(--text);
+}
+.subagent-window-body .activity-line .time,
+.subagent-window-body .progress-line {
+  color: var(--text-muted);
+}
+.subagent-window-body .activity-line .tool-name {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.subagent-window-body .activity-line .tool-detail,
+.subagent-window-body .message-line {
+  color: var(--text);
+}
+.subagent-window-parent {
+  background: var(--bg-card);
+}
+.subagent-model-badge.haiku {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+.subagent-model-badge.sonnet {
+  background: color-mix(in srgb, var(--teal) 14%, transparent);
+  color: var(--teal);
+}
+.subagent-model-badge.opus {
+  background: color-mix(in srgb, var(--session-purple) 14%, transparent);
+  color: var(--session-purple);
+}
+.subagent-status.active {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+.subagent-status.idle {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: var(--yellow);
+}
+.subagent-status.completed {
+  background: var(--control-bg);
+  color: var(--text-dim);
+}
+.plan-subagent-header {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+.plan-subagent-model {
+  background: color-mix(in srgb, var(--session-purple) 14%, transparent);
+  color: var(--session-purple);
+}
+.plan-subagent-prompt-link:hover {
+  background: var(--control-bg);
+}
+
+/* Command palette: the active row is the skin's selection, not the old blue. */
+.command-palette-shell {
+  border-color: var(--border-light);
+  border-radius: 6px;
+  box-shadow: var(--elevated-shadow);
+}
+.command-palette-input-row {
+  border-bottom-color: var(--border);
+}
+.command-palette-input-row kbd,
+.command-palette-agent {
+  background: var(--control-bg);
+  border-color: var(--control-border);
+  font-family: var(--font-mono);
+}
+.command-palette-item {
+  border-radius: 4px;
+}
+.command-palette-item:hover,
+.command-palette-item.active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: transparent;
+}
+.command-palette-item.active .command-palette-title {
+  color: var(--accent-d);
+}
+.command-palette-icon {
+  color: var(--accent);
+  background: var(--control-bg);
+  border-radius: 4px;
+}
+.command-palette-item--browse .command-palette-icon {
+  background: none;
+}
+.command-palette-agent-arrow:hover {
+  background: var(--control-bg-hover);
+}
+.command-palette-subtitle {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+/* Shortcut settings rows */
+.shortcut-setting-row {
+  border-bottom-color: var(--border);
+}
+.shortcut-binding-input,
+.shortcut-capture-btn,
+.shortcut-reset-btn {
+  background: var(--bg-input);
+  border-color: var(--control-border);
+}
+.shortcut-capture-btn:hover,
+.shortcut-reset-btn:hover:not(:disabled) {
+  background: var(--control-bg);
+  border-color: var(--control-border-hover);
+}
+
+/* Search and Resume Conversation (the board's lower half). */
+.search-input {
+  background: var(--bg-input);
+  border-color: var(--control-border);
+}
+.search-input:focus {
+  background: var(--bg-input);
+  border-color: var(--accent);
+}
+.search-filter-chip {
+  background: var(--bg-dark);
+  border-color: var(--control-border);
+}
+.search-filter-chip:hover {
+  border-color: var(--control-border-hover);
+}
+.search-filter-chip.active {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-dark));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-dark));
+  color: var(--accent-d);
+}
+/* The case filter: cases are plumbing in Claude RC (see the toolbar note). */
+#searchCaseFilter {
+  display: none;
+}
+.search-result-card,
+.history-item {
+  background: var(--bg-dark);
+  border-color: var(--border);
+}
+.search-result-card:hover,
+.search-result-card:focus-visible,
+.history-item:hover,
+.history-item.expanded {
+  background: var(--bg-card);
+  border-color: var(--control-border-hover);
+  box-shadow: none;
+}
+.history-item.is-pinned,
+.history-item.is-pinned:hover {
+  background: color-mix(in srgb, var(--yellow) 8%, var(--bg-dark));
+  border-color: color-mix(in srgb, var(--yellow) 40%, var(--bg-dark));
+  box-shadow: none;
+}
+.history-item-subtitle {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.history-item-subtitle.is-case,
+.history-item.expanded .history-item-expand {
+  color: var(--teal);
+}
+.history-item-expand:hover {
+  background: var(--control-bg);
+}
+.history-item-detail {
+  border-top-color: var(--border);
+}
+.search-badge-session {
+  background: color-mix(in srgb, var(--teal) 12%, transparent);
+  color: var(--teal);
+}
+.search-badge-event {
+  background: color-mix(in srgb, var(--session-purple) 12%, transparent);
+  color: var(--session-purple);
+}
+.search-badge-file {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+}
+.search-badge-past {
+  background: color-mix(in srgb, var(--yellow) 14%, transparent);
+  color: var(--yellow);
+}
+
+/* Approvals inbox */
+.approvals-drawer {
+  border-left-color: var(--border-light);
+  box-shadow: var(--elevated-shadow);
+}
+.approvals-badge {
+  background: var(--red);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+}
+.approval-card {
+  border-radius: 6px;
+  background: var(--bg-dark);
+}
+.approval-kind-badge {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+.approval-kind-question .approval-kind-badge {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: var(--yellow);
+}
+.approval-kind-idle .approval-kind-badge {
+  background: var(--control-bg);
+  color: var(--text-dim);
+}
+.approval-age {
+  font-family: var(--font-mono);
+}
+.approval-context {
+  background: var(--bg-card);
+}
+.approval-btn {
+  border-color: var(--control-border);
+  background: var(--bg-dark);
+  border-radius: var(--btn-radius);
+}
+.approval-btn:hover {
+  border-color: var(--control-border-hover);
+  background: var(--control-bg);
+}
+.approval-btn-primary,
+.approval-btn-primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Plan usage readout: state colours from the skin. */
+.header-plan-usage .pu-green {
+  color: var(--green);
+}
+.header-plan-usage .pu-yellow {
+  color: var(--yellow);
+}
+.header-plan-usage .pu-red {
+  color: var(--red);
+}
+
+/* Session Manager search box focus: the skin's accent, not the old blue. */
+.session-manager-modal .search-input:focus {
+  border-color: var(--accent);
+}
+
+/* Attachment history rows */
+.attachment-history-item {
+  border-bottom-color: var(--border);
+}
+
+/* Workbench dialogs: a plain scrim, no frosted glass (the editor draws its
+   dialogs over a flat dim, and the blur turned the whole window to mush), one
+   corner radius, and a primary action that reads as one. The upstream skin
+   block greys every .btn-toolbar.btn-primary on the non-OG skins; on the
+   workbench, Save and Create carry the accent. */
+html[data-skin="monokai-pro-light"] .modal-backdrop {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-skin="monokai-pro-light"] .modal-content {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: var(--border-light);
+  border-radius: 6px;
+}
+html[data-skin="monokai-pro-light"] .btn-toolbar.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+html[data-skin="monokai-pro-light"] .btn-toolbar.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-ink);
+}
+
+/* Subagent activity: the per-tool emoji (📖, ✏️ …) drew as tofu or clip-art;
+   the tool name beside it already says what ran. */
+.subagent-window-body .activity-line .tool-icon {
+  display: none;
+}
+
+/* Switches: the off track was a white tint, invisible on a light ground, so an
+   off switch read as a stray dot. Focus is the skin's accent, not the old blue. */
+.switch .slider {
+  background-color: var(--control-bg);
+  border-color: var(--control-border);
+}
+.switch input:checked + .slider:before {
+  background-color: var(--accent-ink);
+}
+.switch input:focus + .slider {
+  box-shadow: none;
+}
+.switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Settings surface: the search box sat on a black tint. */
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-search input {
+  background: var(--bg-input);
+  border-color: var(--control-border);
+  border-radius: var(--btn-radius);
+}
+
+/* Workbench settings: colour means state or selection, so the section marks
+   and the Session Options callout drop the accent tint for the neutral card
+   (the callout's switch still shows on/off in the accent), and the callout
+   loses its gradient. */
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-section-head svg {
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border-color: var(--border);
+  border-radius: 4px;
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-callout {
+  background: var(--bg-card);
+  border-color: var(--border);
+  border-radius: 6px;
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-callout:hover {
+  background: var(--bg-card);
+  border-color: var(--control-border-hover);
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-callout-ico {
+  color: var(--text-dim);
+  background: var(--bg-dark);
+  border-color: var(--border);
+  border-radius: 4px;
+}
+html[data-skin="monokai-pro-light"] :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-callout-title {
+  font-size: var(--fs-md);
+}
+
+/* Files and Git panels: overlay shadow from the skin, state colours from its
+   tokens (the literals were the dark default's green, amber and red). */
+.file-browser-panel,
+.git-status-panel {
+  box-shadow: var(--elevated-shadow);
+}
+html .toolbar .btn-git-status.git-status--clean svg,
+.git-status-ok,
+.git-status-badge--A,
+.git-status-badge--new {
+  color: var(--green);
+}
+html .toolbar .btn-git-status.git-status--dirty,
+.git-status-chip--warn {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 45%, transparent);
+}
+.git-status-badge,
+.git-status-hash,
+.git-status-repo-state--dirty,
+.git-status-repo-unreadable {
+  color: var(--yellow);
+}
+html .toolbar .btn-git-status.git-status--conflict {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 50%, transparent);
+}
+.git-status-badge--D,
+.git-status-badge--U {
+  color: var(--red);
+}
+.git-status-hash {
+  font-family: var(--font-mono);
+}
+
+/* Phones: a log window opens at a fixed 100px desktop cascade and ran off the
+   right edge, close button and all. Pin it inside the screen instead. */
+@media (max-width: 599px) {
+  .log-viewer-window {
+    left: 8px !important;
+    right: 8px;
+    width: auto !important;
+    min-width: 0;
+    max-width: none;
+  }
 }

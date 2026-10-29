@@ -3083,7 +3083,7 @@ Object.assign(CodemanApp.prototype, {
    * @param {boolean} [options.showViewAll=true] show "View all in folder" button in detail panel
    * @param {Function} [options.onActivate] main-row click handler override (default: resume the conversation)
    */
-  _buildHistoryItem(s, cases, options) {
+  _buildHistoryItem(s, _cases, options) {
     const showViewAll = options?.showViewAll !== false;
 
     // Size: only render when a numeric byte count is present (unified items
@@ -3116,7 +3116,6 @@ Object.assign(CodemanApp.prototype, {
     }
 
     const shortDir = this._shortenHomePath(s.workingDir);
-    const caseLabel = this._resolveCaseLabel(s.workingDir, cases);
 
     const isLive = Array.isArray(s.sources) && s.sources.includes('live');
 
@@ -3192,8 +3191,11 @@ Object.assign(CodemanApp.prototype, {
 
     const subtitleSpan = document.createElement('span');
     subtitleSpan.className = 'history-item-subtitle';
-    if (caseLabel.startsWith('#')) subtitleSpan.classList.add('is-case');
-    subtitleSpan.textContent = caseLabel;
+    // Fork: the folder, never the `#<case>` tag (cases are plumbing in Claude
+    // RC; the filter box still matches the case name). Nothing when the title
+    // already is the folder.
+    const rowLabel = this._historyRowLabel(s, shortDir);
+    subtitleSpan.textContent = rowLabel === shortDir ? '' : shortDir;
 
     textCol.append(titleSpan);
     if (badgeRow.childElementCount > 0) textCol.append(badgeRow);

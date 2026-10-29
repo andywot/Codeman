@@ -2810,7 +2810,7 @@ Object.assign(CodemanApp.prototype, {
 
   openLifecycleLog() {
     const win = document.getElementById('lifecycleWindow');
-    win.style.display = 'block';
+    win.style.display = 'flex';
     // Reset transform so it appears centered initially
     if (!win._dragInitialized) {
       win.style.left = '50%';
@@ -2878,25 +2878,27 @@ Object.assign(CodemanApp.prototype, {
       }
       empty.style.display = 'none';
 
-      const eventColors = {
-        created: '#4ade80', started: '#4ade80', recovered: '#4ade80',
-        exit: '#fbbf24', mux_died: '#f87171', deleted: '#f87171', stale_cleaned: '#f87171',
-        server_started: '#666', server_stopped: '#666',
+      // The event's colour is a class (styles.css, .lc-ev--*) painted from the
+      // skin's state tokens; the row and its cells carry no inline colour.
+      const eventTone = {
+        created: 'ok', started: 'ok', recovered: 'ok',
+        exit: 'warn', mux_died: 'bad', deleted: 'bad', stale_cleaned: 'bad',
+        server_started: 'quiet', server_stopped: 'quiet',
       };
 
       tbody.innerHTML = data.entries.map(e => {
         const time = new Date(e.ts).toLocaleString();
-        const color = eventColors[e.event] || '#888';
+        const tone = eventTone[e.event] || 'quiet';
         const name = e.name || (e.sessionId === '*' ? '—' : this.getShortId(e.sessionId));
         const extra = [];
         if (e.exitCode !== undefined && e.exitCode !== null) extra.push(`code=${e.exitCode}`);
         if (e.mode) extra.push(e.mode);
-        return `<tr style="border-bottom:1px solid #1a1a2e">
-          <td style="padding:3px 8px;color:#888;white-space:nowrap">${time}</td>
-          <td style="padding:3px 8px;color:${color};font-weight:600">${e.event}</td>
-          <td style="padding:3px 8px;color:#e0e0e0" title="${e.sessionId}">${name}</td>
-          <td style="padding:3px 8px;color:#aaa">${e.reason || ''}</td>
-          <td style="padding:3px 8px;color:#666">${extra.join(', ')}</td>
+        return `<tr>
+          <td class="lc-time">${time}</td>
+          <td class="lc-ev lc-ev--${tone}">${e.event}</td>
+          <td class="lc-name" title="${e.sessionId}">${name}</td>
+          <td class="lc-reason">${e.reason || ''}</td>
+          <td class="lc-extra">${extra.join(', ')}</td>
         </tr>`;
       }).join('');
     } catch (err) {
@@ -4389,7 +4391,10 @@ Object.assign(CodemanApp.prototype, {
    */
   resolveTabArrangement(settings) {
     const value = settings?.tabArrangement ?? this.getDefaultSettings().tabArrangement ?? 'machine';
-    return value === 'state' || value === 'case' || value === 'ledger' || value === 'machine' ? value : 'classic';
+    // Fork: the case clusters are not offered (cases are plumbing in Claude RC);
+    // a stored 'case' reads as the machine grouping it replaced.
+    if (value === 'case') return 'machine';
+    return value === 'state' || value === 'ledger' || value === 'machine' ? value : 'classic';
   },
 
   /**

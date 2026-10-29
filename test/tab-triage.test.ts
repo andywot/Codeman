@@ -615,8 +615,9 @@ describe('tab grouping wiring (static)', () => {
   const mobileCss = read('mobile.css');
 
   it('stamps data-tab-arrangement and data-tab-state-order before first paint', () => {
-    // Fork default: an unset layout groups the explorer by machine.
-    expect(html).toContain("var T=A.tabArrangement===undefined?'machine':A.tabArrangement;");
+    // Fork default: an unset layout groups the explorer by machine, and so does
+    // a stored 'case' (fork difference: the case clusters are not offered).
+    expect(html).toContain("var T=A.tabArrangement===undefined||A.tabArrangement==='case'?'machine':A.tabArrangement;");
     expect(html).toContain("dataset.tabArrangement=(T==='state'||T==='case'||T==='ledger'||T==='machine')?T:'classic'");
     expect(html).toContain("dataset.tabStateOrder=(A.tabStateOrder==='urgent-last')?'urgent-last':'urgent-first'");
     // The catch branch (localStorage threw) must set both too.
@@ -625,12 +626,15 @@ describe('tab grouping wiring (static)', () => {
     );
   });
 
-  it('offers the five layouts with "By machine" as the default, and the state order', () => {
+  it('offers four layouts with "By machine" as the default, and the state order', () => {
     // Fork default: the workbench explorer groups sessions by machine. By state,
-    // By case, Ledger and Classic (the upstream single strip) are opt-in.
+    // Ledger and Classic (the upstream single strip) are opt-in. Fork difference:
+    // upstream's "By case" option is gone on purpose, since Claude RC keeps
+    // cases out of sight (a stored 'case' reads as 'machine').
     expect(html).toMatch(
-      /<select id="appSettingsTabArrangement"[^>]*>\s*<option value="state">By state \(rows per state\)<\/option>\s*<option value="machine">By machine \(default\)<\/option>\s*<option value="case">[^<]+<\/option>\s*<option value="ledger">[^<]+<\/option>\s*<option value="classic">Classic<\/option>/
+      /<select id="appSettingsTabArrangement"[^>]*>\s*<option value="state">By state \(rows per state\)<\/option>\s*<option value="machine">By machine \(default\)<\/option>\s*<option value="ledger">[^<]+<\/option>\s*<option value="classic">Classic<\/option>/
     );
+    expect(html).not.toContain('<option value="case">');
     expect(html).toMatch(
       /<select id="appSettingsTabStateOrder"[^>]*>\s*<option value="urgent-first">Needs you on top \(default\)<\/option>\s*<option value="urgent-last">/
     );
