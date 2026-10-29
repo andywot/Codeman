@@ -416,6 +416,16 @@ Object.assign(CodemanApp.prototype, {
       } else if (action === 'resume') {
         this._closeMobileOverviewRunMenu();
         void this.resumeMobileOverviewSession(target.dataset.moSession);
+      } else if (action === 'history-machine') {
+        this._setHistoryMachine(target.dataset.moMachine || '');
+        this._mobileOverviewShowAllPast = false;
+        this.renderMobileOverview();
+      } else if (action === 'resume-machine') {
+        this._closeMobileOverviewRunMenu();
+        void this.resumeMachineConversation(this._historyMachineSelected(), target.dataset.moSession);
+      } else if (action === 'more-machine') {
+        this._mobileOverviewShowAllPast = true;
+        void this._loadMachineHistory(this._historyMachineSelected(), { more: true });
       } else if (action === 'more-past') {
         this._mobileOverviewShowAllPast = !this._mobileOverviewShowAllPast;
         this.renderMobileOverview();
@@ -529,13 +539,16 @@ Object.assign(CodemanApp.prototype, {
       )
     );
 
+    // Fork (machine-history.js): with machines set up, the section gets a machine
+    // filter and lists that machine's conversations; otherwise it is unchanged.
     el.appendChild(
-      this._buildMobileOverviewSection(
-        'Past sessions',
-        model.past.length,
-        this._buildMobileOverviewPast(model),
-        this._mobileOverviewHistory ? 'No past conversations yet' : 'Loading…'
-      )
+      (this._buildMobileOverviewPastSection && this._buildMobileOverviewPastSection(model)) ||
+        this._buildMobileOverviewSection(
+          'Past sessions',
+          model.past.length,
+          this._buildMobileOverviewPast(model),
+          this._mobileOverviewHistory ? 'No past conversations yet' : 'Loading…'
+        )
     );
 
     this._startMobileOverviewClock();

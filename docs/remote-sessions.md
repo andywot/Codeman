@@ -258,6 +258,32 @@ and Windows systems share one login, so they are looked at once):
   claude resumes through the machine's Windows system). The dialog warns first:
   the original keeps running, and two writers on one conversation log corrupt it.
 
+### Fork: past conversations on every machine (`claude-history.ts`)
+
+The desktop "Resume Conversation" list (moved under the Overview board, which hides
+the rest of the welcome screen) and the phone overview's PAST SESSIONS take a
+machine filter (`machine-history.js`). "This server" is the existing local list; a
+machine reads `GET /api/fleet/history/:target?offset=&limit=&fresh=1`:
+
+- **One pooled-shell command per page** (`remoteExecStatus`, never a fresh ssh):
+  `find … -exec stat {} +` over `~/.claude/projects/*/*.jsonl` (one level, so
+  subagent logs and `agent-*` logs are skipped), `sort` newest first, `awk` keeps
+  the page and counts the total, then a 24 KB head and (for bigger files) an 8 KB
+  tail per file, base64 so transcript bytes cannot forge a marker line. Read-only.
+- **Rows**: id, folder (the `cwd` Claude stamped, head first), title
+  (`custom-title`, else `ai-title`), first and last prompt, mtime, size. SDK runs
+  and files with no message are left out of the page (`total` still counts them).
+- **Running**: live `~/.claude/sessions/<pid>.json` records (`/proc/<pid>` exists,
+  start time matches; nothing is signalled) and ids on `claude` command lines; and
+  `openSessionId` when a dashboard session on the same login has that
+  `claudeSessionId` (a click then selects that tab). A running row asks before
+  resuming: two writers on one log mix up turns.
+- **Cache**: 30 s per host and page in `ClaudeHistoryService`; concurrent requests
+  share one run; `fresh=1` bypasses it. The dashboard marks are recomputed per read.
+- **Resume** is `_startRemoteSession({ path: cwd, mode: 'claude', resumeSessionId })`
+  on the login's primary (non-Windows) host, with the machine's own login (no
+  account picker). The Windows system's logs (under `/mnt/c`) are not listed.
+
 ## Respawn / reattach continuation
 
 A dropped connection or a dead pane must reconnect to the **same conversation**,

@@ -656,7 +656,8 @@ export function discoveryTargets(hosts: RemoteHost[], localName = 'This server')
   return targets;
 }
 
-function loginKey(r: { username: string; host: string; port?: number }): string {
+/** One ssh login: the systems of a machine (WSL and Windows on one PC) share it. */
+export function loginKey(r: { username: string; host: string; port?: number }): string {
   return `${r.username}@${r.host}:${r.port ?? 22}`;
 }
 

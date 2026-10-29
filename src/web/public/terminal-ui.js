@@ -3522,14 +3522,17 @@ Object.assign(CodemanApp.prototype, {
       const casesPromise = Array.isArray(this.cases) && this.cases.length > 0
         ? Promise.resolve(this.cases)
         : fetch('/api/cases').then((r) => (r.ok ? r.json() : null)).then((d) => d?.data || []).catch(() => []);
-      const [allSessions, cases] = await Promise.all([
+      // Fork (machine-history.js): the machines whose conversations the list can show.
+      const [allSessions, cases, machines] = await Promise.all([
         this._fetchUnifiedSessions(this._HISTORY_FETCH_LIMIT),
         casesPromise,
+        this._machineHistoryTargets ? this._machineHistoryTargets() : Promise.resolve([]),
       ]);
-      if (allSessions.length === 0) {
+      if (allSessions.length === 0 && machines.length === 0) {
         container.style.display = 'none';
         return;
       }
+      this._syncHistoryMachineSelect?.(machines);
 
       // Keep the corpus around: filtering and sorting (issue #260) work on this
       // array, so a re-render costs no request. Expansion survives the periodic
@@ -3646,6 +3649,12 @@ Object.assign(CodemanApp.prototype, {
   _renderHistoryList() {
     const list = document.getElementById('historyList');
     if (!list) return;
+    // Fork (machine-history.js): another machine's conversations, same box and controls.
+    const machine = this._historyMachineSelected ? this._historyMachineSelected() : '';
+    if (machine) {
+      this._renderMachineHistoryList(machine);
+      return;
+    }
     const all = this._historyAll || [];
     const cases = this._historyCases || [];
     const countEl = document.getElementById('historyCount');
@@ -3665,7 +3674,7 @@ Object.assign(CodemanApp.prototype, {
     if (rows.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'history-empty';
-      empty.textContent = `No conversations match "${needle}"`;
+      empty.textContent = needle ? `No conversations match "${needle}"` : 'No past conversations here';
       list.appendChild(empty);
     }
 

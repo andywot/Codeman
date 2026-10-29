@@ -577,6 +577,7 @@
               <h3 class="history-title" id="historyTitle">Resume Conversation</h3>
               <span class="history-count" id="historyCount" data-i18n-skip></span>
               <div class="history-controls">
+                <select id="historyMachine" class="search-select history-machine" aria-label="Machine" hidden></select>
                 <input
                   type="search"
                   id="historyFilter"
@@ -4547,6 +4548,7 @@
   <script defer src="fleet-manager.js"></script>
   <script defer src="machine-status-ui.js"></script>
   <script defer src="running-claude.js"></script>
+  <script defer src="machine-history.js"></script>
   <script defer src="shared-config.js"></script>
   <script defer src="status-bar.js"></script>
   <script defer src="chat-view.js"></script>

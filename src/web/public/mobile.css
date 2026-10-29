@@ -3254,6 +3254,46 @@ html.mobile-init .file-browser-panel {
     color: var(--text-muted);
   }
 
+  /* Fork (machine-history.js): which machine PAST SESSIONS lists. One scrolling row
+     of chips, so any number of machines fits a phone. */
+  .mobile-overview-machines {
+    display: flex;
+    gap: 0.35rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 0.15rem;
+  }
+
+  .mobile-overview-machines::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-overview-machine {
+    flex-shrink: 0;
+    min-height: 32px;
+    padding: 0 0.7rem;
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .mobile-overview-machine.active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+
+  /* Open in a Claude on that machine: resuming makes a second writer. */
+  .mobile-overview-pill--running {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .mobile-overview-more {
     display: flex;
     align-items: center;
