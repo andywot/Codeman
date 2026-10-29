@@ -1,4 +1,4 @@
-# Codeman on arr (192.168.0.50), behind SWAG at https://codeman.siumimi.com (LAN + WireGuard only).
+# Codeman on arr (192.168.0.50), behind SWAG at https://claude.siumimi.com (LAN + WireGuard only).
 #
 # Differs from docker/docker-compose.yaml on purpose:
 #  - no published ports: SWAG reaches it as http://codeman:3000 over codeman-net, a
@@ -33,7 +33,7 @@ services:
       CODEMAN_DISABLE_SELF_UPDATE: "1"
       CODEMAN_HOST: 0.0.0.0
       CODEMAN_PORT: "3000"
-      CODEMAN_ALLOWED_HOSTS: codeman.siumimi.com
+      CODEMAN_ALLOWED_HOSTS: claude.siumimi.com
       CODEMAN_USERNAME: ${CODEMAN_USERNAME:-andy}
       CODEMAN_PASSWORD: ${CODEMAN_PASSWORD:?set CODEMAN_PASSWORD in .env}
       PUID: ${PUID:-1000}
