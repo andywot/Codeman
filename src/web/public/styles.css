@@ -314,29 +314,30 @@ html[data-skin="rose-pine-dawn"] {
    the gradient pairs collapse to one colour and the ring is a focus outline.
    Accents carry state; purple is selection and the primary action. */
 html[data-skin="monokai-pro-light"] {
+  /* Values from the official "Monokai Pro Light" VS Code theme (monokai.pro). */
   color-scheme: light;
-  --bg-dark: #faf4f2; --bg-card: #f3ece9; --bg-input: #ede5e2; --bg-hover: #e6ddda;
-  --border: #e2d8d5; --border-light: #cbc1be;
-  --text: #29242a; --text-dim: #545055; --text-muted: #6b666a;
-  --accent: #7058be; --accent-hover: #5e47a8;
-  --term-bg: #faf4f2;
-  --green: #1f8a5b; --yellow: #a8640a; --red: #d03a68;
-  --glass-bg: #fbf7f6; --glass-border: rgba(41, 36, 42, 0.12);
-  --control-bg: rgba(41, 36, 42, 0.045); --control-bg-hover: rgba(41, 36, 42, 0.085);
-  --control-border: rgba(41, 36, 42, 0.13); --control-border-hover: rgba(41, 36, 42, 0.22);
-  --floating-bg: #fdf9f8;
-  --banner-bg-a: #fdf9f8; --banner-bg-b: #f3ece9;
+  --bg-dark: #faf4f2; --bg-card: #ede7e5; --bg-input: #faf4f2; --bg-hover: #e0dad9;
+  --border: #e0dad9; --border-light: #d3cdcc;
+  --text: #29242a; --text-dim: #706b6e; --text-muted: #918c8e;
+  --accent: #e14775; --accent-hover: #c73a63;
+  --term-bg: #fefaf9;
+  --green: #269d69; --yellow: #cc7a0a; --red: #e14775;
+  --glass-bg: #ede7e5; --glass-border: #e0dad9;
+  --control-bg: #e0dad9; --control-bg-hover: #d3cdcc;
+  --control-border: #d3cdcc; --control-border-hover: #a59fa0;
+  --floating-bg: #faf4f2;
+  --banner-bg-a: #faf4f2; --banner-bg-b: #ede7e5;
   --modal-backdrop: rgba(41, 36, 42, 0.26);
   --elevated-shadow: 0 12px 36px rgba(41, 36, 42, 0.14), 0 2px 8px rgba(41, 36, 42, 0.08);
   --subtle-shadow: 0 -1px 0 rgba(41, 36, 42, 0.06);
-  --accent-d: #5e47a8; --emerald: #1c8ca8; --teal: #1c8ca8;
+  --accent-d: #c73a63; --emerald: #1c8ca8; --teal: #1c8ca8;
   --accent-soft: #269d69; --accent-ink: #ffffff;
-  --accent-rgb: 112, 88, 190;
-  --accent-grad-a: #7058be; --accent-grad-b: #7058be;
-  --run-hover-a: #5e47a8; --run-hover-b: #5e47a8; --gear-hover: #4a3790;
-  --ring-glow: 0 0 0 2px rgba(112, 88, 190, 0.28);
+  --accent-rgb: 225, 71, 117;
+  --accent-grad-a: #e14775; --accent-grad-b: #e14775;
+  --run-hover-a: #c73a63; --run-hover-b: #c73a63; --gear-hover: #a82f53;
+  --ring-glow: 0 0 0 2px #a59fa0;
   --session-red: #e14775; --session-orange: #e16032; --session-yellow: #cc7a0a;
-  --session-green: #269d69; --session-blue: #1c8ca8; --session-purple: #7058be; --session-pink: #c2457e;
+  --session-green: #269d69; --session-blue: #1c8ca8; --session-purple: #7058be; --session-pink: #e14775;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, monospace;
   --ui-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --btn-radius: 4px;
@@ -23380,7 +23381,7 @@ html[data-skin="monokai-pro-light"] {
   scrollbar-color: #cbc1be transparent;
 }
 html[data-skin="monokai-pro-light"] ::selection {
-  background: rgba(112, 88, 190, 0.2);
+  background: rgba(112, 107, 110, 0.15);
 }
 html[data-skin="monokai-pro-light"] body {
   background: var(--bg-dark);
@@ -23464,7 +23465,7 @@ html[data-skin="monokai-pro-light"] #tabRail .session-tab:hover {
   background: var(--control-bg-hover);
 }
 html[data-skin="monokai-pro-light"] #tabRail .session-tab.active {
-  background: rgba(112, 88, 190, 0.13);
+  background: rgba(41, 36, 42, 0.05);
   border: 0;
   box-shadow: none;
 }
@@ -23510,6 +23511,13 @@ html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element
 }
 html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar {
   background: transparent;
+}
+html[data-skin="monokai-pro-light"] :is(.ob-new, .ns-start) {
+  background: #e0dad9;
+  color: #29242a;
+}
+html[data-skin="monokai-pro-light"] :is(.ob-new, .ns-start):hover:not(:disabled) {
+  background: #d3cdcc;
 }
 html[data-skin="monokai-pro-light"] #terminalContainer .xterm-scrollable-element > .scrollbar > .slider {
   background: rgba(41, 36, 42, 0.18);
