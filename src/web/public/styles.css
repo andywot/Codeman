@@ -24405,3 +24405,176 @@ html[data-tab-orientation="vertical"] #tabRailMachines {
 .rc-ring-key {
   color: var(--text-muted);
 }
+
+/* ── Fork: Projects (projects.js) ─────────────────────────────────────────── */
+.tab-rail-projects {
+  display: none;
+}
+html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 6px 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.rail-projects-head {
+  padding: 2px 10px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.rail-project {
+  display: flex;
+  align-items: stretch;
+  border-radius: 4px;
+}
+.rail-project:hover,
+.rail-project:focus-within {
+  background: var(--control-bg-hover);
+}
+.rail-project.is-busy {
+  opacity: 0.55;
+}
+.rail-project-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 4px 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-project-main:focus-visible,
+.rail-project-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.rail-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.rail-project-main:hover .rail-project-name {
+  color: var(--accent-d);
+}
+.rail-project-where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.rail-project-more {
+  flex: 0 0 28px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+.rail-project:hover .rail-project-more,
+.rail-project:focus-within .rail-project-more {
+  opacity: 1;
+}
+@media (hover: none) {
+  .rail-project-more {
+    opacity: 1;
+    flex-basis: 36px;
+  }
+}
+.rail-project-edit {
+  margin: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--floating-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  min-width: 0;
+}
+.project-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 130px;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--floating-bg);
+  box-shadow: var(--elevated-shadow);
+  font-family: var(--ui-font);
+}
+.project-menu-item {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-base);
+  text-align: left;
+  cursor: pointer;
+}
+.project-menu-item:hover,
+.project-menu-item:focus-visible {
+  background: var(--control-bg-hover);
+  outline: none;
+}
+.project-menu-item.danger {
+  color: var(--red);
+}
+/* New session dialog: projects list and the save row */
+.ns-projects[hidden] {
+  display: none;
+}
+.ns-save-row {
+  display: flex;
+  gap: 8px;
+}
+.ns-save-row .ns-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ns-save {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.ns-save:hover {
+  color: var(--accent-d);
+  border-color: var(--accent);
+}
+@media (max-width: 599px) {
+  .ns-save-row {
+    flex-direction: column;
+  }
+  .ns-save {
+    height: 40px;
+  }
+  .ns-recent {
+    min-height: 44px;
+  }
+}
