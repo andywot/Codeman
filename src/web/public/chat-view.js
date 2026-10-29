@@ -144,8 +144,34 @@ function chatActivitySummary(tools) {
 }
 
 /**
+ * A slash command's own log records: `<command-name>` (the command), and
+ * `<local-command-stdout>` (what it printed, ANSI colors stripped). Returns an item,
+ * null for a record to hide, or undefined when `raw` is not one of them.
+ */
+function localCommandItem(raw, key) {
+  const command = raw.match(/<command-name>([^<]*)<\/command-name>/);
+  if (command) {
+    const args = (raw.match(/<command-args>([^<]*)<\/command-args>/) || [])[1] || '';
+    return { kind: 'user', key, text: `${command[1]} ${args}`.trim(), command: true };
+  }
+  const stdout = raw.match(/^<local-command-std(?:out|err)>([\s\S]*)<\/local-command-std(?:out|err)>$/);
+  if (!stdout) return undefined;
+  const out = stdout[1]
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    .replace(/\[[0-9;]+m/g, '')
+    .trim();
+  // The compaction row already says this.
+  if (!out || /^Compacted\b/.test(out)) return null;
+  const lines = out.split('\n');
+  return lines.length > 2 || out.length > 300
+    ? { kind: 'output', key, title: chatOneLine(lines[0], 120), text: out }
+    : { kind: 'note', key, text: chatOneLine(out, 300) };
+}
+
+/**
  * Turn log entries into display items. Pure; exported for tests.
- * Items: user, text, thinking, activity (a run of tool calls), file, question, todo, note.
+ * Items: user, text, thinking, activity (a run of tool calls), file, question, todo, note,
+ * compact (a /compact point with its summary), output (a slash command's long output).
  */
 function buildChatItems(entries) {
   const results = new Map();
@@ -155,45 +181,76 @@ function buildChatItems(entries) {
   }
   const items = [];
   let activity = null;
+  let compact = null;
   const flush = () => {
     activity = null;
+  };
+  // Claude Code logs a typed slash command twice (the prompt, then its <command-name>
+  // record); keep one.
+  const push = (item) => {
+    if (item.kind === 'user' && item.command) {
+      // Look back past what the command itself produced (a compaction row, notes).
+      for (let i = items.length - 1; i >= Math.max(0, items.length - 3); i--) {
+        const prev = items[i];
+        if (prev.kind === 'compact' || prev.kind === 'note') continue;
+        if (prev.kind === 'user' && prev.text.trim() === item.text) {
+          prev.command = true;
+          return;
+        }
+        break;
+      }
+    }
+    items.push(item);
   };
   for (const e of entries) {
     if (e.sidechain) continue;
     if (e.role === 'system') {
       flush();
+      if (e.compacted) {
+        compact = { kind: 'compact', key: e.uuid, before: e.compacted.before, after: e.compacted.after, text: '' };
+        items.push(compact);
+        continue;
+      }
       const text = e.blocks
         .map((b) => b.text || '')
         .join('\n')
         .trim();
-      if (text) items.push({ kind: 'note', key: e.uuid, text: chatOneLine(text, 200) });
+      if (!text) continue;
+      const local = localCommandItem(text, e.uuid);
+      if (local !== undefined) {
+        if (local) push(local);
+      } else items.push({ kind: 'note', key: e.uuid, text: chatOneLine(text, 200) });
       continue;
     }
     if (e.role === 'user') {
       if (e.meta) continue;
       const texts = e.blocks.filter((b) => b.type === 'text').map((b) => b.text || '');
-      const images = e.blocks.filter((b) => b.type === 'image').length;
-      if (!texts.length && !images) continue;
+      const images = e.blocks.filter((b) => b.type === 'image' && b.len);
+      if (!texts.length && !images.length) continue;
       const raw = texts.join('\n').trim();
-      if (/^<(local-command-caveat|system-reminder)>/.test(raw)) continue;
-      flush();
-      const command = raw.match(/<command-name>([^<]*)<\/command-name>/);
-      if (command) {
-        const args = (raw.match(/<command-args>([^<]*)<\/command-args>/) || [])[1] || '';
-        items.push({ kind: 'user', key: e.uuid, text: `${command[1]} ${args}`.trim(), command: true });
+      if (e.compactSummary) {
+        // The summary written after /compact: folded into the compaction row.
+        if (!compact) {
+          compact = { kind: 'compact', key: e.uuid, before: 0, after: 0, text: '' };
+          items.push(compact);
+        }
+        compact.text = raw;
         continue;
       }
-      const stdout = raw.match(/^<local-command-std(?:out|err)>([\s\S]*)<\/local-command-std(?:out|err)>$/);
-      if (stdout) {
-        const out = stdout[1].replace(/\x1b\[[0-9;]*m/g, '').trim();
-        if (out) items.push({ kind: 'note', key: e.uuid, text: chatOneLine(out, 300) });
+      if (/^<(local-command-caveat|system-reminder)>/.test(raw)) continue;
+      flush();
+      const local = localCommandItem(raw, e.uuid);
+      if (local !== undefined) {
+        if (local) push(local);
         continue;
       }
       if (/^\[Request interrupted by user/.test(raw)) {
         items.push({ kind: 'note', key: e.uuid, text: 'Interrupted' });
         continue;
       }
-      items.push({ kind: 'user', key: e.uuid, text: raw, images, queued: !!e.queued, at: e.timestamp });
+      // Pasted images: drawn in the bubble, so drop Claude Code's "[Image #N]" stand-ins.
+      const text = images.length ? raw.replace(/\s*\[Image #\d+\]/g, '').trim() : raw;
+      push({ kind: 'user', key: e.uuid, text, images, queued: !!e.queued, at: e.timestamp });
       continue;
     }
     // assistant
@@ -278,10 +335,15 @@ function chatContextLimit(model) {
 
 /** The newest context reading in a list of log entries, or null. */
 function latestChatContext(entries) {
+  let compacted = null;
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
-    if (e.role === 'assistant' && !e.sidechain && e.usage && e.usage.context > 0) {
-      return { used: e.usage.context, limit: chatContextLimit(e.model), model: e.model || '' };
+    if (e.sidechain) continue;
+    // After /compact the next reading comes with the next reply; until then use its size.
+    if (e.compacted && compacted === null) compacted = e.compacted.after;
+    if (e.role === 'assistant' && e.usage && e.usage.context > 0) {
+      const used = compacted !== null ? compacted : e.usage.context;
+      return { used, limit: chatContextLimit(e.model), model: e.model || '' };
     }
   }
   return null;
@@ -653,14 +715,31 @@ Object.assign(CodemanApp.prototype, {
         el.className = `chat-msg chat-user${item.command ? ' chat-user--command' : ''}`;
         const bubble = document.createElement('div');
         bubble.className = 'chat-bubble';
-        bubble.textContent = item.text;
-        if (item.images) {
-          const tag = document.createElement('div');
-          tag.className = 'chat-bubble-tag';
-          tag.textContent = `${item.images} image${item.images > 1 ? 's' : ''}`;
-          bubble.appendChild(tag);
+        if (item.images?.length) {
+          const strip = document.createElement('div');
+          strip.className = 'chat-images';
+          const log = this._chat(id).log || '';
+          for (const img of item.images) {
+            const a = document.createElement('a');
+            const src = `/api/sessions/${encodeURIComponent(id)}/chat/image?log=${encodeURIComponent(log)}&at=${img.at}&len=${img.len}&n=${img.n || 0}`;
+            a.href = src;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.className = 'chat-image';
+            const image = document.createElement('img');
+            image.src = src;
+            image.alt = 'Pasted image';
+            image.loading = 'lazy';
+            image.decoding = 'async';
+            a.appendChild(image);
+            strip.appendChild(a);
+          }
+          el.appendChild(strip);
         }
-        el.appendChild(bubble);
+        if (item.text) {
+          bubble.textContent = item.text;
+          el.appendChild(bubble);
+        }
         if (item.queued) {
           const q = document.createElement('div');
           q.className = 'chat-bubble-meta';
@@ -720,6 +799,21 @@ Object.assign(CodemanApp.prototype, {
       case 'note': {
         el.className = 'chat-note';
         el.textContent = item.text;
+        return el;
+      }
+      case 'compact':
+      case 'output': {
+        el.className = `chat-fold chat-${item.kind}`;
+        el.innerHTML = `<button type="button" class="chat-fold-head" data-chat="fold"><span class="chat-fold-label"></span>${CHAT_ICONS.chevron}</button><div class="chat-fold-body"><div class="chat-output-text"></div></div>`;
+        el.querySelector('.chat-fold-label').textContent =
+          item.kind === 'output'
+            ? item.title
+            : item.before && item.after
+              ? `Conversation compacted · ${chatTokens(item.before)} → ${chatTokens(item.after)} tokens`
+              : 'Conversation compacted';
+        const body = el.querySelector('.chat-output-text');
+        if (item.text) body.textContent = item.text;
+        else el.querySelector('.chat-fold-head').disabled = true;
         return el;
       }
       default:

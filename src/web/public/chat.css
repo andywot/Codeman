@@ -290,7 +290,8 @@
 .chat-activity.is-running .chat-activity-label::after {
   content: '…';
 }
-.chat-thinking-text {
+.chat-thinking-text,
+.chat-output-text {
   margin: 6px 0 0 2px;
   padding-left: 12px;
   border-left: 2px solid var(--chat-rule);
@@ -299,6 +300,46 @@
   white-space: pre-wrap;
   line-height: 1.5;
 }
+.chat-output-text {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  max-height: 60vh;
+  overflow: auto;
+  user-select: text;
+}
+.chat-compact {
+  align-self: center;
+}
+.chat-fold-head:disabled {
+  cursor: default;
+}
+.chat-fold-head:disabled svg {
+  display: none;
+}
+
+/* Pasted images, above the text they came with. */
+.chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 82%;
+  margin-bottom: 4px;
+}
+.chat-image {
+  display: block;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--chat-rule);
+  background: var(--chat-bubble);
+}
+.chat-image img {
+  display: block;
+  max-width: min(320px, 100%);
+  max-height: 240px;
+  object-fit: contain;
+}
+
 .chat-badge {
   font-size: var(--fs-2xs);
   border-radius: 999px;

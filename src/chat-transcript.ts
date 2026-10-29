@@ -12,7 +12,8 @@
  * Reads are by byte offset: `after` returns complete lines appended since the last
  * read, `before` returns the chunk ending at an earlier offset (for "load earlier"),
  * and neither returns a partial line. Entries are trimmed to what the chat view
- * draws: big strings are cut, images and file-history snapshots are dropped.
+ * draws: big strings are cut, image bytes stay in the log (readChatImage fetches one
+ * by its line's offset) and file-history snapshots are dropped.
  */
 
 import { open, stat } from 'node:fs/promises';
@@ -35,6 +36,8 @@ const LOCATION_TTL_MS = 15_000;
 const MIN_ENTRIES = 60;
 /** …or has covered this many bytes. */
 const MAX_BACKFILL_BYTES = 6 * 1024 * 1024;
+/** Longest line read whole (a pasted screenshot is a few MB of base64); longer ones are skipped. */
+const MAX_LINE_BYTES = 48 * 1024 * 1024;
 
 export interface ChatBlock {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'image';
@@ -44,6 +47,10 @@ export interface ChatBlock {
   input?: unknown;
   toolUseId?: string;
   isError?: boolean;
+  /** Images: where the line holding the bytes sits in the log, and which image of it this is. */
+  at?: number;
+  len?: number;
+  n?: number;
 }
 
 export interface ChatEntry {
@@ -58,6 +65,10 @@ export interface ChatEntry {
   usage?: { context: number; output: number };
   /** Sent while Claude was working (Claude Code queued it into the running turn). */
   queued?: boolean;
+  /** The summary Claude Code writes after /compact (shown folded, not as a message). */
+  compactSummary?: boolean;
+  /** A compaction point: context tokens before and after it. */
+  compacted?: { before: number; after: number };
   blocks: ChatBlock[];
 }
 
@@ -132,6 +143,7 @@ export function parseChatLine(line: string): ChatEntry | null {
   if (type !== 'user' && type !== 'assistant' && type !== 'system') return null;
   const message = (raw.message ?? {}) as { content?: unknown; model?: string };
   const blocks: ChatBlock[] = [];
+  let images = 0;
   if (type === 'system') {
     const text = typeof raw.content === 'string' ? raw.content : '';
     if (!text || raw.subtype === 'informational' || raw.level === 'debug') return null;
@@ -166,7 +178,7 @@ export function parseChatLine(line: string): ChatEntry | null {
           });
           break;
         case 'image':
-          blocks.push({ type: 'image' });
+          blocks.push({ type: 'image', n: images++ });
           break;
       }
     }
@@ -180,6 +192,9 @@ export function parseChatLine(line: string): ChatEntry | null {
         output: num(u.output_tokens),
       }
     : null;
+  const meta =
+    raw.subtype === 'compact_boundary' ? (raw.compactMetadata as Record<string, unknown> | undefined) : undefined;
+  const compacted = meta ? { before: num(meta.preTokens), after: num(meta.postTokens) } : null;
   return {
     uuid: String(raw.uuid ?? ''),
     role: type,
@@ -188,6 +203,8 @@ export function parseChatLine(line: string): ChatEntry | null {
     ...(raw.isMeta === true ? { meta: true } : {}),
     ...(type === 'assistant' && message.model ? { model: message.model } : {}),
     ...(type === 'assistant' && usage ? { usage } : {}),
+    ...(raw.isCompactSummary === true ? { compactSummary: true } : {}),
+    ...(compacted ? { compacted } : {}),
     blocks,
   };
 }
@@ -207,10 +224,19 @@ export function parseChatChunk(
   const last = buf.lastIndexOf(10);
   if (last < from) return { entries: [], start: start + from, end: start + from };
   const entries: ChatEntry[] = [];
-  for (const line of buf.subarray(from, last).toString('utf8').split('\n')) {
-    if (!line.trim()) continue;
-    const entry = parseChatLine(line);
-    if (entry) entries.push(entry);
+  for (let at = from; at < last; ) {
+    const nl = buf.indexOf(10, at);
+    const line = buf.subarray(at, nl).toString('utf8');
+    if (line.trim()) {
+      const entry = parseChatLine(line);
+      if (entry) {
+        for (const b of entry.blocks) {
+          if (b.type === 'image') Object.assign(b, { at: start + at, len: nl - at });
+        }
+        entries.push(entry);
+      }
+    }
+    at = nl + 1;
   }
   return { entries, start: start + from, end: start + last + 1 };
 }
@@ -315,16 +341,23 @@ export async function readChat(source: ChatSource, opts: { after?: number; befor
     let start = end;
     let size = 0;
     const entries: ChatEntry[] = [];
+    let window = CHAT_CHUNK_BYTES;
     for (let bytes = 0; start > 0 && entries.length < MIN_ENTRIES && bytes < MAX_BACKFILL_BYTES; ) {
-      const from = Math.max(0, start - CHAT_CHUNK_BYTES);
+      const from = Math.max(0, start - window);
       const read = await readRange(source, path, from, start - from);
       size = read.size;
       // `buf` ends exactly at a line boundary, so add the newline the parser looks for.
       const parsed = parseChatChunk(Buffer.concat([read.buf, Buffer.from('\n')]), from, from > 0);
+      if (parsed.start >= start && from > 0 && window < MAX_LINE_BYTES) {
+        // One line longer than the window (an image): widen and read it whole.
+        window = Math.min(MAX_LINE_BYTES, window * 4);
+        continue;
+      }
       entries.unshift(...parsed.entries);
       bytes += start - from;
-      // A single line longer than a chunk has no boundary inside it: step over it.
+      // A line longer than MAX_LINE_BYTES has no boundary inside it: step over it.
       start = parsed.start < start ? parsed.start : from;
+      window = CHAT_CHUNK_BYTES;
     }
     return { start, size, entries };
   };
@@ -340,11 +373,47 @@ export async function readChat(source: ChatSource, opts: { after?: number; befor
     return { log, start: back.start, end: size, size, entries: back.entries, found: true };
   }
   const after = opts.after as number;
-  const { size, buf } = await readRange(source, path, after, CHAT_CHUNK_BYTES);
-  if (size < after) {
-    // The file shrank under us: start over from its tail.
-    return readChat(source, { after: -1 });
+  let want = CHAT_CHUNK_BYTES;
+  for (;;) {
+    const { size, buf } = await readRange(source, path, after, want);
+    if (size < after) {
+      // The file shrank under us: start over from its tail.
+      return readChat(source, { after: -1 });
+    }
+    const parsed = parseChatChunk(buf, after, false);
+    // A line longer than the read (an image) would stall the reader here: read more.
+    if (parsed.end === after && after + buf.length < size && want < MAX_LINE_BYTES) {
+      want = Math.min(MAX_LINE_BYTES, want * 4);
+      continue;
+    }
+    return { log, start: parsed.start, end: parsed.end, size, entries: parsed.entries, found: true };
   }
-  const parsed = parseChatChunk(buf, after, false);
-  return { log, start: parsed.start, end: parsed.end, size, entries: parsed.entries, found: true };
+}
+
+/** One image from the log: the `n`th image of the line at byte `at` (`len` bytes long). */
+export async function readChatImage(
+  source: ChatSource,
+  log: string,
+  at: number,
+  len: number,
+  n: number
+): Promise<{ mediaType: string; data: Buffer } | null> {
+  if (!(at >= 0 && len > 0 && len <= MAX_LINE_BYTES && n >= 0)) return null;
+  const path = await locate(source);
+  if (!path || path.slice(path.lastIndexOf('/') + 1, -'.jsonl'.length) !== log) return null;
+  const { buf } = await readRange(source, path, at, len);
+  let raw: { message?: { content?: unknown } };
+  try {
+    raw = JSON.parse(buf.toString('utf8')) as typeof raw;
+  } catch {
+    return null;
+  }
+  const parts = Array.isArray(raw.message?.content) ? (raw.message.content as Array<Record<string, unknown>>) : [];
+  const image = parts.filter((p) => p?.type === 'image')[n] as
+    | { source?: { type?: string; media_type?: string; data?: string } }
+    | undefined;
+  const src = image?.source;
+  if (src?.type !== 'base64' || typeof src.data !== 'string') return null;
+  const mediaType = /^image\/(png|jpeg|gif|webp)$/.test(String(src.media_type)) ? String(src.media_type) : 'image/png';
+  return { mediaType, data: Buffer.from(src.data, 'base64') };
 }

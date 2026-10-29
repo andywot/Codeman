@@ -220,3 +220,95 @@ describe('context reading', () => {
     expect(entry?.usage).toEqual({ context: 500, output: 7 });
   });
 });
+
+describe('compaction, slash commands and pasted images', () => {
+  const chat = loadChatView();
+  const lines = [
+    {
+      type: 'assistant',
+      uuid: 'a0',
+      timestamp: 't',
+      message: { model: 'claude-opus-5-5', usage: { input_tokens: 550_000 }, content: [{ type: 'text', text: 'hi' }] },
+    },
+    { type: 'user', uuid: 'u1', timestamp: 't', message: { role: 'user', content: '/compact' } },
+    {
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 's1',
+      timestamp: 't',
+      content: 'Conversation compacted',
+      compactMetadata: { preTokens: 561_000, postTokens: 18_000 },
+    },
+    {
+      type: 'user',
+      uuid: 'u2',
+      timestamp: 't',
+      isCompactSummary: true,
+      message: { role: 'user', content: 'Summary: long recap' },
+    },
+    {
+      type: 'user',
+      uuid: 'u3',
+      timestamp: 't',
+      message: {
+        role: 'user',
+        content:
+          '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>',
+      },
+    },
+    {
+      type: 'user',
+      uuid: 'u4',
+      timestamp: 't',
+      message: {
+        role: 'user',
+        content:
+          '<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m</local-command-stdout>',
+      },
+    },
+    {
+      type: 'system',
+      subtype: 'local_command',
+      uuid: 's2',
+      timestamp: 't',
+      content: '<local-command-stdout>\u001b[1mContext Usage\u001b[22m\nrow 1\nrow 2</local-command-stdout>',
+    },
+    {
+      type: 'user',
+      uuid: 'u5',
+      timestamp: 't',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what a mess [Image #4]' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        ],
+      },
+    },
+  ];
+  const buf = Buffer.from(lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  const { entries } = parseChatChunk(buf, 1000, false);
+  const items = chat.buildChatItems(entries);
+
+  it('folds the summary into one compaction row and shows the command once', () => {
+    const kinds = items.map((i: any) => i.kind);
+    expect(kinds).toEqual(['text', 'user', 'compact', 'output', 'user']);
+    expect(items[1]).toMatchObject({ text: '/compact', command: true });
+    expect(items[2]).toMatchObject({ before: 561_000, after: 18_000, text: 'Summary: long recap' });
+    expect(items[3]).toMatchObject({ title: 'Context Usage' });
+    expect(items[3].text).not.toMatch(/\x1b|\[1m/);
+  });
+
+  it('points a pasted image at its line and drops the [Image #N] stand-in', () => {
+    const user = items[4];
+    expect(user.text).toBe('what a mess');
+    const lastLine = JSON.stringify(lines[lines.length - 1]);
+    expect(user.images).toEqual([
+      { type: 'image', n: 0, at: 1000 + buf.length - lastLine.length - 1, len: Buffer.byteLength(lastLine) },
+    ]);
+  });
+
+  it('reads the context size after a compaction until the next reply', () => {
+    expect(chat.latestChatContext(entries)).toMatchObject({ used: 18_000, limit: 1_000_000 });
+  });
+});
