@@ -691,11 +691,15 @@ describe('mobile IME commit and authoritative terminal output', () => {
   });
 
   it('re-places an overlay that holds only a composition after output (hasPending is false there)', () => {
-    const { app, flush } = outputHarness();
+    const { app, flush, parseNext } = outputHarness();
     const overlay = { hasPending: false, pendingText: '', composition: '今日', rerender: vi.fn() };
     app._localEchoOverlay = overlay;
     app.batchTerminalWrite('output that moves the prompt');
     flush();
+    // Not before xterm has parsed the output: the prompt has not moved yet
+    // (test/local-echo-overlay-after-parse.test.ts).
+    expect(overlay.rerender).not.toHaveBeenCalled();
+    parseNext();
     expect(overlay.rerender).toHaveBeenCalledOnce();
   });
 
