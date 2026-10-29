@@ -91,6 +91,7 @@ export function createMockRouteContext(options?: {
 
     // -- KeepWarmPort --
     keepWarm: { schedule: vi.fn(), rescheduleAll: vi.fn(), remove: vi.fn() },
+    remoteTelemetry: { refresh: vi.fn(async () => {}) },
 
     // -- ConfigPort --
     store: {

@@ -60,6 +60,10 @@ describe('decideKeepWarm', () => {
     expect(decideKeepWarm(dueFacts())).toEqual({ action: 'nudge' });
   });
 
+  it('nudges a remote session whose cache state is read from its conversation log (fork: transcript)', () => {
+    expect(decideKeepWarm(dueFacts({ statusLine: 'transcript' }))).toEqual({ action: 'nudge' });
+  });
+
   it('nudges on the app default, and for an agent-spawned session switched on for itself', () => {
     expect(decideKeepWarm(dueFacts({ choice: undefined, appDefault: true }))).toEqual({ action: 'nudge' });
     expect(decideKeepWarm(dueFacts({ choice: true, spawnedByAgent: true }))).toEqual({ action: 'nudge' });
@@ -122,6 +126,8 @@ describe('decideKeepWarm', () => {
     ['respawn, Ralph or an agent is driving (a long-poll waiter included)', { automationActive: true }, 'driving'],
     ['one capture of the composer failed', { composerEmpty: null }, 'cannot read the composer'],
     ['someone typed a moment ago', { lastHumanInputAt: NOW - KEEP_WARM_RECENT_INPUT_MS + 1 }, 'typed'],
+    // The last nudge's turn has not reported its new expiry: a second nudge would land inside it.
+    ['the last keep-alive turn has not reported back', { keepAliveTurnActive: true }, 'keep-alive turn'],
   ])('defers by a minute while %s', (_label, over, reason) => {
     const d = decideKeepWarm(dueFacts(over));
     expect(d).toMatchObject({

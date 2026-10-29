@@ -100,6 +100,12 @@ interface SessionListenerDeps {
    * recovered pane is attached, so the restored report can arm its timer.
    */
   keepWarmSchedule?(sessionId: string): void;
+  /**
+   * Fork: a remote session's turn ended, so read its conversation log (and screen) for the
+   * prompt-cache state and a usage-limit pause (remote-transcript-telemetry.ts). A no-op for
+   * any other session, and for one where neither keep-warm nor auto-resume is on.
+   */
+  remoteTelemetryRefresh?(sessionId: string): void;
 }
 
 /**
@@ -275,6 +281,7 @@ export function createSessionListeners(session: Session, deps: SessionListenerDe
       deps.broadcast(SseEvent.SessionIdle, { id: session.id, ...(session.keepAliveTurnActive && { keepAlive: true }) });
       deps.broadcastSessionStateDebounced(session.id);
       deps.keepWarmSchedule?.(session.id);
+      deps.remoteTelemetryRefresh?.(session.id);
       const tracker = deps.getRunSummaryTracker(session.id);
       if (tracker) {
         tracker.recordIdle();

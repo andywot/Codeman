@@ -27,6 +27,27 @@ describe('session listener wiring', () => {
     expect(registerAttachment).toHaveBeenNthCalledWith(2, 'wiring-attach-source-test', '/tmp/report.pdf', 'external');
   });
 
+  it("asks for a remote session's conversation-log read when a turn ends (fork: remote telemetry)", () => {
+    // remote-transcript-telemetry.ts: a remote session's cache state and usage-limit pause are read
+    // from its log once a turn ends; the server's dep decides whether the session is one it reads.
+    const session = new Session({ id: 'wiring-remote-telemetry', workingDir: '/tmp', mode: 'claude' });
+    const keepWarmSchedule = vi.fn();
+    const remoteTelemetryRefresh = vi.fn();
+    const deps = {
+      broadcast: vi.fn(),
+      broadcastSessionStateDebounced: vi.fn(),
+      getRunSummaryTracker: vi.fn(() => undefined),
+      keepWarmSchedule,
+      remoteTelemetryRefresh,
+    } as unknown as Parameters<typeof createSessionListeners>[1];
+
+    const refs = createSessionListeners(session, deps);
+    refs.idle();
+
+    expect(keepWarmSchedule).toHaveBeenCalledWith('wiring-remote-telemetry');
+    expect(remoteTelemetryRefresh).toHaveBeenCalledWith('wiring-remote-telemetry');
+  });
+
   it('pushes the session state when the watching label changes on its own', () => {
     // The badge appears on the idle transition, which broadcasts anyway. It goes AWAY
     // when the background work ends, and a CLI can do that without taking a turn — codex

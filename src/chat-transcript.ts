@@ -323,6 +323,21 @@ async function readRange(
   }
 }
 
+/** The last `length` bytes of the file and its size, in one round trip for a remote session. */
+async function readLastBytes(source: ChatSource, path: string, length: number): Promise<{ size: number; buf: Buffer }> {
+  if (source.remote) {
+    const q = shellescape(path);
+    const script = `s=$(stat -c %s ${q} 2>/dev/null || wc -c < ${q}); printf '%s\\n' "$s"; tail -c ${length} ${q} 2>/dev/null`;
+    const out = await sshRun(source.remote, script, length + 4096);
+    const nl = out.indexOf(10);
+    if (nl < 0) return { size: 0, buf: Buffer.alloc(0) };
+    return { size: Number(out.subarray(0, nl).toString().trim()) || 0, buf: out.subarray(nl + 1) };
+  }
+  const { size } = await stat(path);
+  const start = Math.max(0, size - length);
+  return readRange(source, path, start, size - start);
+}
+
 /**
  * Read the conversation. `after` (byte offset, -1 = the tail) returns what was appended;
  * `before` returns the chunk that ends at that offset.
@@ -385,6 +400,39 @@ export async function readChat(source: ChatSource, opts: { after?: number; befor
     }
     return { log, start: parsed.start, end: parsed.end, size, entries: parsed.entries, found: true };
   }
+}
+
+/**
+ * The raw JSONL lines at the end of the conversation log, oldest first, at most `maxBytes` of
+ * them and never a partial line; null when the log is not there yet. For readers that need
+ * fields the chat view drops (usage, API errors): the remote prompt-cache and usage-limit
+ * reading (remote-transcript-telemetry.ts). Same lookup and same pooled-shell reads as the chat.
+ */
+export async function readTranscriptTail(
+  source: ChatSource,
+  maxBytes: number
+): Promise<{ log: string; lines: string[]; size: number } | null> {
+  const path = await locate(source);
+  if (!path) return null;
+  const log = path.slice(path.lastIndexOf('/') + 1, -'.jsonl'.length);
+  const { size, buf } = await readLastBytes(source, path, maxBytes);
+  let text = buf.toString('utf8');
+  // A read that did not reach the start of the file begins inside a line: drop it. (A remote
+  // file can grow between the size and the tail, so a full-length read counts as one too.)
+  if (size > buf.length || buf.length >= maxBytes) {
+    const nl = text.indexOf('\n');
+    text = nl < 0 ? '' : text.slice(nl + 1);
+  }
+  // The file may still be growing: keep only lines that ended with their newline.
+  const end = text.lastIndexOf('\n');
+  const lines =
+    end < 0
+      ? []
+      : text
+          .slice(0, end)
+          .split('\n')
+          .filter((l) => l.trim());
+  return { log, lines, size };
 }
 
 /** One image from the log: the `n`th image of the line at byte `at` (`len` bytes long). */

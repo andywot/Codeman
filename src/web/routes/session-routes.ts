@@ -3714,6 +3714,9 @@ export function registerSessionRoutes(
     // Re-evaluate BEFORE the state broadcast and the response: both carry `keepWarm`, and a
     // page that received the previous status would overwrite the one the toggle just produced.
     await ctx.keepWarm.schedule(id);
+    // Fork: a remote session has no exporter; switched on, read its conversation log now rather than
+    // at the end of the next turn (remote-transcript-telemetry.ts). The read re-evaluates on its own.
+    void ctx.remoteTelemetry?.refresh(id);
     persistAndBroadcastSession(ctx, session);
 
     return {
@@ -3769,6 +3772,9 @@ export function registerSessionRoutes(
     const session = findSessionOrFail(ctx, id, req);
 
     session.setAutoResume(body.enabled);
+    // Fork: a remote session that already sits on a limit may show it only in its conversation log
+    // or on a screen the stream scan never saw (remote-transcript-telemetry.ts). A no-op otherwise.
+    if (body.enabled) void ctx.remoteTelemetry?.refresh(id);
     persistAndBroadcastSession(ctx, session);
 
     return {
