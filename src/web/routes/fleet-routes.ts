@@ -56,7 +56,8 @@ const MachineSchema = z.object({
 
 const AccountSchema = z.object({
   label: z.string().min(1).max(60),
-  kind: z.enum(['machine', 'cswap', 'token', 'api']),
+  kind: z.enum(['machine', 'cswap', 'token', 'api', 'shell']),
+  setupCommand: z.string().max(200).optional(),
   email: z.string().max(200).optional(),
   slot: z.number().int().optional(),
   baseUrl: z.string().max(300).optional(),
@@ -144,7 +145,7 @@ export function registerFleetRoutes(app: FastifyInstance): void {
     const fleet = await readFleet(CONFIG_DIR);
     const prev = fleet.accounts.find((a) => a.id === id);
     const next: FleetAccount = { id, ...parsed.data };
-    for (const key of ['email', 'baseUrl', 'apiModel', 'apiSmallModel'] as const) {
+    for (const key of ['email', 'baseUrl', 'apiModel', 'apiSmallModel', 'setupCommand'] as const) {
       if (!next[key]) delete next[key];
     }
     if (parsed.data.secret === undefined) {

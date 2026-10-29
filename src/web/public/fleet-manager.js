@@ -16,6 +16,7 @@ const FLEET_KIND_LABELS = {
   cswap: 'cswap slot',
   token: 'Shared token (all machines)',
   api: 'API endpoint (GLM, …)',
+  shell: 'Shell function on the machine',
 };
 
 Object.assign(CodemanApp.prototype, {
@@ -171,6 +172,7 @@ Object.assign(CodemanApp.prototype, {
           [
             FLEET_KIND_LABELS[a.kind],
             a.kind === 'cswap' ? `#${a.slot}` : '',
+            a.kind === 'shell' ? a.setupCommand : '',
             a.email || '',
             (a.kind === 'token' || a.kind === 'api') && !a.hasSecret ? 'no token saved' : '',
             usage,
@@ -330,12 +332,14 @@ Object.assign(CodemanApp.prototype, {
           <option value="token">Shared token: one login on every machine</option>
           <option value="cswap">cswap slot on the machine</option>
           <option value="api">API endpoint (GLM, …)</option>
+          <option value="shell">Shell function on the machine (e.g. use-glm)</option>
           <option value="machine">The machine's own login</option>
         </select>
       </label>
       <p class="fm-muted fm-kind-help"></p>
       <label class="ns-field" data-for="token cswap machine"><span class="ns-label">Email (links usage readings)</span><input class="ns-input" name="email" placeholder="you@example.com"></label>
       <label class="ns-field" data-for="cswap"><span class="ns-label">cswap slot</span><input class="ns-input" name="slot" inputmode="numeric" placeholder="2"></label>
+      <label class="ns-field" data-for="shell"><span class="ns-label">Command</span><input class="ns-input" name="setupCommand" placeholder="use-glm"></label>
       <label class="ns-field" data-for="api"><span class="ns-label">Base URL</span><input class="ns-input" name="baseUrl" placeholder="https://api.z.ai/api/anthropic"></label>
       <div class="fm-grid" data-for="api">
         <label class="ns-field"><span class="ns-label">Model</span><input class="ns-input" name="apiModel" placeholder="glm-5.3"></label>
@@ -354,6 +358,8 @@ Object.assign(CodemanApp.prototype, {
         'Runs "cswap run <slot> -- claude" on the machine, so that machine needs cswap with this account in that slot. WSL and Linux only.',
       api: 'An Anthropic-compatible endpoint. Every Claude tier maps to the model below.',
       machine: 'Uses whatever the machine is signed in as. Same as picking "Machine\'s login".',
+      shell:
+        "Runs this in the machine's login shell before claude, so a function from your .bashrc (like use-glm) sets the endpoint. Only machines that define it can use the account.",
     };
     const sync = () => {
       const kind = form.kind.value;
@@ -374,6 +380,7 @@ Object.assign(CodemanApp.prototype, {
       form.baseUrl.value = account.baseUrl || '';
       form.apiModel.value = account.apiModel || '';
       form.apiSmallModel.value = account.apiSmallModel || '';
+      form.setupCommand.value = account.setupCommand || '';
     }
     form.kind.addEventListener('change', sync);
     sync();
@@ -400,6 +407,7 @@ Object.assign(CodemanApp.prototype, {
         if (form.apiModel.value.trim()) payload.apiModel = form.apiModel.value.trim();
         if (form.apiSmallModel.value.trim()) payload.apiSmallModel = form.apiSmallModel.value.trim();
       }
+      if (kind === 'shell') payload.setupCommand = form.setupCommand.value.trim();
       if ((kind === 'token' || kind === 'api') && form.secret.value.trim()) payload.secret = form.secret.value.trim();
       try {
         await this._fetchJson(`/api/fleet/accounts/${encodeURIComponent(id)}`, {

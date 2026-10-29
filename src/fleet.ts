@@ -22,6 +22,8 @@
  *              rotates and the other copies are signed out.
  * - `api`:     an Anthropic-compatible endpoint (GLM and the like): base URL, a key
  *              copied the same way, and the model names to map onto.
+ * - `shell`:   a shell function or command already set up on the machine (e.g. the
+ *              owner's `use-glm`), run in the login shell before `claude`.
  *
  * ⚠️ Secrets never leave the server except over the ssh connection that writes the
  * file, via stdin (never argv). Responses carry `hasSecret`, never the value. The launch
@@ -42,7 +44,7 @@ import type { RemoteHost, SessionRemote } from './types/index.js';
 import { buildSshConnectionArgs, remoteSshTarget, shellescape } from './remote-hosts.js';
 
 export type FleetSystem = 'wsl' | 'windows' | 'linux';
-export type FleetAccountKind = 'machine' | 'cswap' | 'token' | 'api';
+export type FleetAccountKind = 'machine' | 'cswap' | 'token' | 'api' | 'shell';
 
 export interface FleetAccount {
   id: string;
@@ -58,6 +60,8 @@ export interface FleetAccount {
   apiModel?: string;
   /** `api` only: model for the small/fast tier. */
   apiSmallModel?: string;
+  /** `shell` only: function/command run first, e.g. `use-glm` (words, no metacharacters). */
+  setupCommand?: string;
   /** Token or API key (kinds `token` and `api`). Never sent to the browser. */
   secret?: string;
 }
@@ -82,6 +86,7 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const MODEL_RE = /^[a-z0-9][a-z0-9.-]{0,60}(\[1m\])?$/;
 const URL_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~/-]*)?$/;
 const SECRET_DIR = '~/.config/claude-rc';
+const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:\[\]=-]+){0,6}$/;
 
 export function fleetPath(configDir: string): string {
   return join(configDir, 'fleet.json');
@@ -114,7 +119,10 @@ export function publicAccount(account: FleetAccount): Omit<FleetAccount, 'secret
 export function validateAccount(account: FleetAccount): string | null {
   if (!ID_RE.test(account.id)) return 'Account id must be lowercase letters, digits and dashes';
   if (!account.label || account.label.length > 60) return 'Account name is required (60 characters at most)';
-  if (!['machine', 'cswap', 'token', 'api'].includes(account.kind)) return 'Unknown account kind';
+  if (!['machine', 'cswap', 'token', 'api', 'shell'].includes(account.kind)) return 'Unknown account kind';
+  if (account.kind === 'shell' && !(account.setupCommand && SETUP_RE.test(account.setupCommand))) {
+    return 'Give the command as plain words, e.g. use-glm';
+  }
   if (account.email && !/^[^\s@'"]+@[^\s@'"]+$/.test(account.email)) return 'Invalid email';
   if (account.kind === 'cswap' && !(Number.isInteger(account.slot) && account.slot! >= 1 && account.slot! <= 99)) {
     return 'cswap accounts need a slot number';
@@ -158,6 +166,8 @@ export function buildLaunch(
     binary = `cswap run ${account.slot} -- claude`;
   } else if (account?.kind === 'token') {
     env.CLAUDE_CODE_OAUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
+  } else if (account?.kind === 'shell' && account.setupCommand && SETUP_RE.test(account.setupCommand)) {
+    setup.push(`${account.setupCommand} >/dev/null`);
   } else if (account?.kind === 'api') {
     env.ANTHROPIC_BASE_URL = `'${account.baseUrl}'`;
     env.ANTHROPIC_AUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
