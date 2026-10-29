@@ -11,6 +11,12 @@
  * - DELETE /api/fleet/machines/:slug          removes its hosts and their remote cases
  * - POST   /api/fleet/hosts/:id/test          ssh, tmux and claude on that system
  * - GET    /api/fleet/hosts/:id/folders?path= one folder level on that system
+ * - GET    /api/fleet/status[?fresh=1]         per machine: online/asleep/offline, a one-line
+ *                                             fix hint, CPU/MEM (machine-status.ts; cached,
+ *                                             never wakes a machine)
+ * - POST   /api/fleet/hosts/:id/wake          Wake-on-LAN through the session routes' wake
+ *                                             registry; answers at once, the wake runs on
+ *                                             (only an explicit click wakes a machine)
  *
  * Machine-level config like the remote-host routes, so admin-only in multi-user mode.
  * See src/fleet.ts for the model and its secret-handling rules.
@@ -25,6 +31,9 @@ import { isMultiUserMode } from '../../config/multiuser.js';
 import { isAdmin } from '../route-helpers.js';
 import { RemoteHostSchema } from '../schemas.js';
 import { readRemoteCases, readRemoteHosts, writeRemoteCases, writeRemoteHosts } from '../../remote-hosts.js';
+import { resolveWakeTarget, type RemoteWakeRegistry } from '../../remote-wake.js';
+import { MachineStatusMonitor, classifySshFailure, createDefaultMachineStatusDeps } from '../../machine-status.js';
+import { wakeableHost } from './session-routes.js';
 import {
   ensureServerKey,
   listHostFolders,
@@ -105,7 +114,43 @@ function slugify(name: string): string {
   );
 }
 
-export function registerFleetRoutes(app: FastifyInstance): void {
+export function registerFleetRoutes(
+  app: FastifyInstance,
+  /** The session routes' wake registry (single-flight wakes), read at call time. */
+  options: { remoteWake?: () => RemoteWakeRegistry | null; machineStatus?: MachineStatusMonitor } = {}
+): void {
+  const machineStatus =
+    options.machineStatus ??
+    new MachineStatusMonitor(createDefaultMachineStatusDeps(() => readRemoteHosts(CONFIG_DIR)));
+
+  app.get('/api/fleet/status', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    const fresh = (req.query as { fresh?: string } | undefined)?.fresh === '1';
+    return { success: true, data: { machines: await machineStatus.read({ force: fresh }) } };
+  });
+
+  app.post('/api/fleet/hosts/:id/wake', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    const { id } = req.params as { id: string };
+    const host = (await readRemoteHosts(CONFIG_DIR)).find((h) => h.id === id);
+    if (!host) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Machine not found');
+    const registry = options.remoteWake?.();
+    if (!registry) return createErrorResponse(ApiErrorCode.OPERATION_FAILED, 'Wake is not available');
+    const remote = wakeableHost(host);
+    if (!resolveWakeTarget(remote)) {
+      return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'No Wake-on-LAN MAC or wake command for this machine');
+    }
+    // The wake waits for the machine to answer (up to ~90 s); the browser polls status.
+    void registry
+      .ensureHostAwake(remote, { requestedBy: 'Machines' })
+      .catch(() => 'failed')
+      .finally(() => machineStatus.invalidate());
+    machineStatus.invalidate();
+    return { success: true, data: { waking: true } };
+  });
+
   app.get('/api/fleet', async (req, reply) => {
     const no = denied(req, reply);
     if (no) return no;
@@ -246,10 +291,15 @@ export function registerFleetRoutes(app: FastifyInstance): void {
         ?.slice(key.length + 3)
         .trim() || 'missing';
     if (result.code !== 0 || !result.stdout.includes('@@ssh ok')) {
-      return {
-        success: true,
-        data: { ok: false, error: result.stderr.trim().split('\n').pop() || 'Could not connect over ssh' },
-      };
+      const detail = result.stderr.trim().split('\n').pop() || 'Could not connect over ssh';
+      const kind = classifySshFailure(result.stderr);
+      const hint =
+        kind === 'auth'
+          ? ` (add the dashboard key to ~/.ssh/authorized_keys; check AllowUsers ${host.username})`
+          : kind === 'host-key'
+            ? ' (host key changed: ssh-keygen -R the host on the dashboard)'
+            : '';
+      return { success: true, data: { ok: false, error: detail + hint } };
     }
     return {
       success: true,

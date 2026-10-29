@@ -138,6 +138,11 @@ class PooledShell {
     return this.job !== null;
   }
 
+  /** Logged in and the driver answered: a command sent now runs at once. */
+  get isReady(): boolean {
+    return this.ready && !this.dead;
+  }
+
   private write(text: string): void {
     if (!this.dead) this.child.stdin?.write(text);
   }
@@ -284,6 +289,28 @@ class HostPool {
     this.pump();
   }
 
+  /**
+   * Submit only if the job starts now, on an idle shell or a new one within the cap, so
+   * it never queues ahead of (or behind) other work. False leaves the job unsubmitted.
+   */
+  trySubmit(job: Job): boolean {
+    if (this.queue.length) return false;
+    const live = [...this.shells].filter((s) => !s.dead);
+    if (!live.some((s) => !s.busy) && live.length >= MAX_SHELLS_PER_HOST) return false;
+    this.submit(job);
+    return true;
+  }
+
+  status(): RemoteShellStatus {
+    const live = [...this.shells].filter((s) => !s.dead);
+    return {
+      ready: live.filter((s) => s.isReady).length,
+      connecting: live.filter((s) => !s.isReady).length,
+      busy: live.filter((s) => s.busy).length,
+      queued: this.queue.length,
+    };
+  }
+
   private pump(): void {
     while (this.queue.length) {
       let shell = [...this.shells].find((s) => !s.busy && !s.dead);
@@ -310,9 +337,25 @@ class HostPool {
 
 const pools = new Map<string, HostPool>();
 
-function poolFor(target: PoolTarget): HostPool {
+/** What the pool holds for one host right now; reading it opens nothing. */
+export interface RemoteShellStatus {
+  /** Logged-in shells (an ssh connection is up). */
+  ready: number;
+  /** Shells still logging in. */
+  connecting: number;
+  /** Shells running a command. */
+  busy: number;
+  /** Commands waiting for a shell. */
+  queued: number;
+}
+
+function poolKey(target: PoolTarget): string {
   // Keyed by everything that shapes the connection, so an edited host gets new shells.
-  const key = JSON.stringify([...buildSshConnectionArgs(target), remoteSshTarget(target)]);
+  return JSON.stringify([...buildSshConnectionArgs(target), remoteSshTarget(target)]);
+}
+
+function poolFor(target: PoolTarget): HostPool {
+  const key = poolKey(target);
   let pool = pools.get(key);
   if (!pool) {
     pool = new HostPool(target);
@@ -335,6 +378,32 @@ export function remoteExec(
     return Promise.reject(new RemoteExecError('remote commands are disabled under test', { code: 'ETEST' }));
   }
   return new Promise((resolve, reject) => poolFor(target).submit({ script, opts, resolve, reject }));
+}
+
+/**
+ * Like {@link remoteExec}, but only when the command can start at once: on an idle shell,
+ * or a new one while the host is under its shell cap and nothing is queued. Otherwise it
+ * rejects at once with code `EBUSY` and sends nothing, so a background check never delays
+ * a user's command. Used by the machine-state poll (machine-status.ts).
+ */
+export function remoteExecIfIdle(
+  target: PoolTarget,
+  script: string,
+  opts: RemoteExecOptions = {}
+): Promise<RemoteExecResult> {
+  if (process.env.VITEST && process.env.CODEMAN_TEST_SHELL_POOL !== '1') {
+    return Promise.reject(new RemoteExecError('remote commands are disabled under test', { code: 'ETEST' }));
+  }
+  return new Promise((resolve, reject) => {
+    if (!poolFor(target).trySubmit({ script, opts, resolve, reject })) {
+      reject(new RemoteExecError('shells busy', { code: 'EBUSY' }));
+    }
+  });
+}
+
+/** The host's pooled shells right now (all zero when none was ever opened). Opens nothing. */
+export function remoteShellStatus(target: PoolTarget): RemoteShellStatus {
+  return pools.get(poolKey(target))?.status() ?? { ready: 0, connecting: 0, busy: 0, queued: 0 };
 }
 
 /** Like {@link remoteExec}, but a non-zero exit resolves with its code (for callers that branch on it). */

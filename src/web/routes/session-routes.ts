@@ -1016,7 +1016,7 @@ function captureHistoryLines(raw: string | undefined, historyLimit: number): num
  * bearing: the registry keys its per-host wake state on `hostId`. The proxy fields
  * travel too: they are what tells the registry its probe cannot reach this host.
  */
-function wakeableHost(host: RemoteHost): WakeableRemote {
+export function wakeableHost(host: RemoteHost): WakeableRemote {
   return {
     hostId: host.id,
     label: host.label,

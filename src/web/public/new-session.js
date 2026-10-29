@@ -18,6 +18,10 @@
  * remote case for that host and path (or links one with
  * `POST /api/cases/remote-link`) and starts it with `POST /api/quick-start`.
  *
+ * Machine chips carry the machine's state and CPU/MEM, and the selected
+ * machine's fix hint (with Wake when it sleeps) shows under them
+ * (machine-status-ui.js).
+ *
  * Recent picks live in this browser only (`codeman:new-session-recents`).
  *
  * @mixin Extends CodemanApp.prototype via Object.assign
@@ -146,6 +150,7 @@ Object.assign(CodemanApp.prototype, {
       <div class="ns-field">
         <span class="ns-label" id="nsMachineLabel">Machine</span>
         <div class="ns-chips" data-ns="machine" role="radiogroup" aria-labelledby="nsMachineLabel"></div>
+        <p class="ns-machine-note" aria-live="polite" hidden></p>
       </div>
       <div class="ns-field" data-ns-row="system">
         <span class="ns-label" id="nsSystemLabel">System</span>
@@ -351,10 +356,17 @@ Object.assign(CodemanApp.prototype, {
               render();
               queueBrowse(0);
             },
-            m.address === 'local' ? '' : m.address
+            m.address === 'local' ? '' : (this.machineStatusDetail?.(m.name) ?? m.address)
           )
         )
       );
+      for (const [i, m] of machines.entries()) {
+        const kind = m.address === 'local' ? '' : this.machineDotKind?.(m.name);
+        const el = $('[data-ns="machine"]').children[i];
+        if (kind) el.dataset.mstate = kind;
+        if (kind && kind !== 'ok') el.title = this.machineStatusSummary(this.machineStatusFor(m.name));
+      }
+      this.renderMachineNote?.($('.ns-machine-note'), state.machine.name);
       $('[data-ns-row="system"]').hidden = state.machine.systems.length < 2;
       $('[data-ns="system"]').replaceChildren(
         ...state.machine.systems.map((s) =>
@@ -456,7 +468,10 @@ Object.assign(CodemanApp.prototype, {
       close();
       this.openFleetManager?.();
     });
+    window.addEventListener('codeman:machine-status', render);
+    this.refreshMachineStatus?.();
     dialog.addEventListener('close', () => {
+      window.removeEventListener('codeman:machine-status', render);
       clearTimeout(browseTimer);
       dialog.remove();
     });

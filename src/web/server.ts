@@ -1310,7 +1310,7 @@ export class WebServer extends EventEmitter {
     registerStatusTelemetryRoutes(this.app, ctx);
     registerSystemRoutes(this.app, ctx);
     registerCaseRoutes(this.app, ctx);
-    registerFleetRoutes(this.app);
+    registerFleetRoutes(this.app, { remoteWake: () => this.remoteWake });
     registerChatRoutes(this.app, ctx);
     registerWorktreeRoutes(this.app, ctx);
     // The registry's lifetime is the server's: it drops per-session wake state on every

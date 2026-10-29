@@ -8,7 +8,13 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closeRemoteShells, remoteExec, remoteExecStatus } from '../src/remote-shell-pool.js';
+import {
+  closeRemoteShells,
+  remoteExec,
+  remoteExecIfIdle,
+  remoteExecStatus,
+  remoteShellStatus,
+} from '../src/remote-shell-pool.js';
 
 const target = { host: 'pool.test', username: 'tester' } as const;
 let savedPath: string | undefined;
@@ -64,5 +70,17 @@ describe('remoteExec', () => {
     await expect(remoteExec(target, 'sleep 5', { timeout: 300 })).rejects.toMatchObject({ killed: true });
     const out = await Promise.all([1, 2, 3, 4].map((i) => remoteExec(target, `sleep 0.1; echo ${i}`)));
     expect(out.map((r) => r.stdout.toString().trim())).toEqual(['1', '2', '3', '4']);
+  });
+
+  it('reports open shells without opening one, and remoteExecIfIdle never queues', async () => {
+    const idle = { host: 'idle.test', username: 'tester' };
+    expect(remoteShellStatus(idle)).toEqual({ ready: 0, connecting: 0, busy: 0, queued: 0 });
+    expect((await remoteExecIfIdle(idle, 'echo hi')).stdout.toString()).toBe('hi\n');
+    expect(remoteShellStatus(idle)).toMatchObject({ ready: 1, busy: 0 });
+    // Fill every shell with slow work; a background check must skip, not wait behind it.
+    const slow = [1, 2, 3].map(() => remoteExec(idle, 'sleep 0.4'));
+    await expect(remoteExecIfIdle(idle, 'echo late')).rejects.toMatchObject({ code: 'EBUSY' });
+    await Promise.all(slow);
+    expect((await remoteExecIfIdle(idle, 'echo free')).stdout.toString()).toBe('free\n');
   });
 });
