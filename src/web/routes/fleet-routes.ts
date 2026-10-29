@@ -198,6 +198,8 @@ export function registerFleetRoutes(app: FastifyInstance): void {
         ...(machine.wakeMac ? { wakeMac: machine.wakeMac } : {}),
         machine: machine.name,
         system,
+        // LAN machines: trust the host key on first connect (a later change still fails).
+        extraSshOptions: ['StrictHostKeyChecking=accept-new'],
       };
       const checked = RemoteHostSchema.safeParse(candidate);
       if (!checked.success) {

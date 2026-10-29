@@ -228,9 +228,12 @@ Object.assign(CodemanApp.prototype, {
       const endsSlash = raw.endsWith('/');
       const prefix = endsSlash ? '' : raw.split('/').pop();
       const exactDir = listing.dir && (raw.replace(/\/+$/, '') === listing.dir || raw === '~');
+      // Hidden folders only once a typed "." asks for them.
       const shown = exactDir
-        ? listing.dirs
-        : listing.dirs.filter((d) => d.toLowerCase().startsWith(prefix.toLowerCase()));
+        ? listing.dirs.filter((d) => !d.startsWith('.'))
+        : listing.dirs.filter(
+            (d) => d.toLowerCase().startsWith(prefix.toLowerCase()) && (prefix.startsWith('.') || !d.startsWith('.'))
+          );
       browseEl.replaceChildren(
         ...shown.slice(0, 200).map((name) => {
           const row = document.createElement('button');
