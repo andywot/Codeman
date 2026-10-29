@@ -191,6 +191,10 @@ Object.assign(CodemanApp.prototype, {
 
     const $ = (sel) => form.querySelector(sel);
     const pathInput = $('#nsPath');
+    // Focusing a text field raises a phone's on-screen keyboard (see showModal below).
+    const touchScreen =
+      !!window.matchMedia?.('(pointer: coarse)').matches ||
+      (typeof MobileDetection !== 'undefined' && !!MobileDetection.isTouchDevice?.());
     const errorEl = $('.ns-error');
     const hintEl = $('.ns-hint');
     const browseEl = $('.ns-browse');
@@ -256,7 +260,8 @@ Object.assign(CodemanApp.prototype, {
             const next = `${base}/${name}`;
             pathInput.value = isWindows() ? windowsPathOf(next) || next : next;
             queueBrowse(0);
-            pathInput.focus();
+            // A tapped folder must not raise the phone keyboard over the list.
+            if (!touchScreen) pathInput.focus();
           });
           return row;
         })
@@ -546,7 +551,11 @@ Object.assign(CodemanApp.prototype, {
     });
 
     dialog.showModal();
-    (recents.length ? list.firstElementChild : pathInput)?.focus();
+    // On a touch screen, focusing the folder field raised the keyboard and
+    // scrolled the sheet past Projects before anything was picked. Open at the
+    // top there, and keep the keyboard-first focus for a desktop.
+    if (!touchScreen) (recents.length ? list.firstElementChild : pathInput)?.focus();
+    dialog.scrollTop = 0;
   },
 
   _displayPath(path, system) {

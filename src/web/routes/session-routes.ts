@@ -2528,6 +2528,15 @@ export function registerSessionRoutes(
     const { cols, rows, viewportType, force } = parseBody(ResizeSchema, req.body);
     const session = findSessionOrFail(ctx, id, req);
 
+    // Fork: a phone selecting a session sizes it over HTTP (its terminal socket is
+    // not open yet), so that resize IS the user opening the session there. It takes
+    // the width from a desktop claim exactly as the socket's first resize does
+    // (ws-routes.ts). Declining it made the phone adopt the desktop width and toast
+    // "Another device is setting the width" on every open, a moment before the
+    // socket's own resize took the pane anyway.
+    if (viewportType === 'mobile' || viewportType === 'tablet') {
+      session.noteSmallViewportActivity({ cols, rows, viewportType });
+    }
     session.resize(cols, rows, { viewportType, force });
     // Answer with the geometry the PTY ACTUALLY holds, which is not always the
     // one asked for: `Session.resize` declines small-viewport requests while a

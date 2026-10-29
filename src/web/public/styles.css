@@ -24362,6 +24362,20 @@ html[data-focus='on'] main {
 .fm-grid:has(> :nth-child(2):last-child) {
   grid-template-columns: 1fr 1fr;
 }
+/* An input's intrinsic width (about 20 characters) would otherwise hold its
+   column open: on a phone the SSH user and port fields ran off the dialog. */
+.fm-grid > .ns-field,
+.fm-grid .ns-input {
+  min-width: 0;
+}
+@media (max-width: 599px) {
+  .fm-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .fm-grid > :first-child:nth-last-child(3) {
+    grid-column: 1 / -1;
+  }
+}
 .fm-checks {
   display: flex;
   flex-wrap: wrap;
@@ -24576,5 +24590,131 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   }
   .ns-recent {
     min-height: 44px;
+    /* The name gets the full width; beside it, "Desk PC · WSL · Personal · Opus"
+       squeezed a project name into three lines. */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'name' 'where' 'path';
   }
+  /* Finger-sized controls in the New session and Machines & accounts sheets. */
+  .ns-chip,
+  .ns-input,
+  .ns-cancel,
+  .ns-start,
+  .ns-manage,
+  .fm-btn {
+    height: 40px;
+  }
+  .ns-close {
+    width: 40px;
+    height: 40px;
+  }
+  .ns-form {
+    padding: 16px 16px 14px;
+  }
+  .ns-head h2,
+  .ns-manage {
+    white-space: nowrap;
+  }
+  .ns-browse-up {
+    width: 40px;
+  }
+  .ns-browse-row {
+    padding-block: 11px;
+  }
+}
+/* The project name is a label, not a path: the UI face, not the data one. */
+.ns-input.ns-project-name {
+  font-family: var(--ui-font);
+}
+
+/* ── Fork: phone chrome on the workbench skin ────────────────────────────────
+   The skin's 32px status-line toolbar is a desktop size. mobile.css lays the
+   phone out around a 40px fixed toolbar (the accessory bar sits 40px up and
+   `main` reserves 40px), so the 32px bar left an 8px strip of terminal between
+   the accessory bar and the toolbar, and the skin's `padding: 0 8px` dropped the
+   landscape safe-area insets. The keys grow to fill both bars: they are the
+   phone's most-tapped controls. Upstream's navy Enter and the accessory confirm
+   state are repainted in skin tokens (the light-skin repaint in mobile.css
+   resets every .accessory-btn, which hid "Tap again"). */
+@media (max-width: 599px) {
+  html[data-skin="monokai-pro-light"] {
+    --toolbar-height: 40px;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar {
+    padding: 4px 8px;
+    padding-left: calc(8px + var(--safe-area-left));
+    padding-right: calc(8px + var(--safe-area-right));
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
+    height: 32px !important;
+    min-height: 32px !important;
+    max-height: 32px !important;
+    line-height: 32px;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-attach-mobile, .btn-voice-mobile, .btn-settings-mobile) {
+    width: 32px;
+    height: 32px;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-stop {
+    min-width: 32px;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-run-gear {
+    min-width: 26px !important;
+  }
+  html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter {
+    background: var(--bg-dark) !important;
+    border: 1px solid var(--accent) !important;
+    color: var(--accent-d) !important;
+  }
+  html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter:active {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-dark)) !important;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn {
+    min-height: 32px;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn-dismiss {
+    height: 32px;
+    padding-block: 0;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn.confirming {
+    background: color-mix(in srgb, var(--yellow) 18%, var(--bg-input));
+    border-color: var(--yellow);
+    color: var(--yellow);
+  }
+}
+
+/* Account usage on the phone home screen (mobile-overview.js); the desktop shows
+   the same rings in the status bar. */
+.mobile-overview-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.mobile-overview-usage-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font: var(--fs-sm) / 1 var(--font-mono);
+  cursor: pointer;
+}
+.mobile-overview-usage-name {
+  margin-right: 2px;
+  font-family: var(--ui-font);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* One UI font: form controls take the page's font instead of the browser's
+   (Arial on Linux and Android, the system face on iOS), which the phone toolbar,
+   the composer and the settings buttons all showed. Zero specificity, so every
+   rule that sets a font on a control, monospace included, still wins. */
+:where(html[data-skin="monokai-pro-light"]) :where(button, input, select, textarea) {
+  font-family: inherit;
 }

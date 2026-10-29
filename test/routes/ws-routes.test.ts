@@ -420,6 +420,44 @@ describe('ws-routes', () => {
       });
     });
 
+    it('fork: typing on a phone that takes the pane tells the phone the new geometry', async () => {
+      const ws = await connectWs('/ws/sessions/ws-test-session/terminal');
+      const session = ctx._session as unknown as {
+        ptyGeometry: { cols: number; rows: number } | null;
+        resize: ReturnType<typeof vi.fn>;
+        noteSmallViewportActivity: ReturnType<typeof vi.fn>;
+        writeBuffer: string[];
+      };
+      const frames: string[] = [];
+      ws.on('message', (m) => frames.push(String(m)));
+      try {
+        // A desktop holds the pane at 208x45; the phone opens at 48x28.
+        session.ptyGeometry = { cols: 208, rows: 45 };
+        ws.send(JSON.stringify({ t: 'z', c: 48, r: 28, v: 'mobile' }));
+        await vi.waitFor(() => {
+          expect(session.resize).toHaveBeenCalledWith(48, 28, { viewportType: 'mobile', force: false });
+        });
+        session.noteSmallViewportActivity.mockImplementation((d: { cols: number; rows: number }) => {
+          session.ptyGeometry = { cols: d.cols, rows: d.rows };
+        });
+
+        ws.send(JSON.stringify({ t: 'i', d: 'x' }));
+        await vi.waitFor(() => {
+          expect(frames).toContain('{"t":"zc","c":48,"r":28}');
+        });
+
+        // Already the phone's: a second keystroke reports nothing new.
+        const reports = frames.filter((f) => f.startsWith('{"t":"zc"')).length;
+        ws.send(JSON.stringify({ t: 'i', d: 'y' }));
+        await vi.waitFor(() => {
+          expect(session.writeBuffer).toContain('y');
+        });
+        expect(frames.filter((f) => f.startsWith('{"t":"zc"')).length).toBe(reports);
+      } finally {
+        ws.close();
+      }
+    });
+
     it('accepts resize at minimum bounds (1x1)', async () => {
       const ws = await connectWs('/ws/sessions/ws-test-session/terminal');
       try {

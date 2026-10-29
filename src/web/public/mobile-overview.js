@@ -333,6 +333,11 @@ Object.assign(CodemanApp.prototype, {
     return !!(window.matchMedia && window.matchMedia(MOBILE_OVERVIEW_PHONE_QUERY).matches);
   },
 
+  /** Fork: the primary button opens the New session sheet (new-session.js) when it is loaded. */
+  _mobileOverviewOpensNewSession() {
+    return typeof this.openNewSessionFlow === 'function';
+  },
+
   /** True while the overview is the visible home surface. */
   isMobileOverviewVisible() {
     const el = document.getElementById('mobileOverview');
@@ -409,6 +414,12 @@ Object.assign(CodemanApp.prototype, {
       } else if (action === 'run') {
         this._closeMobileOverviewRunMenu();
         void this.run();
+      } else if (action === 'new-session') {
+        this._closeMobileOverviewRunMenu();
+        void this.openNewSessionFlow();
+      } else if (action === 'accounts') {
+        this._closeMobileOverviewRunMenu();
+        void this.openFleetManager?.();
       } else if (action === 'run-menu') {
         this._toggleMobileOverviewRunMenu();
       } else if (action === 'run-mode') {
@@ -504,7 +515,9 @@ Object.assign(CodemanApp.prototype, {
         'Current sessions',
         model.current.length,
         model.current.map((r) => this._buildMobileOverviewRow(r)),
-        'Nothing running. Hit Run to start something.'
+        this._mobileOverviewOpensNewSession()
+          ? 'Nothing running. Tap New session to start one.'
+          : 'Nothing running. Hit Run to start something.'
       )
     );
 
@@ -570,18 +583,24 @@ Object.assign(CodemanApp.prototype, {
     group.className = 'mobile-overview-run-group';
 
     const mode = this.runMode || 'claude';
+    // Fork: work starts in the New session sheet (machine, system, folder,
+    // account, model) as it does on desktop; on a phone this button was the
+    // only way in, so it opens the sheet. The caret keeps the quick Run picker.
+    const newSession = this._mobileOverviewOpensNewSession();
     const run = document.createElement('button');
     run.className = `btn-toolbar btn-run mode-${mode} mobile-overview-run`;
     run.type = 'button';
-    run.dataset.moAction = 'run';
+    run.dataset.moAction = newSession ? 'new-session' : 'run';
     const runLabel = document.createElement('span');
-    runLabel.textContent = 'Run';
+    runLabel.textContent = newSession ? 'New session' : 'Run';
     run.appendChild(runLabel);
-    const runMode = document.createElement('span');
-    runMode.className = 'mobile-overview-run-mode';
-    runMode.setAttribute('data-i18n-skip', '');
-    runMode.textContent = mobileOverviewRunModes().find((m) => m.mode === mode)?.short || mode;
-    run.appendChild(runMode);
+    if (!newSession) {
+      const runMode = document.createElement('span');
+      runMode.className = 'mobile-overview-run-mode';
+      runMode.setAttribute('data-i18n-skip', '');
+      runMode.textContent = mobileOverviewRunModes().find((m) => m.mode === mode)?.short || mode;
+      run.appendChild(runMode);
+    }
     group.appendChild(run);
 
     const caret = document.createElement('button');
@@ -599,9 +618,58 @@ Object.assign(CodemanApp.prototype, {
 
     top.appendChild(group);
     wrap.appendChild(top);
+    const usage = this._buildMobileOverviewUsage();
+    if (usage) wrap.appendChild(usage);
 
     if (this._mobileOverviewRunMenuOpen) wrap.appendChild(this._buildMobileOverviewRunMenu());
     return wrap;
+  },
+
+  /**
+   * Fork: account usage (5-hour and 7-day windows) for the phone. The desktop
+   * shows it in the status bar (status-bar.js), which a phone does not have, so
+   * the same readings sit under the header here. Tapping one opens Machines &
+   * accounts, as the status bar entry does.
+   */
+  _buildMobileOverviewUsage() {
+    const accounts = this._statusBarAccounts || [];
+    if (!accounts.length) return null;
+    const row = document.createElement('div');
+    row.className = 'mobile-overview-usage';
+    for (const account of accounts) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'mobile-overview-usage-item';
+      item.dataset.moAction = 'accounts';
+      item.setAttribute('data-i18n-skip', '');
+      const name = document.createElement('span');
+      name.className = 'mobile-overview-usage-name';
+      name.textContent = account.label;
+      item.appendChild(name);
+      const said = [account.label];
+      const windows = account.pending
+        ? [['–', 0, 'no reading yet']]
+        : [
+            ['5h', account.fiveHour, '5-hour window'],
+            ['7d', account.sevenDay, '7-day window'],
+          ];
+      for (const [key, pct, words] of windows) {
+        if (pct == null) continue;
+        const value = Math.max(0, Math.min(100, Math.round(pct)));
+        const ring = document.createElement('span');
+        ring.className = `rc-ring${account.pending ? ' rc-ring--empty' : value >= 80 ? ' rc-ring--high' : value >= 50 ? ' rc-ring--mid' : ''}`;
+        ring.style.setProperty('--p', String(value));
+        ring.setAttribute('aria-hidden', 'true');
+        const tag = document.createElement('span');
+        tag.className = 'rc-ring-key';
+        tag.textContent = account.pending ? key : `${key} ${value}%`;
+        item.append(ring, tag);
+        said.push(account.pending ? words : `${words} ${value}% used`);
+      }
+      item.setAttribute('aria-label', said.join(', '));
+      row.appendChild(item);
+    }
+    return row;
   },
 
   /** Down chevron as SVG (see the note at its call site). */

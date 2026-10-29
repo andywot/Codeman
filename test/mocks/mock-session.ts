@@ -474,6 +474,7 @@ export class MockSession extends EventEmitter {
   claimDesktopSizing = vi.fn();
   releaseDesktopSizing = vi.fn();
   noteDesktopActivity = vi.fn();
+  noteSmallViewportActivity = vi.fn();
 
   /** Stub for runPrompt */
   runPrompt = vi.fn(async () => {});
