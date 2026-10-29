@@ -3240,6 +3240,44 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
   /**
    * Reconcile tracked sessions with actual running tmux sessions.
    */
+  /**
+   * Fork: rebuild the local ssh pane of a remote session whose agent is still alive
+   * on its machine. Returns the new pane pid, or undefined (remote gone or failed).
+   * Only reattaches: `buildRemoteSessionCommand` is `new-session -A` (owned) or
+   * `attach` (adopted), so a live remote session is joined, never relaunched.
+   */
+  private async reviveRemotePane(session: MuxSession): Promise<number | undefined> {
+    const remote = session.remote;
+    if (!remote) return undefined;
+    const remoteName = remote.remoteSessionName || remoteTmuxSessionName(session.sessionId);
+    try {
+      if (!(await remoteTmuxSessionAlive(remote, remoteName))) return undefined;
+      const cmd = buildRemoteSessionCommand({ mode: session.mode, remote, sessionId: session.sessionId });
+      const name = session.muxName;
+      execSync(`${this.tmux()} new-session -ds "${name}" -c ${TMUX_LAUNCH_CWD}`, {
+        cwd: TMUX_LAUNCH_CWD,
+        timeout: EXEC_TIMEOUT_MS,
+        stdio: 'ignore',
+      });
+      this.resizeWindow(name, 120, 40);
+      for (const opt of ['remain-on-exit on', 'status off']) {
+        execSync(`${this.tmux()} set-option -t "${name}" ${opt}`, { timeout: EXEC_TIMEOUT_MS, stdio: 'ignore' });
+      }
+      restrictTmuxPrefixTable(this.tmux());
+      execSync(`${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${name}" bash -c ${JSON.stringify(cmd)}`, {
+        timeout: EXEC_TIMEOUT_MS,
+        stdio: 'ignore',
+      });
+      await new Promise((resolve) => setTimeout(resolve, TMUX_CREATION_WAIT_MS));
+      const pid = this.getPanePid(name);
+      if (pid) console.log(`[TmuxManager] Reattached remote session ${remoteName} for ${session.sessionId}`);
+      return pid ?? undefined;
+    } catch (err) {
+      console.warn(`[TmuxManager] Could not reattach remote session ${remoteName}:`, err);
+      return undefined;
+    }
+  }
+
   async reconcileSessions(): Promise<{ alive: string[]; dead: string[]; discovered: string[] }> {
     // TEST MODE: Return all registered sessions as alive, never discover real ones
     if (IS_TEST_MODE) {
@@ -3303,7 +3341,13 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
 
     // Check tracked sessions against the live pane list.
     for (const [sessionId, session] of this.sessions) {
-      const pid = active.get(session.muxName);
+      let pid = active.get(session.muxName);
+      // Fork: a remote session's agent lives in tmux ON the machine; only the local
+      // ssh pane dies with this server (a container redeploy kills it). If the
+      // remote side is still running, rebuild the local pane and keep the session.
+      if (pid === undefined && session.remote) {
+        pid = await this.reviveRemotePane(session);
+      }
       if (pid !== undefined) {
         alive.push(sessionId);
         if (pid !== session.pid) session.pid = pid;
