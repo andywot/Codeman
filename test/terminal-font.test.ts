@@ -60,7 +60,8 @@ describe('CodemanTerminalFont', () => {
 });
 
 describe('CodemanTerminalFont.resolveWeights', () => {
-  const DEFAULTS = { fontWeight: 'normal', fontWeightBold: 'bold' };
+  // Fork: the light Monokai skin draws text at 500/700 by default (constants.js).
+  const DEFAULTS = { fontWeight: 500, fontWeightBold: 700 };
 
   it("leaves an untouched install on xterm's own defaults", () => {
     // The whole feature has to be invisible until someone asks for it.
@@ -71,8 +72,8 @@ describe('CodemanTerminalFont.resolveWeights', () => {
   });
 
   it('resolves each slot independently', () => {
-    expect(font.resolveWeights({ terminalFontWeight: 300 })).toEqual({ fontWeight: 300, fontWeightBold: 'bold' });
-    expect(font.resolveWeights({ terminalFontWeightBold: 800 })).toEqual({ fontWeight: 'normal', fontWeightBold: 800 });
+    expect(font.resolveWeights({ terminalFontWeight: 300 })).toEqual({ fontWeight: 300, fontWeightBold: 700 });
+    expect(font.resolveWeights({ terminalFontWeightBold: 800 })).toEqual({ fontWeight: 500, fontWeightBold: 800 });
     expect(font.resolveWeights({ terminalFontWeight: 300, terminalFontWeightBold: 800 })).toEqual({
       fontWeight: 300,
       fontWeightBold: 800,
@@ -108,9 +109,9 @@ describe('CodemanTerminalFont.resolveWeights', () => {
     // OptionsService accepts a number in 1..1000 and falls back otherwise, so
     // anything outside that range must resolve to the default here instead of
     // reaching the terminal and being swapped out underneath the setting.
-    expect(font.resolveWeights({ terminalFontWeight: 0 }).fontWeight).toBe('normal');
-    expect(font.resolveWeights({ terminalFontWeight: -400 }).fontWeight).toBe('normal');
-    expect(font.resolveWeights({ terminalFontWeight: 1001 }).fontWeight).toBe('normal');
+    expect(font.resolveWeights({ terminalFontWeight: 0 }).fontWeight).toBe(500);
+    expect(font.resolveWeights({ terminalFontWeight: -400 }).fontWeight).toBe(500);
+    expect(font.resolveWeights({ terminalFontWeight: 1001 }).fontWeight).toBe(500);
     expect(font.resolveWeights({ terminalFontWeight: 1000 }).fontWeight).toBe(1000);
     expect(font.resolveWeights({ terminalFontWeight: 1 }).fontWeight).toBe(1);
   });

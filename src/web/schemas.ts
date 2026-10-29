@@ -933,6 +933,7 @@ export const RemoteHostSchema = z.object({
     .string()
     .min(1)
     .max(60)
+    // eslint-disable-next-line no-control-regex -- control characters are what it refuses
     .regex(/^[^\x00-\x1f'"`$\\]+$/, 'Invalid machine name')
     .optional(),
   system: z.enum(['wsl', 'windows', 'linux']).optional(),

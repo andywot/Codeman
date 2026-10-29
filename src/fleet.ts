@@ -87,7 +87,7 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const MODEL_RE = /^[a-z0-9][a-z0-9.-]{0,60}(\[1m\])?$/;
 const URL_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~/-]*)?$/;
 const SECRET_DIR = '~/.config/claude-rc';
-const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:\[\]=-]+){0,6}$/;
+const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:[\]=-]+){0,6}$/;
 
 export function fleetPath(configDir: string): string {
   return join(configDir, 'fleet.json');
@@ -116,11 +116,13 @@ export function publicAccount(account: FleetAccount): Omit<FleetAccount, 'secret
   return { ...rest, hasSecret: Boolean(secret) };
 }
 
+const ACCOUNT_KINDS = new Set<string>(['machine', 'cswap', 'token', 'api', 'shell']);
+
 /** Validates an account from the browser; returns an error message or null. */
 export function validateAccount(account: FleetAccount): string | null {
   if (!ID_RE.test(account.id)) return 'Account id must be lowercase letters, digits and dashes';
   if (!account.label || account.label.length > 60) return 'Account name is required (60 characters at most)';
-  if (!['machine', 'cswap', 'token', 'api', 'shell'].includes(account.kind)) return 'Unknown account kind';
+  if (!ACCOUNT_KINDS.has(account.kind)) return 'Unknown account kind';
   if (account.kind === 'shell' && !(account.setupCommand && SETUP_RE.test(account.setupCommand))) {
     return 'Give the command as plain words, e.g. use-glm';
   }

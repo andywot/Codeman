@@ -3973,6 +3973,7 @@ Object.assign(CodemanApp.prototype, {
       order: cli.order,
       kind: cli.kind,
       external: previous.get(cli.id)?.external,
+      transcript: previous.get(cli.id)?.transcript,
       enabled: cli.enabled,
       available: cli.kind === 'shell' || (cli.enabled && cli.installed),
     }));

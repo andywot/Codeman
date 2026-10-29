@@ -219,6 +219,7 @@ import {
   registerSystemRoutes,
   registerCaseRoutes,
   registerFleetRoutes,
+  registerChatRoutes,
   registerWorktreeRoutes,
   registerSessionRoutes,
   registerAgentSessionRoutes,
@@ -1310,6 +1311,7 @@ export class WebServer extends EventEmitter {
     registerSystemRoutes(this.app, ctx);
     registerCaseRoutes(this.app, ctx);
     registerFleetRoutes(this.app);
+    registerChatRoutes(this.app, ctx);
     registerWorktreeRoutes(this.app, ctx);
     // The registry's lifetime is the server's: it drops per-session wake state on every
     // cleanup path and resolves in-flight wakes on shutdown.
@@ -1917,6 +1919,8 @@ export class WebServer extends EventEmitter {
           order: entry.order,
           kind: entry.kind,
           external: entry.capabilities.external,
+          // Fork: the chat view draws only sessions whose CLI keeps a Claude-format log.
+          transcript: entry.capabilities.transcript,
           enabled,
           available: enabled && installed,
         };
