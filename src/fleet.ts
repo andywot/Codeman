@@ -74,6 +74,7 @@ export interface FleetConfig {
 
 export interface FleetUsage {
   fiveHour: number | null;
+  fiveHourResetsAt: string | null;
   sevenDay: number | null;
   sevenDayResetsAt: string | null;
   fetchedAt: string;
@@ -161,10 +162,15 @@ export function buildLaunch(
   const env: Record<string, string> = {};
   let binary = windows ? WINDOWS_CLAUDE_BINARY : 'claude';
 
-  if (account?.kind === 'cswap' && account.slot) {
-    if (windows) throw new Error('cswap accounts run on WSL or Linux, not native Windows');
+  // cswap switches a Linux config dir, which Windows claude never reads; on Windows a
+  // cswap account uses the token saved with it instead.
+  const viaToken = account?.kind === 'token' || (account?.kind === 'cswap' && windows);
+  if (account?.kind === 'cswap' && windows && !account.secret) {
+    throw new Error(`${account.label} needs a token to run on Windows: add one in Machines & accounts`);
+  }
+  if (account?.kind === 'cswap' && account.slot && !windows) {
     binary = `cswap run ${account.slot} -- claude`;
-  } else if (account?.kind === 'token') {
+  } else if (viaToken && account) {
     env.CLAUDE_CODE_OAUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
   } else if (account?.kind === 'shell' && account.setupCommand && SETUP_RE.test(account.setupCommand)) {
     setup.push(`${account.setupCommand} >/dev/null`);
@@ -205,7 +211,7 @@ const SSH_TIMEOUT_MS = 20_000;
 export function runOnHost(
   host: RemoteHost,
   command: string,
-  input?: string,
+  input?: string | Buffer,
   timeoutMs = SSH_TIMEOUT_MS
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   if (process.env.VITEST) return Promise.resolve({ code: 0, stdout: '', stderr: '' });
@@ -234,9 +240,40 @@ export function runOnHost(
   });
 }
 
+/**
+ * Writes an uploaded file (a pasted image or document) into `<dir>/.codeman-uploads/`
+ * on the host, the same folder a local session uses, and returns its path there.
+ * The bytes go over ssh stdin; `dir` and `filename` are shell-quoted.
+ */
+export async function pushUploadToHost(
+  host: RemoteHost,
+  dir: string,
+  filename: string,
+  bytes: Buffer
+): Promise<string> {
+  if (!/^[A-Za-z0-9._-]+$/.test(filename)) throw new Error('Invalid upload name');
+  const uploads = `${dir.replace(/\/+$/, '')}/.codeman-uploads`;
+  const target = `${uploads}/${filename}`;
+  const result = await runOnHost(
+    host,
+    `mkdir -p ${shellescape(uploads)} && ` +
+      `{ [ -e ${shellescape(uploads + '/.gitignore')} ] || printf '*\\n' > ${shellescape(uploads + '/.gitignore')}; } && ` +
+      `cat > ${shellescape(target)}`,
+    bytes,
+    60_000
+  );
+  if (result.code !== 0) {
+    throw new Error(`Could not copy the file to ${host.label}: ${result.stderr.trim() || 'ssh failed'}`);
+  }
+  return target;
+}
+
 /** Copies an account's secret to the host (0600). No-op for accounts without one. */
 export async function pushAccountSecret(host: RemoteHost, account: FleetAccount | undefined): Promise<void> {
-  if (!account || (account.kind !== 'token' && account.kind !== 'api')) return;
+  const needed =
+    account &&
+    (account.kind === 'token' || account.kind === 'api' || (account.kind === 'cswap' && host.system === 'windows'));
+  if (!needed) return;
   if (!account.secret) throw new Error(`${account.label} has no token saved yet`);
   const file = secretFile(account.id);
   const result = await runOnHost(
@@ -290,7 +327,7 @@ interface CswapAccount {
   number?: number;
   email?: string;
   usage?: {
-    fiveHour?: { pct?: number };
+    fiveHour?: { pct?: number; resetsAt?: string };
     sevenDay?: { pct?: number; resetsAt?: string };
   };
 }
@@ -314,6 +351,7 @@ export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): 
         for (const acct of parsed.accounts ?? []) {
           const usage: FleetUsage = {
             fiveHour: acct.usage?.fiveHour?.pct ?? null,
+            fiveHourResetsAt: acct.usage?.fiveHour?.resetsAt ?? null,
             sevenDay: acct.usage?.sevenDay?.pct ?? null,
             sevenDayResetsAt: acct.usage?.sevenDay?.resetsAt ?? null,
             fetchedAt,

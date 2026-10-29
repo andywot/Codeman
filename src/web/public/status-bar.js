@@ -89,19 +89,29 @@ Object.assign(CodemanApp.prototype, {
     parts.push(spacer);
 
     for (const account of this._statusBarAccounts || []) {
-      const usage = [];
-      if (account.fiveHour != null) usage.push(`5h ${Math.round(account.fiveHour)}%`);
-      if (account.sevenDay != null) usage.push(`7d ${Math.round(account.sevenDay)}%`);
-      const high = Math.max(account.fiveHour ?? 0, account.sevenDay ?? 0) >= 80;
-      parts.push(
-        this._statusBarItem(`${account.label}${usage.length ? ' ' + usage.join(' · ') : ''}`, {
-          cls: `rc-account${high ? ' rc-account--high' : ''}`,
-          action: 'accounts',
-          title: account.resetsAt
-            ? `7-day window resets ${new Date(account.resetsAt).toLocaleString()}`
-            : account.label,
-        })
-      );
+      const item = this._statusBarItem(account.label, { cls: 'rc-account', action: 'accounts' });
+      const lines = [account.label];
+      for (const [key, name, pct, resets] of [
+        ['5h', '5-hour window', account.fiveHour, account.fiveHourResetsAt],
+        ['7d', '7-day window', account.sevenDay, account.resetsAt],
+      ]) {
+        if (pct == null) continue;
+        const value = Math.max(0, Math.min(100, Math.round(pct)));
+        const ring = document.createElement('span');
+        ring.className = `rc-ring${value >= 80 ? ' rc-ring--high' : value >= 50 ? ' rc-ring--mid' : ''}`;
+        ring.style.setProperty('--p', String(value));
+        ring.setAttribute('aria-hidden', 'true');
+        const tag = document.createElement('span');
+        tag.className = 'rc-ring-key';
+        tag.textContent = key;
+        item.append(ring, tag);
+        lines.push(
+          `${name}: ${value}% used${resets ? `, resets ${new Date(resets).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`
+        );
+      }
+      item.title = lines.join('\n');
+      item.setAttribute('aria-label', lines.join('. '));
+      parts.push(item);
     }
     el.replaceChildren(...parts);
   },
@@ -117,6 +127,7 @@ Object.assign(CodemanApp.prototype, {
         .map((a) => ({
           label: a.label,
           fiveHour: a.usage.fiveHour ?? null,
+          fiveHourResetsAt: a.usage.fiveHourResetsAt ?? null,
           sevenDay: a.usage.sevenDay ?? null,
           resetsAt: a.usage.sevenDayResetsAt ?? null,
         }));

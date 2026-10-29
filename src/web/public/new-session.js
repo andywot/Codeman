@@ -329,7 +329,7 @@ Object.assign(CodemanApp.prototype, {
     // ── Choices ──
     const accountsFor = () => {
       const windows = isWindows();
-      return accounts.filter((a) => !(windows && a.kind === 'cswap'));
+      return accounts.filter((a) => !(windows && a.kind === 'cswap' && !a.hasSecret));
     };
 
     const usageText = (a) => {

@@ -215,7 +215,7 @@ import {
 import { readDeepSeekLastResponse } from '../../deepseek-transcript.js';
 import { appendClaudeCustomTitle } from '../../claude-session-title.js';
 import { UPLOADS_DIR } from '../paste-image-gc.js';
-import { buildLaunch, pushAccountSecret, readFleet } from '../../fleet.js';
+import { buildLaunch, pushAccountSecret, pushUploadToHost, readFleet } from '../../fleet.js';
 
 // Path to linked-cases registry (same file used by case-routes resolveCasePath)
 const LINKED_CASES_FILE = dataPath('linked-cases.json');
@@ -5753,12 +5753,80 @@ export function registerSessionRoutes(
     // An owned Docker case is fine, its workspace is bind-mounted at the same
     // absolute path; an adopted container (owned: false) mounts nothing, so its
     // agent reads the file only if the container exposes that host path.
+    // Fork (fleet.ts): a remote session's upload is checked here, then copied over ssh
+    // into <remote workspace>/.codeman-uploads/, where its agent can read it. Images
+    // and documents only; videos stay local-only.
     if (session.remote) {
-      reply.code(400);
-      return createErrorResponse(
-        ApiErrorCode.INVALID_INPUT,
-        'Prompt uploads are not supported for remote (SSH) sessions'
-      );
+      if (isVideo || !req.isMultipart()) {
+        reply.code(400);
+        return createErrorResponse(
+          ApiErrorCode.INVALID_INPUT,
+          'Videos cannot be sent to remote sessions; images and documents can'
+        );
+      }
+      let part: import('@fastify/multipart').MultipartFile | undefined;
+      try {
+        part = await req.file();
+      } catch (err: unknown) {
+        reply.code(413);
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, getErrorMessage(err) || 'Invalid multipart payload');
+      }
+      if (!part || part.fieldname !== 'image') {
+        reply.code(400);
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'No image uploaded');
+      }
+      let bytes: Buffer;
+      try {
+        bytes = await part.toBuffer();
+      } catch (err: unknown) {
+        reply.code(413);
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, getErrorMessage(err) || 'File too large');
+      }
+      if (!bytes.length) {
+        reply.code(400);
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'Empty file');
+      }
+      const origExt = part.filename ? extname(part.filename).toLowerCase() : '';
+      const imageMime = /^image\//i.test(part.mimetype || '');
+      let ext = '';
+      let stem = '';
+      if (!imageMime && ALLOWED_DOCUMENT_EXTS.has(origExt)) {
+        ext = origExt;
+        stem = sanitizeUploadStem(part.filename);
+      } else if (imageMagicMatchesExt(bytes, '.heic')) {
+        try {
+          bytes = await convertHeicToJpeg(bytes);
+          ext = '.jpg';
+        } catch {
+          reply.code(415);
+          return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'Could not convert HEIC image to JPEG');
+        }
+      } else {
+        ext =
+          [...ALLOWED_IMAGE_EXTS].find((e) => e !== '.heic' && e !== '.heif' && imageMagicMatchesExt(bytes, e)) ?? '';
+      }
+      if (!ext || !imageMagicMatchesExt(bytes, ext)) {
+        reply.code(415);
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'Unsupported file type');
+      }
+      const filename = `paste-${Date.now()}-${randomBytes(4).toString('hex')}${stem ? `-${stem}` : ''}${ext}`;
+      try {
+        const remotePath = await pushUploadToHost(
+          session.remote as unknown as RemoteHost,
+          session.remote.remotePath,
+          filename,
+          bytes
+        );
+        // Windows claude reads Windows paths.
+        const windows = /^\/mnt\/([a-z])\/(.*)$/.exec(remotePath);
+        const path =
+          session.remote.system === 'windows' && windows
+            ? `${windows[1].toUpperCase()}:\\${windows[2].replace(/\//g, '\\')}`
+            : remotePath;
+        return { path, filename };
+      } catch (err: unknown) {
+        return createErrorResponse(ApiErrorCode.OPERATION_FAILED, getErrorMessage(err));
+      }
     }
 
     // The upload is written under session.workingDir (ensureUploadDir below), and

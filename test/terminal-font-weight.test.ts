@@ -172,13 +172,13 @@ describe('applyTerminalFontWeights', () => {
 
     (app as unknown as { applyTerminalFontWeights: (s: unknown) => void }).applyTerminalFontWeights({});
 
-    expect(app.terminal?.options.fontWeight).toBe('normal');
-    expect(app.terminal?.options.fontWeightBold).toBe('bold');
+    expect(app.terminal?.options.fontWeight).toBe(500);
+    expect(app.terminal?.options.fontWeightBold).toBe(700);
   });
 
   it('does nothing when neither slot changed', () => {
     // saveAppSettings runs on every close of the modal.
-    const { app, fit } = makeApp({ terminal: fakeTerminal({ fontWeight: 300, fontWeightBold: 'bold' }) });
+    const { app, fit } = makeApp({ terminal: fakeTerminal({ fontWeight: 300, fontWeightBold: 700 }) });
 
     (app as unknown as { applyTerminalFontWeights: (s: unknown) => void }).applyTerminalFontWeights({
       terminalFontWeight: 300,

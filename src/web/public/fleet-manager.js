@@ -345,7 +345,7 @@ Object.assign(CodemanApp.prototype, {
         <label class="ns-field"><span class="ns-label">Model</span><input class="ns-input" name="apiModel" placeholder="glm-5.3"></label>
         <label class="ns-field"><span class="ns-label">Small model</span><input class="ns-input" name="apiSmallModel" placeholder="glm-5.3-flash"></label>
       </div>
-      <label class="ns-field" data-for="token api"><span class="ns-label fm-secret-label">Token</span><input class="ns-input" name="secret" type="password" autocomplete="off" spellcheck="false"></label>
+      <label class="ns-field" data-for="token api cswap"><span class="ns-label fm-secret-label">Token</span><input class="ns-input" name="secret" type="password" autocomplete="off" spellcheck="false"></label>
       <p class="ns-error" role="alert" hidden></p>
       <footer class="ns-foot">
         <button type="button" class="ns-cancel">Back</button>
@@ -355,7 +355,7 @@ Object.assign(CodemanApp.prototype, {
       token:
         'Run "claude setup-token" in a shell on any machine (it opens a sign-in link for this account) and paste the token it prints. The server keeps it and copies it to whichever machine starts a session, so one login works everywhere and nothing gets signed out.',
       cswap:
-        'Runs "cswap run <slot> -- claude" on the machine, so that machine needs cswap with this account in that slot. WSL and Linux only.',
+        'Runs "cswap run <slot> -- claude" on WSL and Linux machines that have cswap. Windows claude cannot use cswap, so to run this account on Windows also paste a token from "claude setup-token" (run it once, signed in as this account).',
       api: 'An Anthropic-compatible endpoint. Every Claude tier maps to the model below.',
       machine: 'Uses whatever the machine is signed in as. Same as picking "Machine\'s login".',
       shell:
@@ -365,7 +365,12 @@ Object.assign(CodemanApp.prototype, {
       const kind = form.kind.value;
       form.querySelector('.fm-kind-help').textContent = help[kind];
       for (const node of form.querySelectorAll('[data-for]')) node.hidden = !node.dataset.for.split(' ').includes(kind);
-      form.querySelector('.fm-secret-label').textContent = kind === 'api' ? 'API key' : 'Token';
+      form.querySelector('.fm-secret-label').textContent =
+        kind === 'api'
+          ? 'API key'
+          : kind === 'cswap'
+            ? 'Token for Windows (optional, from claude setup-token)'
+            : 'Token';
       form.secret.placeholder = account?.hasSecret
         ? 'Saved. Leave empty to keep it'
         : kind === 'api'
@@ -408,7 +413,8 @@ Object.assign(CodemanApp.prototype, {
         if (form.apiSmallModel.value.trim()) payload.apiSmallModel = form.apiSmallModel.value.trim();
       }
       if (kind === 'shell') payload.setupCommand = form.setupCommand.value.trim();
-      if ((kind === 'token' || kind === 'api') && form.secret.value.trim()) payload.secret = form.secret.value.trim();
+      if ((kind === 'token' || kind === 'api' || kind === 'cswap') && form.secret.value.trim())
+        payload.secret = form.secret.value.trim();
       try {
         await this._fetchJson(`/api/fleet/accounts/${encodeURIComponent(id)}`, {
           method: 'PUT',

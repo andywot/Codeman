@@ -1355,7 +1355,10 @@ export function buildRemoteLaunchCommand(options: {
   // Innermost: the command tmux runs in the new pane. Run via `/bin/sh -c` by
   // tmux, so the path needs shell-quoting here. `exec` replaces the shell with
   // the CLI so the pane PID is the agent itself.
-  const paneCommand = `cd ${shellescape(remote.remotePath)} && ${modeCommand}`;
+  // Fork: tell the agent the terminal does 24-bit colour, as local panes are told.
+  // ssh does not carry COLORTERM across, and without it Claude Code falls back to
+  // the 16-colour palette (wrong mascot colour, dark prompt bars on a light skin).
+  const paneCommand = `cd ${shellescape(remote.remotePath)} && export COLORTERM=truecolor && ${modeCommand}`;
 
   // The tmux command line, with `\;` separating commands so the config `set`s
   // apply on the SAME connection (and are idempotent on reattach). Options are
@@ -1363,6 +1366,9 @@ export function buildRemoteLaunchCommand(options: {
   // shared remote tmux server's other sessions keep their own prefix/mouse.
   const tmuxInvocation = [
     `tmux -L ${REMOTE_TMUX_SOCKET} new-session -A -s ${remoteName} -c ${shellescape(remote.remotePath)} ${shellescape(paneCommand)}`,
+    // Fork: let 24-bit colour through to Claude RC's terminal (tmux re-applies
+    // overrides to attached clients when the option changes).
+    `set -s terminal-overrides ',*:RGB'`,
     `set -t ${remoteName} status off`,
     `set -t ${remoteName} mouse off`,
     `set -t ${remoteName} prefix ${NESTED_TMUX_PREFIX}`,

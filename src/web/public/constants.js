@@ -1239,7 +1239,9 @@ function resolveTerminalFontFamily(custom) {
  * turn an unset setting into a visible change, which is exactly the thing this
  * feature exists to make controllable.
  */
-const TERMINAL_FONT_WEIGHT_DEFAULTS = { fontWeight: 'normal', fontWeightBold: 'bold' };
+// Fork: one step heavier than xterm's own normal/bold, since JetBrains Mono at
+// 12px on a light background reads thin.
+const TERMINAL_FONT_WEIGHT_DEFAULTS = { fontWeight: 500, fontWeightBold: 700 };
 
 /**
  * Resolve ONE weight slot against xterm's validation rules.

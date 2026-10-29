@@ -446,15 +446,24 @@ describe('session-routes', () => {
       }
     });
 
-    it('refuses an upload for a remote session before touching disk', async () => {
+    it("sends a remote session's upload to the machine, never to local disk", async () => {
       const workDir = await mkdtemp(join(tmpdir(), 'codeman-uploads-'));
       harness.ctx._session.workingDir = workDir;
-      // A remote session's workingDir is the REMOTE path: a file written here is unreadable there.
-      (harness.ctx._session as unknown as { remote: unknown }).remote = { hostId: 'gpu-box' };
+      // A remote session's workingDir is the REMOTE path: the file goes over ssh into its
+      // .codeman-uploads (fleet.ts pushUploadToHost; ssh is skipped under vitest).
+      (harness.ctx._session as unknown as { remote: unknown }).remote = {
+        hostId: 'gpu-box',
+        label: 'GPU box',
+        host: 'gpu',
+        username: 'u',
+        remotePath: '/srv/proj',
+      };
       try {
         const res = await uploadImage('shot.jpg', 'image/jpeg', jpeg);
-        expect(res.statusCode).toBe(400);
-        expect(JSON.parse(res.body).error).toMatch(/remote/);
+        expect(res.statusCode).toBe(200);
+        expect(JSON.parse(res.body).data?.path ?? JSON.parse(res.body).path).toMatch(
+          /^\/srv\/proj\/\.codeman-uploads\/paste-.*\.jpg$/
+        );
         expect(await readdir(workDir)).toEqual([]);
       } finally {
         (harness.ctx._session as unknown as { remote: unknown }).remote = undefined;
@@ -699,19 +708,13 @@ describe('session-routes', () => {
       await rm(workDir, { recursive: true });
     });
 
-    it('refuses an upload for a remote session before touching disk, video or image', async () => {
+    it('refuses a video for a remote session before touching disk', async () => {
       const workDir = await mkdtemp(join(tmpdir(), 'codeman-video-'));
       harness.ctx._session.workingDir = workDir;
       // A remote session's workingDir is the REMOTE path: a file written here is unreadable there.
       (harness.ctx._session as unknown as { remote: unknown }).remote = { hostId: 'gpu-box' };
       for (const [url, name, mime, bytes] of [
         [`/api/sessions/${harness.ctx._sessionId}/paste-image?kind=video`, 'IMG_0001.MOV', 'video/quicktime', qtMov],
-        [
-          `/api/sessions/${harness.ctx._sessionId}/paste-image`,
-          'shot.png',
-          'image/png',
-          Buffer.from('89504e470d0a1a0a00000000', 'hex'),
-        ],
       ] as const) {
         const res = await harness.app.inject({
           method: 'POST',

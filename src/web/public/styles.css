@@ -24377,3 +24377,27 @@ html[data-tab-orientation="vertical"] #tabRailMachines {
   font-weight: 500;
   color: var(--text-dim);
 }
+
+/* Status bar usage rings: one per window, the arc is the share used. */
+.rc-account {
+  gap: 4px !important;
+}
+.rc-ring {
+  --ring: var(--green);
+  width: 11px;
+  height: 11px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring) calc(var(--p) * 1%), var(--border-light) 0);
+  -webkit-mask: radial-gradient(circle, transparent 2.6px, #000 3px);
+  mask: radial-gradient(circle, transparent 2.6px, #000 3px);
+}
+.rc-ring--mid {
+  --ring: var(--yellow);
+}
+.rc-ring--high {
+  --ring: var(--red);
+}
+.rc-ring-key {
+  color: var(--text-muted);
+}

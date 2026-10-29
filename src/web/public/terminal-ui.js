@@ -447,7 +447,7 @@
     'solarized-light': { background: '#fdf6e3', foreground: '#586e75', cursor: '#147ba3', cursorAccent: '#fdf6e3', selectionBackground: 'rgba(38,139,210,0.2)', black: '#eee8d5', red: '#dc322f', green: '#758600', yellow: '#9b7800', blue: '#147ba3', magenta: '#d33682', cyan: '#2a9189', white: '#073642', brightBlack: '#93a1a1', brightRed: '#cb4b16', brightGreen: '#657b83', brightYellow: '#586e75', brightBlue: '#268bd2', brightMagenta: '#6c71c4', brightCyan: '#2aa198', brightWhite: '#002b36' },
     'catppuccin-latte': { background: '#eff1f5', foreground: '#4c4f69', cursor: '#1e66f5', cursorAccent: '#ffffff', selectionBackground: 'rgba(30,102,245,0.18)', black: '#5c5f77', red: '#d20f39', green: '#3b8f2b', yellow: '#a86605', blue: '#1e66f5', magenta: '#8839ef', cyan: '#177f86', white: '#6c6f85', brightBlack: '#7c7f93', brightRed: '#b50930', brightGreen: '#2f7622', brightYellow: '#8b5604', brightBlue: '#174fbf', brightMagenta: '#6f2bc5', brightCyan: '#116b71', brightWhite: '#4c4f69' },
     'rose-pine-dawn': { background: '#faf4ed', foreground: '#575279', cursor: '#286983', cursorAccent: '#fffaf3', selectionBackground: 'rgba(40,105,131,0.2)', black: '#575279', red: '#b4637a', green: '#286983', yellow: '#96681f', blue: '#477f91', magenta: '#907aa9', cyan: '#3f7f8b', white: '#6e6a86', brightBlack: '#797593', brightRed: '#984d66', brightGreen: '#1f5266', brightYellow: '#7d5417', brightBlue: '#386b7c', brightMagenta: '#765f90', brightCyan: '#326b76', brightWhite: '#575279' },
-    'monokai-pro-light': { background: '#fefaf9', foreground: '#29242a', cursor: '#29242a', cursorAccent: '#fefaf9', selectionBackground: 'rgba(112,107,110,0.15)', black: '#d3cdcc', red: '#e14775', green: '#269d69', yellow: '#cc7a0a', blue: '#e16032', magenta: '#7058be', cyan: '#1c8ca8', white: '#29242a', brightBlack: '#a59fa0', brightRed: '#e14775', brightGreen: '#269d69', brightYellow: '#cc7a0a', brightBlue: '#e16032', brightMagenta: '#7058be', brightCyan: '#1c8ca8', brightWhite: '#29242a' },
+    'monokai-pro-light': { background: '#fefaf9', foreground: '#29242a', cursor: '#29242a', cursorAccent: '#fefaf9', selectionBackground: 'rgba(112,107,110,0.15)', black: '#29242a', red: '#e14775', green: '#269d69', yellow: '#cc7a0a', blue: '#1c8ca8', magenta: '#7058be', cyan: '#1c8ca8', white: '#ede7e5', brightBlack: '#706b6e', brightRed: '#e14775', brightGreen: '#269d69', brightYellow: '#e16032', brightBlue: '#1c8ca8', brightMagenta: '#7058be', brightCyan: '#1c8ca8', brightWhite: '#faf4f2' },
   };
   const CODEMAN_LIGHT_SKINS = new Set(['paper-gray', 'solarized-light', 'catppuccin-latte', 'rose-pine-dawn', 'monokai-pro-light']);
   function currentSkin() {
@@ -4391,7 +4391,9 @@ Object.assign(CodemanApp.prototype, {
     }
     const settings = this.loadAppSettingsFromStorage();
     const session = this.activeSessionId ? this.sessions.get(this.activeSessionId) : null;
-    const echoEnabled = settings.localEchoEnabled ?? MobileDetection.isTouchDevice();
+    // Fork: remote (ssh) sessions echo locally by default, since every keystroke
+    // otherwise waits for the round trip to the machine before it shows.
+    const echoEnabled = settings.localEchoEnabled ?? (MobileDetection.isTouchDevice() || !!session?.remote);
     const shouldEnable = !!(echoEnabled && session);
     if (this._localEchoEnabled && !shouldEnable) {
       this._localEchoOverlay?.clear();
