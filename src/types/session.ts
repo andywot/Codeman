@@ -137,6 +137,10 @@ export interface RemoteHost extends RemoteSshOptions {
    * after each suspend.
    */
   wakeCommand?: string;
+  /** Fork (fleet.ts): the machine this host is one system of, e.g. "Desktop". */
+  machine?: string;
+  /** Fork (fleet.ts): which system on the machine; `windows` runs Windows claude from WSL. */
+  system?: 'wsl' | 'windows' | 'linux';
 }
 
 export interface RemoteCase {
@@ -156,6 +160,16 @@ export interface SessionRemote extends RemoteSshOptions {
   port?: number;
   remotePath: string;
   commands?: Partial<Record<RemoteCommandMode, string>>;
+  /** Fork (fleet.ts): copied from the host. */
+  system?: 'wsl' | 'windows' | 'linux';
+  /** Fork (fleet.ts): the account this session runs as (display + respawn). */
+  accountId?: string;
+  /**
+   * Fork (fleet.ts `buildLaunch`): how claude starts on the remote: shell statements run
+   * first (exports naming secret FILES, never secret values), the binary, extra args.
+   * Built server-side from validated fields only. Absent = upstream behaviour.
+   */
+  launch?: { setup: string; binary: string; args: string };
   /**
    * COD-105 — whether THIS Codeman created the remote tmux session.
    *

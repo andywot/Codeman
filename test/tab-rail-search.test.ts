@@ -911,7 +911,8 @@ describe('markup and zh-CN', () => {
     expect(box.getAttribute('placeholder')).toBe('Search sessions');
     expect(box.getAttribute('oninput')).toBe('app.setTabRailSearch(this.value)');
     expect(box.getAttribute('onkeydown')).toBe('app.handleTabRailSearchKeydown(event)');
-    expect(rail.firstElementChild?.contains(box)).toBe(true);
+    // Fork: the explorer's Overview / New session / Machines entries sit above it.
+    expect(rail.querySelector('.tab-rail-search')?.contains(box)).toBe(true);
     const clear = rail.querySelector('#tabRailSearchClear')!;
     expect(clear.getAttribute('aria-label')).toBe('Clear search');
     expect(clear.hasAttribute('hidden')).toBe(true);

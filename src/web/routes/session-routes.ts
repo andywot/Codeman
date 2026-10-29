@@ -215,6 +215,7 @@ import {
 import { readDeepSeekLastResponse } from '../../deepseek-transcript.js';
 import { appendClaudeCustomTitle } from '../../claude-session-title.js';
 import { UPLOADS_DIR } from '../paste-image-gc.js';
+import { buildLaunch, pushAccountSecret, readFleet } from '../../fleet.js';
 
 // Path to linked-cases registry (same file used by case-routes resolveCasePath)
 const LINKED_CASES_FILE = dataPath('linked-cases.json');
@@ -3927,6 +3928,8 @@ export function registerSessionRoutes(
       customModel,
       tabGroupId,
       worktree,
+      fleetAccountId,
+      fleetModel,
     } = parseBody(QuickStartSchema, req.body);
 
     // Resolved ONCE here: the same value labels a case directory this request creates
@@ -4043,6 +4046,20 @@ export function registerSessionRoutes(
 
       casePath = remoteCase.remotePath;
       remote = toSessionRemote(host, remoteCase);
+      // Fork (fleet.ts): the account and model chosen in the New session dialog.
+      // Only claude's remote launch reads `launch`, so other modes ignore it.
+      if (fleetAccountId || fleetModel) {
+        const fleet = await readFleet(CODEMAN_CONFIG_DIR);
+        const account = fleetAccountId ? fleet.accounts.find((a) => a.id === fleetAccountId) : undefined;
+        if (fleetAccountId && !account) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Account not found');
+        try {
+          await pushAccountSecret(host, account);
+          remote.launch = buildLaunch(host, account, fleetModel);
+        } catch (err) {
+          return createErrorResponse(ApiErrorCode.OPERATION_FAILED, (err as Error).message);
+        }
+        if (account) remote.accountId = account.id;
+      }
     } else if (dockerCase) {
       // Docker case: the CLI executes INSIDE a container via local tmux + `docker
       // exec`, so the LOCAL availability gates below don't apply. Mirror the remote

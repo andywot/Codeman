@@ -96,7 +96,7 @@
   <!-- Loading skeleton — visible instantly before CSS/JS loads, hidden by app-loaded class -->
   <div class="loading-skeleton">
     <div class="skeleton-header">
-      <span class="skeleton-brand">Codeman</span>
+      <span class="skeleton-brand">Claude RC</span>
       <div class="skeleton-tabs"><div class="skeleton-tab"></div></div>
     </div>
     <div class="skeleton-body">
@@ -114,7 +114,7 @@
     <header class="header">
       <div class="header-brand">
         <span class="logo" onclick="app.goHome()" title="Go to main page"
-          ><span class="logo-text">Codeman</span><span class="logo-compact" aria-hidden="true">C</span></span
+          ><span class="logo-text">Claude RC</span><span class="logo-compact" aria-hidden="true" data-i18n-skip>RC</span></span
         >
         <!-- Collapse/expand the session sidebar. Lives in .header-brand, NOT in
              #headerRight: test/mobile-header-buttons-policy.test.ts only enumerates
@@ -222,6 +222,7 @@
         <button class="btn-icon-header btn-tile-grid btn-tile-grid--hidden" onclick="app.toggleTileGrid()" oncontextmenu="app.openTileCountMenu(event)" aria-describedby="tileGridHint" aria-label="Tiles: show several sessions side by side (right-click for how many)" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg></button>
         <button class="btn-icon-header btn-ultracode-agents btn-ultracode-agents--hidden" onclick="app.toggleUltracodeAgentsPanel()" title="Ultracode / Workflow agents" aria-label="Open ultracode workflow agents"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.2 7.2 15.6 11M8.2 16.8 15.6 13"/></svg></button>
         <div class="header-plan-usage header-plan-usage--hidden" id="planUsageChip" title="Claude, Codex and Copilot plan usage limits">—</div>
+        <button class="btn-icon-header btn-focus-mode" id="focusModeBtn" onclick="app.toggleFocusMode()" title="Focus: enlarge this session to full screen" aria-label="Focus on this session" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
         <button class="btn-icon-header btn-notifications" onclick="app.toggleNotifications()" title="Notifications" aria-label="Toggle notifications" style="display:none;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span class="notification-badge" id="notifBadge" style="display:none;">0</span>
@@ -429,6 +430,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
           <span>New session</span>
         </button>
+        <button type="button" class="tab-rail-overview" id="tabRailMachines" onclick="app.openFleetManager()" title="Machines and accounts">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          <span>Machines &amp; accounts</span>
+        </button>
         <div class="session-sidebar-filter tab-rail-search">
           <input type="search" id="tabRailSearch" class="session-sidebar-filter-input"
             placeholder="Search sessions" aria-label="Search sessions"
@@ -504,7 +509,7 @@
              ships `hidden` and only that module reveals it. -->
         <aside class="home-sessions" id="homeSessions" hidden></aside>
         <div class="welcome-content">
-          <h1 class="welcome-title">Codeman</h1>
+          <h1 class="welcome-title">Claude RC</h1>
           <p class="welcome-desc">Manage AI Coding tools in persistent tmux sessions.</p>
           <!-- Launchers (settings-ui.js renderWelcomeCliActions): one primary
                button for the first agent in the registry catalog, then a chip
@@ -4532,6 +4537,8 @@
   <script defer src="home-sessions.js"></script>
   <script defer src="overview-board.js"></script>
   <script defer src="new-session.js"></script>
+  <script defer src="fleet-manager.js"></script>
+  <script defer src="status-bar.js"></script>
   <script defer src="git-status-ui.js"></script>
   <script defer src="entrance-animations.js"></script>
   <script defer src="ralph-wizard.js"></script>

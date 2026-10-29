@@ -592,6 +592,7 @@ export function toSessionRemote(host: RemoteHost, remoteCase: RemoteCase): Sessi
     port: host.port,
     remotePath: remoteCase.remotePath,
     commands: host.commands,
+    ...(host.system ? { system: host.system } : {}),
     // Wake-on-LAN command/MAC travel with the session so the input route can wake a
     // sleeping host without a second config read (see remote-wake.ts).
     wakeCommand: host.wakeCommand,
@@ -634,6 +635,7 @@ export function toAttachedSessionRemote(
     port: host.port,
     remotePath,
     commands: host.commands,
+    ...(host.system ? { system: host.system } : {}),
     // An attached session can be woken exactly the same way — the identity of the
     // creator does not change whether the host is asleep.
     wakeCommand: host.wakeCommand,

@@ -25,6 +25,8 @@ services:
         PGID: ${PGID:-1000}
     image: codeman:local
     container_name: codeman
+    # The window title shows this ("Claude RC:arr"); Docker's default is a random id.
+    hostname: arr
     init: true
     restart: unless-stopped
     environment:

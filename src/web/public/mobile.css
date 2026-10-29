@@ -583,6 +583,7 @@ html.mobile-init .file-browser-panel {
      --hidden marker, so it needs no mobile-specific rule here.) */
   .btn-icon-header.btn-settings,
   .btn-icon-header.btn-lifecycle-log,
+  .btn-icon-header.btn-focus-mode,
   .btn-icon-header.btn-away-digest,
   .btn-icon-header.btn-session-manager,
   .btn-icon-header.btn-file-viewer,

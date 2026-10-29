@@ -1,6 +1,6 @@
 {
-  "name": "Codeman",
-  "short_name": "Codeman",
+  "name": "Claude RC",
+  "short_name": "Claude RC",
   "description": "Claude Code session manager",
   "start_url": "./",
   "scope": "./",

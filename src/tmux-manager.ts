@@ -1305,19 +1305,22 @@ export function buildRemoteLaunchCommand(options: {
     // `commands.claude` override stays authoritative (admin's explicit
     // choice) and skips this entirely.
     const permFlags = buildClaudePermissionFlags(claudeMode, allowedTools);
-    const cmd = `claude${permFlags}`;
+    // Fork (fleet.ts): the session's account/model profile, built server-side.
+    const launch = remote.launch;
+    const cmd = `${launch?.binary || 'claude'}${permFlags}${launch?.args || ''}`;
     // Defense in depth, mirroring claudeDockerPaneCommand's own belt-and-braces check:
     // sessionId is server-minted and always safe in practice, but this command is built
     // as a single shellescaped string and then executed as shell code on the remote
     // host, so an unsafe value here is validated rather than trusted.
     if (!RESUME_ID_SAFE.test(sessionId)) {
-      modeCommand = remoteLoginShellCommand(cmd);
+      modeCommand = remoteLoginShellCommand((launch?.setup || '') + cmd);
     } else {
       const rid = resumeSessionId && RESUME_ID_SAFE.test(resumeSessionId) ? resumeSessionId : undefined;
       modeCommand = remoteLoginShellCommand(
-        rid && rid !== sessionId
-          ? `${cmd} --resume ${rid} || ${cmd} --session-id ${sessionId}`
-          : `${cmd} --session-id ${sessionId} || ${cmd} --resume ${sessionId}`
+        (launch?.setup || '') +
+          (rid && rid !== sessionId
+            ? `${cmd} --resume ${rid} || ${cmd} --session-id ${sessionId}`
+            : `${cmd} --session-id ${sessionId} || ${cmd} --resume ${sessionId}`)
       );
     }
   } else if (mode === 'omp') {

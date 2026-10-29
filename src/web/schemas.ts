@@ -929,6 +929,13 @@ export const RemoteHostSchema = z.object({
       message: `Wake MAC accepts at most ${MAX_WAKE_MACS} comma-separated addresses`,
     })
     .optional(),
+  machine: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[^\x00-\x1f'"`$\\]+$/, 'Invalid machine name')
+    .optional(),
+  system: z.enum(['wsl', 'windows', 'linux']).optional(),
 });
 
 export const RemoteCaseLinkSchema = z.object({
@@ -1212,6 +1219,16 @@ export const QuickStartSchema = z.object({
    *  a real host dir, so the settings file crosses the bind mount); rejected for
    *  remote cases (the file would be written on the WRONG machine). */
   modelOverride: z.string().max(50).optional(),
+  /** Fork (fleet.ts): account to run a remote claude session as. */
+  fleetAccountId: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+    .optional(),
+  /** Fork (fleet.ts): claude model alias or id for a remote session (`--model`). */
+  fleetModel: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]{0,60}(\[1m\])?$/)
+    .optional(),
   mode: sessionModeSchema().optional(),
   openCodeConfig: OpenCodeConfigSchema,
   codexConfig: CodexConfigSchema,
