@@ -523,6 +523,7 @@ Object.assign(CodemanApp.prototype, {
     document.getElementById('appSettingsShowFileViewerButton').checked = settings.showFileViewerButton ?? defaults.showFileViewerButton ?? true;
     document.getElementById('appSettingsShowAttachmentsButton').checked = settings.showAttachmentsButton ?? defaults.showAttachmentsButton ?? false;
     document.getElementById('appSettingsSkin').value = settings.skin ?? defaults.skin ?? 'monokai-pro-light';
+    this._loadAppearanceControls(settings);
     // Entrance animations. Deliberately NOT part of the settings payload: the
     // styles persist to their own localStorage keys via setAnimTheme(), which
     // keeps them per-device without touching the .strict() SettingsUpdateSchema.
@@ -3067,6 +3068,7 @@ Object.assign(CodemanApp.prototype, {
         document.getElementById('appSettingsSessionSidebarFontSize').value
       ),
       skin: document.getElementById('appSettingsSkin').value,
+      ...this._readAppearanceControls(),
       // Claude CLI settings
       claudeMode: document.getElementById('appSettingsClaudeMode').value,
       allowedTools: document.getElementById('appSettingsAllowedTools').value.trim(),
@@ -3244,6 +3246,7 @@ Object.assign(CodemanApp.prototype, {
     // Apply header visibility immediately
     this.applyHeaderVisibilitySettings();
     this.applySkin();
+    this.applyAppearance();
     this.applyLocalization();
     // Re-parents #sessionTabs between header host and sidebar if the layout
     // changed, then calls applyTabWrapSettings() itself — do not call both.
@@ -3293,6 +3296,13 @@ Object.assign(CodemanApp.prototype, {
       cjkInputEnabled: _cjk,
       extendedKeyboardBar: _ekb,
       skin: _skin,
+      // Look (accent, fonts, UI size): per-device display settings (this screen's
+      // fonts and density), absent from SettingsUpdateSchema (.strict()) — sending
+      // any of them would 400 the whole settings PUT.
+      accentColor: _acc,
+      uiFont: _uif,
+      dataFont: _daf,
+      uiScale: _uis,
       language: _language,
       showPlanUsageLimits: _pul,
       showAttachmentsButton: _ahb,
@@ -4341,6 +4351,106 @@ Object.assign(CodemanApp.prototype, {
     if (typeof this.applyTerminalSkin === 'function') this.applyTerminalSkin(skin);
   },
 
+  // Apply the per-device look (accent, UI font, data font, UI size): custom
+  // properties on <html>, planned by CodemanAppearance (constants.js). Also
+  // mirrors the four values into localStorage['codeman:appearance'], the key the
+  // inline pre-paint script in index.html reads, so the next load paints right
+  // the first time (the way applySkin() keeps 'codeman:skin').
+  applyAppearance() {
+    const A = window.CodemanAppearance;
+    if (!A) return;
+    const settings = this.loadAppSettingsFromStorage();
+    const plan = A.plan({
+      accent: settings.accentColor,
+      uiFont: settings.uiFont,
+      dataFont: settings.dataFont,
+      uiScale: settings.uiScale,
+    });
+    A.apply(plan, document.documentElement);
+    const stored = { accent: plan.accent, uiFont: plan.uiFont, dataFont: plan.dataFont, uiScale: plan.scale };
+    const key = JSON.stringify(stored);
+    try {
+      if (plan.accent || plan.uiFont !== 'default' || plan.dataFont !== 'default' || plan.scale !== 100) {
+        localStorage.setItem(A.STORAGE_KEY, key);
+      } else {
+        localStorage.removeItem(A.STORAGE_KEY);
+      }
+    } catch (_e) {
+      /* private mode */
+    }
+    // Faces and sizes move every bar: let the terminal refit and the tab strip re-measure.
+    if (this._appliedAppearanceKey !== undefined && this._appliedAppearanceKey !== key) {
+      requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    }
+    this._appliedAppearanceKey = key;
+  },
+
+  // The four Look controls as settings values. The accent lives in a hidden
+  // input (#appSettingsAccent) that the swatches and the colour well write.
+  _readAppearanceControls() {
+    const A = window.CodemanAppearance;
+    if (!A) return {};
+    return {
+      accentColor: A.normalizeAccent(document.getElementById('appSettingsAccent').value),
+      uiFont: document.getElementById('appSettingsUiFont').value,
+      dataFont: document.getElementById('appSettingsDataFont').value,
+      uiScale: A.normalizeScale(document.getElementById('appSettingsUiScale').value),
+    };
+  },
+
+  _loadAppearanceControls(settings) {
+    const A = window.CodemanAppearance;
+    if (!A) return;
+    this._wireAppearanceControls();
+    document.getElementById('appSettingsUiFont').value = settings.uiFont ?? 'default';
+    document.getElementById('appSettingsDataFont').value = settings.dataFont ?? 'default';
+    document.getElementById('appSettingsUiScale').value = String(A.normalizeScale(settings.uiScale));
+    this._setAccentControl(settings.accentColor);
+  },
+
+  _wireAppearanceControls() {
+    if (this._appearanceControlsWired) return;
+    this._appearanceControlsWired = true;
+    document.getElementById('appSettingsAccentPicker').addEventListener('click', (e) => {
+      const swatch = e.target.closest?.('.set-accent-swatch');
+      if (swatch) this._setAccentControl(swatch.dataset.accent);
+    });
+    document.getElementById('appSettingsAccentCustom').addEventListener('input', (e) => {
+      this._setAccentControl(e.target.value);
+    });
+  },
+
+  // Set the accent control to a colour ('' or the Monokai pink = the skin's own),
+  // and repaint the swatches and the preview chip. Invalid input falls back to the default.
+  _setAccentControl(value) {
+    const A = window.CodemanAppearance;
+    const accent = A.normalizeAccent(value);
+    document.getElementById('appSettingsAccent').value = accent;
+    let preset = false;
+    for (const swatch of document.querySelectorAll('#appSettingsAccentPicker .set-accent-swatch')) {
+      const on = A.normalizeAccent(swatch.dataset.accent) === accent;
+      swatch.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (on) preset = true;
+    }
+    const well = document.getElementById('appSettingsAccentCustom');
+    well.parentElement.classList.toggle('is-active', !preset);
+    if (accent) well.value = accent;
+    const shown = accent || A.DEFAULT_ACCENT;
+    const fill = A.fillFor(shown);
+    const ink = A.inkFor(shown);
+    const chip = document.getElementById('appSettingsAccentChip');
+    chip.style.setProperty('--chip-bg', fill);
+    chip.style.setProperty('--chip-ink', ink);
+    const note = document.getElementById('appSettingsAccentNote');
+    const ratio = A.contrast(fill, ink).toFixed(1);
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-dark').trim();
+    const faint = !!A.parseHex(bg) && A.contrast(shown, bg) < 3;
+    note.textContent = faint
+      ? 'Low contrast with the background'
+      : `Label text: ${ink === A.INK_LIGHT ? 'light' : 'dark'} ink, ${ratio}:1`;
+    note.classList.toggle('is-warn', faint);
+  },
+
   // Apply the per-device language and the synced user-facing product name.
   // The i18n layer updates both existing static nodes and future dynamic DOM.
   applyLocalization() {
@@ -5000,7 +5110,7 @@ Object.assign(CodemanApp.prototype, {
       'showLifecycleLog', 'showResponseViewer', 'showRedrawButton',
       'showMonitor', 'showProjectInsights', 'showFileBrowser', 'showSubagents',
       'subagentActiveTabOnly', 'tabTwoRows', 'showTabCliLogos', 'tabOrientation', 'tabRailWidth', 'tabRailDetail', 'tabRailSort', 'tabArrangement', 'tabStateOrder', 'sessionListLayout', 'sessionSidebarFontSize', 'localEchoEnabled', 'keyboardHoldsRows', 'cjkInputEnabled', 'extendedKeyboardBar',
-      'skin', 'showPlanUsageLimits', 'showAttachmentsButton', 'showFileViewerButton', 'webglRendererEnabled',
+      'skin', 'accentColor', 'uiFont', 'dataFont', 'uiScale', 'showPlanUsageLimits', 'showAttachmentsButton', 'showFileViewerButton', 'webglRendererEnabled',
       'terminalFontFamily', 'terminalFontWeight', 'terminalFontWeightBold',
       'language',
       'terminalWheelLocalScrollback',

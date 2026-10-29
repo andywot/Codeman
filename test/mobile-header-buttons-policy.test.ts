@@ -185,6 +185,9 @@ describe('Phone home button tap target (static guard)', () => {
         rule.walkDecls('--header-height', (decl) => (phoneHeaderHeight = decl.value.trim()));
       });
     });
-    expect(phoneHeaderHeight, '--header-height must be redefined for phones in mobile.css').toBe('44px');
+    // 44px times the UI size (App Settings → Appearance → Look): 44px at the default 100%.
+    expect(phoneHeaderHeight, '--header-height must be redefined for phones in mobile.css').toBe(
+      'calc(44px * var(--ui-scale, 1))'
+    );
   });
 });

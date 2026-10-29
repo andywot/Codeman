@@ -1223,6 +1223,7 @@ class CodemanApp {
     this.applyHeaderVisibilitySettings();
     this.restorePlanUsageChip();
     this.applySkin();
+    this.applyAppearance();
     this.applyLocalization();
     // Calls applyTabWrapSettings() itself (it owns tabs-two-rows / tabs-show-folder)
     // and then applies the sidebar variant on top — do not call both.
@@ -1298,6 +1299,7 @@ class CodemanApp {
     this.loadAppSettingsFromServer(settingsPromise).then(() => {
       this.applyHeaderVisibilitySettings();
       this.applySkin();
+      this.applyAppearance();
       this.applyLocalization();
       this.applySessionListLayout();
       // A fresh device seeding tabOrientation from the server would otherwise

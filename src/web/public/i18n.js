@@ -458,6 +458,35 @@
     'Closes settings and opens every style per surface side by side, with replay and speed. Same as adding ?animlab=1 to the URL.':
       '关闭设置，并按界面并排打开所有样式，可重放和调速。等同于在网址后添加 ?animlab=1。',
     'Open lab': '打开实验室',
+    // Appearance → Look (accent colour, fonts, interface size)
+    Look: '外观定制',
+    'Accent Colour': '强调色',
+    'Accent colour': '强调色',
+    'Buttons, selection and focus. The text on it switches to dark or light so it stays readable.':
+      '用于按钮、选中和焦点。其上的文字会自动切换为深色或浅色，保证可读。',
+    'Pink (default)': '粉色（默认）',
+    Orange: '橙色',
+    Yellow: '黄色',
+    Green: '绿色',
+    Blue: '蓝色',
+    Purple: '紫色',
+    'Custom colour': '自定义颜色',
+    'Custom accent colour': '自定义强调色',
+    'Low contrast with the background': '与背景对比度偏低',
+    'Interface Font': '界面字体',
+    'Menus, tabs and dialogs. The terminal keeps its own font.': '菜单、标签页和对话框。终端使用自己的字体设置。',
+    'Manrope (default)': 'Manrope（默认）',
+    'System UI': '系统界面字体',
+    Serif: '衬线体',
+    Monospace: '等宽体',
+    'Data Font': '数据字体',
+    'Paths, ids, counts and code in the interface.': '界面中的路径、ID、计数和代码。',
+    'JetBrains Mono (default)': 'JetBrains Mono（默认）',
+    'System monospace': '系统等宽字体',
+    'Interface Size': '界面大小',
+    'Scales the interface text and bars. The terminal font size is set separately.':
+      '缩放界面文字和栏位。终端字号单独设置。',
+    '100% (default)': '100%（默认）',
     Skin: '皮肤',
     'Visual theme for this device (not synced)': '此设备的视觉主题（不同步）',
     'Daylight Blue': '日光蓝',
@@ -1373,6 +1402,10 @@
   function translateDynamic(source) {
     const patterns = [
       [/^(\d+) tokens?$/, (_m, count) => `${count} 个 Token`],
+      [
+        /^Label text: (light|dark) ink, ([\d.]+):1$/,
+        (_m, ink, ratio) => `标签文字：${ink === 'light' ? '浅色' : '深色'}文字，${ratio}:1`,
+      ],
       [/^(\d+) sessions?$/, (_m, count) => `${count} 个会话`],
       [/^(\d+) tasks?$/, (_m, count) => `${count} 个任务`],
       [/^(\d+) running$/, (_m, count) => `${count} 个运行中`],
