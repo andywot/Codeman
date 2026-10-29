@@ -26,14 +26,12 @@
  * office-conversion/thumbnail paths that would need the bytes on the server's disk.
  */
 
-import { exec, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { PassThrough, type Readable } from 'node:stream';
 import type { SessionRemote } from './types/session.js';
 import { buildSshConnectionArgs, remoteSshTarget, shellescape } from './remote-hosts.js';
 import { runWithRemoteSshLimit } from './remote-ssh-limiter.js';
-
-const execAsync = promisify(exec);
+import { remoteExec } from './remote-shell-pool.js';
 
 /**
  * Bound on the probe (realpath + stat) round trip. The connect itself is already
@@ -258,13 +256,12 @@ export async function remoteProbePaths(
   const results: Array<RemoteProbe | null> = [];
   for (let offset = 0; offset < paths.length; offset += REMOTE_PROBE_CHUNK_SIZE) {
     const chunk = paths.slice(offset, offset + REMOTE_PROBE_CHUNK_SIZE);
-    const command = buildRemoteFileCommand(remote, buildRemoteProbeCommand(chunk));
     let stdout: string;
     try {
       const result = await runWithRemoteSshLimit(() =>
-        execAsync(command, { timeout: REMOTE_PROBE_TIMEOUT_MS, maxBuffer: 256 * 1024 })
+        remoteExec(remote, buildRemoteProbeCommand(chunk), { timeout: REMOTE_PROBE_TIMEOUT_MS, maxBuffer: 256 * 1024 })
       );
-      stdout = result.stdout;
+      stdout = result.stdout.toString('utf8');
     } catch (err) {
       throw new RemoteFileAccessError(
         `remote host ${remote.label || remote.host} unreachable: ${describeExecError(err)}`
@@ -380,13 +377,15 @@ export async function remoteListFolder(
   maxEntries: number
 ): Promise<RemoteFolderListing | 'not-a-folder' | null> {
   assertNotUnderTest();
-  const command = buildRemoteFileCommand(remote, buildRemoteFolderListCommand(dir, extensions, maxEntries));
   let stdout: string;
   try {
     const result = await runWithRemoteSshLimit(() =>
-      execAsync(command, { timeout: REMOTE_PROBE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 })
+      remoteExec(remote, buildRemoteFolderListCommand(dir, extensions, maxEntries), {
+        timeout: REMOTE_PROBE_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024,
+      })
     );
-    stdout = result.stdout;
+    stdout = result.stdout.toString('utf8');
   } catch (err) {
     throw new RemoteFileAccessError(
       `remote host ${remote.label || remote.host} unreachable: ${describeExecError(err)}`
@@ -398,16 +397,14 @@ export async function remoteListFolder(
 /** Read a whole remote file into memory, capped by `maxBytes`. */
 export async function remoteReadFile(remote: SessionRemote, remotePath: string, maxBytes: number): Promise<Buffer> {
   assertNotUnderTest();
-  const command = buildRemoteFileCommand(remote, `cat ${shellescape(remotePath)}`);
   try {
     const result = await runWithRemoteSshLimit(() =>
-      execAsync(command, {
+      remoteExec(remote, `cat ${shellescape(remotePath)}`, {
         timeout: REMOTE_READ_TIMEOUT_MS,
         maxBuffer: maxBytes + READ_BUFFER_SLACK_BYTES,
-        encoding: 'buffer',
       })
     );
-    return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+    return result.stdout;
   } catch (err) {
     throw new RemoteFileAccessError(`failed to read remote file: ${describeExecError(err)}`);
   }

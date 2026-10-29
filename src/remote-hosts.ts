@@ -15,6 +15,8 @@ import type {
 } from './types.js';
 
 const execAsync = promisify(exec);
+// Lazy: remote-shell-pool imports this module for the ssh argument builder.
+const shellPool = () => import('./remote-shell-pool.js');
 
 const REMOTE_HOSTS_FILE = 'remote-hosts.json';
 const REMOTE_CASES_FILE = 'remote-cases.json';
@@ -384,8 +386,14 @@ export function buildRemoteSessionAliveCommand(
   remoteSessionName: string
 ): string {
   const [ssh, ...connectionArgs] = buildSshConnectionArgs(host);
-  const remoteCmd = `tmux -L codeman-remote has-session -t ${shellescape(remoteSessionName)} 2>/dev/null`;
-  return [ssh, ...connectionArgs, remoteSshTarget(host), shellescape(withRemoteTmuxPath(remoteCmd))].join(' ');
+  return [ssh, ...connectionArgs, remoteSshTarget(host), shellescape(remoteSessionAliveScript(remoteSessionName))].join(
+    ' '
+  );
+}
+
+/** The remote side of {@link buildRemoteSessionAliveCommand}. */
+export function remoteSessionAliveScript(remoteSessionName: string): string {
+  return withRemoteTmuxPath(`tmux -L codeman-remote has-session -t ${shellescape(remoteSessionName)} 2>/dev/null`);
 }
 
 /**
@@ -411,9 +419,10 @@ export async function remoteTmuxSessionAlive(
   remoteSessionName: string
 ): Promise<boolean | undefined> {
   if (process.env.VITEST) return true;
-  const command = buildRemoteSessionAliveCommand(remote, remoteSessionName);
+  // Runs on the host's pooled shell: this check repeats for every remote session.
   try {
-    await execAsync(command, { timeout: 15_000 });
+    const { remoteExec } = await shellPool();
+    await remoteExec(remote, remoteSessionAliveScript(remoteSessionName), { timeout: 15_000 });
     return classifyRemoteAliveExit(0, false);
   } catch (err) {
     const e = err as { code?: unknown; killed?: boolean };
@@ -468,10 +477,15 @@ export function buildRemoteListSessionsCommand(
   // The tmux list-sessions invocation is passed as ONE shell-quoted argument so
   // the remote login shell runs it verbatim. The `-F` format uses literal `\t`
   // separators (tmux expands them); `2>/dev/null` is inside the quoted command.
-  const remoteCmd =
-    'tmux -L codeman list-sessions -F "#{session_name}\\t#{session_attached}\\t#{session_created}\\t#{session_windows}" 2>/dev/null';
-  parts.push(remoteSshTarget(host), shellescape(withRemoteTmuxPath(remoteCmd)));
+  parts.push(remoteSshTarget(host), shellescape(remoteListSessionsScript()));
   return parts.join(' ');
+}
+
+/** The remote side of {@link buildRemoteListSessionsCommand}. */
+export function remoteListSessionsScript(): string {
+  return withRemoteTmuxPath(
+    'tmux -L codeman list-sessions -F "#{session_name}\\t#{session_attached}\\t#{session_created}\\t#{session_windows}" 2>/dev/null'
+  );
 }
 
 /**
@@ -539,10 +553,10 @@ export async function listRemoteCodemanSessions(
   if (process.env.VITEST) {
     return [];
   }
-  const command = buildRemoteListSessionsCommand(remote);
   try {
-    const { stdout } = await execAsync(command, { timeout: 15_000 });
-    return parseRemoteSessionList(stdout);
+    const { remoteExec } = await shellPool();
+    const { stdout } = await remoteExec(remote, remoteListSessionsScript(), { timeout: 15_000 });
+    return parseRemoteSessionList(stdout.toString('utf8'));
   } catch {
     // Unreachable host, no tmux server, or no sessions (non-zero exit). All map
     // to "nothing to attach to" — never surface as an error to the caller.

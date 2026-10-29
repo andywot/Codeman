@@ -44,9 +44,7 @@
  * the remote user's tmux.conf raises it); the launch command does not set it.
  */
 
-import { exec } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { SessionRemote } from './types/session.js';
 import {
   buildSshConnectionArgs,
@@ -56,9 +54,8 @@ import {
   withRemoteTmuxPath,
 } from './remote-hosts.js';
 import { RemoteSshSlotTimeoutError, runWithRemoteSshLimit } from './remote-ssh-limiter.js';
+import { remoteExec } from './remote-shell-pool.js';
 import { remoteTmuxLocation } from './tmux-manager.js';
-
-const execAsync = promisify(exec);
 
 /**
  * Bound on the whole round trip. A full load waits on it, so it is far below the
@@ -164,6 +161,18 @@ export function buildRemoteScrollbackCommand(
   return ['exec', ...buildSshConnectionArgs(remote), remoteSshTarget(remote), shellescape(script)].join(' ');
 }
 
+/** The remote side of {@link buildRemoteScrollbackCommand}. */
+function remoteScrollbackScript(
+  remote: SessionRemote,
+  sessionId: string,
+  historyLines: number,
+  tailBytes: number,
+  marker: string
+): string {
+  const { socket, sessionName } = remoteTmuxLocation(remote, sessionId);
+  return withRemoteTmuxPath(buildRemoteScrollbackScript(socket, sessionName, historyLines, tailBytes, marker));
+}
+
 /** What one round trip read from the remote pane: its scrollback rows, then its screen. */
 export interface RemoteScrollback {
   /** History rows above the screen, oldest first; '' when the pane has none. */
@@ -220,9 +229,6 @@ export function parseRemoteScrollbackOutput(
 /** Runs the ssh command line and resolves its stdout; rejects like `exec` does. */
 export type RemoteScrollbackRunner = (command: string, opts: { timeout: number; maxBuffer: number }) => Promise<string>;
 
-const execRunner: RemoteScrollbackRunner = async (command, opts) =>
-  (await execAsync(command, { encoding: 'utf-8', ...opts })).stdout;
-
 /**
  * Read a remote session's scrollback from the remote tmux, or null to keep the
  * local capture. Never throws.
@@ -246,7 +252,6 @@ export async function fetchRemoteScrollback(
   run?: RemoteScrollbackRunner
 ): Promise<RemoteScrollback | null> {
   if (!run && process.env.VITEST) return null;
-  const runner = run ?? execRunner;
   const until = backoffUntil.get(remote.hostId);
   if (until !== undefined) {
     if (Date.now() < until) return null;
@@ -254,14 +259,19 @@ export async function fetchRemoteScrollback(
   }
   const marker = newScrollbackMarker();
   const tailBytes = remoteTailBytes(maxBytes);
-  const command = buildRemoteScrollbackCommand(remote, sessionId, historyLines, tailBytes, marker);
+  const opts = {
+    timeout: REMOTE_HISTORY_TIMEOUT_MS,
+    maxBuffer: (tailBytes > 0 ? tailBytes : UNBOUNDED_READ_MAX_BYTES) + REMOTE_HISTORY_SLACK_BYTES,
+  };
   try {
     const stdout = await runWithRemoteSshLimit(
       () =>
-        runner(command, {
-          timeout: REMOTE_HISTORY_TIMEOUT_MS,
-          maxBuffer: (tailBytes > 0 ? tailBytes : UNBOUNDED_READ_MAX_BYTES) + REMOTE_HISTORY_SLACK_BYTES,
-        }),
+        run
+          ? run(buildRemoteScrollbackCommand(remote, sessionId, historyLines, tailBytes, marker), opts)
+          : // The host's pooled shell (remote-shell-pool.ts): no fresh login per history load.
+            remoteExec(remote, remoteScrollbackScript(remote, sessionId, historyLines, tailBytes, marker), opts).then(
+              (r) => r.stdout.toString('utf-8')
+            ),
       // The pool is shared with 20 s file probes; past this the local capture
       // is the better answer than waiting behind them.
       { maxWaitMs: REMOTE_HISTORY_SLOT_WAIT_MS }

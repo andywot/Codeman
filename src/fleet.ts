@@ -37,11 +37,12 @@
  * named by `usageHostId`, matched to accounts by email or cswap slot.
  */
 
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { RemoteHost, SessionRemote } from './types/index.js';
-import { buildSshConnectionArgs, remoteSshTarget, shellescape } from './remote-hosts.js';
+import { shellescape } from './remote-hosts.js';
+import { remoteExecStatus, type RemoteExecError } from './remote-shell-pool.js';
 
 export type FleetSystem = 'wsl' | 'windows' | 'linux';
 export type FleetAccountKind = 'machine' | 'cswap' | 'token' | 'api' | 'shell';
@@ -217,29 +218,16 @@ export function runOnHost(
   timeoutMs = SSH_TIMEOUT_MS
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   if (process.env.VITEST) return Promise.resolve({ code: 0, stdout: '', stderr: '' });
-  // buildSshConnectionArgs returns shell tokens (some pre-quoted), so run through sh.
-  const line = [...buildSshConnectionArgs(host), shellescape(remoteSshTarget(host)), shellescape(command)].join(' ');
-  return new Promise((resolve) => {
-    const child = spawn('/bin/sh', ['-c', line], { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
-    child.stdout.on('data', (d: Buffer) => {
-      if (stdout.length < 4_000_000) stdout += d.toString('utf8');
-    });
-    child.stderr.on('data', (d: Buffer) => {
-      if (stderr.length < 64_000) stderr += d.toString('utf8');
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr });
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ code: -1, stdout, stderr: String(err) });
-    });
-    child.stdin.end(input ?? '');
-  });
+  // A pooled shell: the host's login is paid once, not per command. stdin (tokens) goes
+  // through it base64-encoded and never touches the remote disk (remote-shell-pool.ts).
+  return remoteExecStatus(host, command, { input, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }).then(
+    (r) => ({ code: r.code, stdout: r.stdout.toString('utf8'), stderr: r.stderr }),
+    (err: RemoteExecError) => ({
+      code: typeof err.code === 'number' ? err.code : err.killed ? null : -1,
+      stdout: '',
+      stderr: err.stderr || err.message,
+    })
+  );
 }
 
 /**

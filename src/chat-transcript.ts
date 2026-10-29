@@ -5,7 +5,7 @@
  * Claude Code appends every turn to `~/.claude/projects/<encoded cwd>/<id>.jsonl` on
  * the machine it runs on; Codeman launches it with `--session-id <claudeSessionId>`,
  * so the file name is known. Local sessions read the file directly (or the path the
- * hooks reported); remote sessions read byte ranges over the shared ssh connection,
+ * hooks reported); remote sessions read byte ranges over the host's pooled ssh shell (remote-shell-pool.ts),
  * looking in the WSL home first and then the Windows profiles under /mnt/c (the
  * Windows `claude` keeps its log there).
  *
@@ -20,9 +20,9 @@ import { open, stat } from 'node:fs/promises';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { SessionRemote } from './types/session.js';
-import { buildRemoteFileCommand } from './remote-files.js';
 import { shellescape } from './remote-hosts.js';
 import { runWithRemoteSshLimit } from './remote-ssh-limiter.js';
+import { remoteExec } from './remote-shell-pool.js';
 
 const execAsync = promisify(exec);
 
@@ -276,11 +276,8 @@ export function buildLocateScript(muxName: string | null, claudeSessionId: strin
 }
 
 async function sshRun(remote: SessionRemote, script: string, maxBuffer: number): Promise<Buffer> {
-  const command = buildRemoteFileCommand(remote, script);
-  const result = await runWithRemoteSshLimit(() =>
-    execAsync(command, { timeout: 20_000, maxBuffer, encoding: 'buffer' })
-  );
-  return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+  const result = await runWithRemoteSshLimit(() => remoteExec(remote, script, { timeout: 20_000, maxBuffer }));
+  return result.stdout;
 }
 
 async function locateAny(source: ChatSource): Promise<string | null> {

@@ -33,6 +33,12 @@
 const CHAT_POLL_MS = 1500;
 const CHAT_PHONE_QUERY = '(max-width: 767px)';
 const CHAT_MODE_KEY = 'codeman:chatMode';
+/**
+ * Paused (owner decision 2026-10-29): the terminal is the view on phone and desktop,
+ * and the way into chat is hidden. The log is still read for the status bar's context
+ * reading. Set to false to bring the chat view back.
+ */
+const CHAT_PAUSED = true;
 const CHAT_FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const CHAT_STATE_LABEL = {
   needs: 'Needs you',
@@ -372,6 +378,7 @@ Object.assign(CodemanApp.prototype, {
   },
 
   _chatMode() {
+    if (CHAT_PAUSED) return 'terminal';
     let stored = null;
     try {
       stored = localStorage.getItem(CHAT_MODE_KEY);
@@ -570,7 +577,7 @@ Object.assign(CodemanApp.prototype, {
   /** Phone, terminal mode: a small floating button back to the chat view. */
   _chatTerminalPill(show) {
     let pill = document.getElementById('chatReturn');
-    if (!show) {
+    if (!show || CHAT_PAUSED) {
       if (pill) pill.hidden = true;
       return;
     }

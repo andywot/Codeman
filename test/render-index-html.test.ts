@@ -285,6 +285,7 @@ describe('WebServer.renderIndexHtml', () => {
       external: boolean;
       enabled: boolean;
       available: boolean;
+      transcript?: string;
     }>;
     expect(catalog.map((entry) => entry.id)).toEqual(STOCK_CLIS.map((entry) => entry.id));
     expect(catalog.find((entry) => entry.id === 'codex')).toMatchObject({
@@ -298,7 +299,8 @@ describe('WebServer.renderIndexHtml', () => {
     expect(
       catalog.every((entry) =>
         Object.keys(entry).every((key) =>
-          ['id', 'label', 'shortBadge', 'order', 'kind', 'external', 'enabled', 'available'].includes(key)
+          // `transcript` (fork): the log format, which decides whether the chat view can read it.
+          ['id', 'label', 'shortBadge', 'order', 'kind', 'external', 'enabled', 'available', 'transcript'].includes(key)
         )
       )
     ).toBe(true);
