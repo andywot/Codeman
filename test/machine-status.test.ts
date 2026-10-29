@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTH_RETRY_MS,
   STATUS_MIN_INTERVAL_MS,
+  STATUS_FORCE_MIN_INTERVAL_MS,
+  ASLEEP_REPROBE_MS,
   MachineStatusMonitor,
   buildProbeScript,
   classifySsh,
@@ -158,6 +160,28 @@ describe('MachineStatusMonitor', () => {
     const [m] = await new MachineStatusMonitor(deps).read();
     expect(m).toMatchObject({ name: 'Desktop', state: 'asleep', wakeHostId: 'desk-wsl', load: null });
     expect(calls.exec).toHaveLength(0);
+  });
+
+  it('leaves a sleeping wakeable machine alone between probes unless asked', async () => {
+    let tcp = 0;
+    const { deps, advance } = fakeDeps({
+      hosts: [host('desk-wsl', { machine: 'Desktop', system: 'wsl', wakeMac: '04:d9:f5:80:c6:58' })],
+      probeTcp: async (): Promise<TcpOutcome> => {
+        tcp += 1;
+        return 'timeout';
+      },
+    });
+    const monitor = new MachineStatusMonitor(deps);
+    await monitor.read();
+    advance(STATUS_MIN_INTERVAL_MS);
+    expect((await monitor.read())[0].state).toBe('asleep');
+    expect(tcp).toBe(1);
+    advance(STATUS_FORCE_MIN_INTERVAL_MS);
+    await monitor.read({ force: true });
+    expect(tcp).toBe(2);
+    advance(ASLEEP_REPROBE_MS);
+    await monitor.read();
+    expect(tcp).toBe(3);
   });
 
   it('skips the TCP probe when a shell is already logged in', async () => {

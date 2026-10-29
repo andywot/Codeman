@@ -36,6 +36,12 @@ export const TCP_PROBE_TIMEOUT_MS = 1_500;
 export const SSH_CHECK_TIMEOUT_MS = 10_000;
 export const AUTH_RETRY_MS = 5 * 60_000;
 export const TOOLS_CHECK_MS = 10 * 60_000;
+/**
+ * A machine with Wake-on-LAN that last gave no answer is probed again only this often
+ * (unless the user asks): a NIC set to wake on directed packets would otherwise be
+ * woken, or kept awake, by the poll itself.
+ */
+export const ASLEEP_REPROBE_MS = 10 * 60_000;
 
 export type TcpOutcome = 'open' | 'refused' | 'timeout' | 'unreachable' | 'dns' | 'error';
 export type MachineState = 'online' | 'asleep' | 'offline';
@@ -400,6 +406,9 @@ export class MachineStatusMonitor {
   private readonly memo = new Map<string, HostMemo>();
   private readonly cpuPrev = new Map<string, CpuSample>();
   private readonly loadMemo = new Map<string, MachineLoad>();
+  /** Last unanswered probe per address of a wakeable machine. */
+  private readonly quiet = new Map<string, { at: number; outcome: TcpOutcome }>();
+  private forced = false;
 
   constructor(private readonly deps: MachineStatusDeps) {}
 
@@ -408,6 +417,7 @@ export class MachineStatusMonitor {
     const minAge = opts.force ? STATUS_FORCE_MIN_INTERVAL_MS : STATUS_MIN_INTERVAL_MS;
     if (this.cache && age < minAge) return this.cache.machines;
     if (this.inFlight) return this.inFlight;
+    this.forced = !!opts.force;
     this.inFlight = this.poll()
       .then((machines) => {
         this.cache = { at: this.deps.now(), machines };
@@ -435,6 +445,16 @@ export class MachineStatusMonitor {
     return Promise.all([...groups.entries()].map(([name, list]) => this.pollMachine(name, list)));
   }
 
+  /** A TCP probe, held back for a wakeable machine that recently gave no answer. */
+  private async probeQuietly(addr: string, h: RemoteHost, wakeable: boolean): Promise<TcpOutcome> {
+    const last = this.quiet.get(addr);
+    if (wakeable && last && !this.forced && this.deps.now() - last.at < ASLEEP_REPROBE_MS) return last.outcome;
+    const outcome = await this.deps.probeTcp(h.host, h.port ?? DEFAULT_SSH_PORT);
+    if (wakeable && outcome !== 'open') this.quiet.set(addr, { at: this.deps.now(), outcome });
+    else this.quiet.delete(addr);
+    return outcome;
+  }
+
   private async pollMachine(name: string, hosts: RemoteHost[]): Promise<MachineStatus> {
     const first = hosts[0];
     const port = first.port ?? DEFAULT_SSH_PORT;
@@ -453,7 +473,7 @@ export class MachineStatusMonitor {
             ? Promise.resolve('connected')
             : !isProbeable({ ...h, hostId: h.id })
               ? Promise.resolve('proxied')
-              : this.deps.probeTcp(h.host, h.port ?? DEFAULT_SSH_PORT)
+              : this.probeQuietly(addr, h, wakeHost !== null)
         );
       }
       return tcpByAddr.get(addr)!;
