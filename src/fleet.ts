@@ -13,8 +13,6 @@
  * Accounts live in `fleet.json` in the config dir (mode 0600, it holds secrets):
  *
  * - `machine`: the machine's own `claude` login. Nothing is injected.
- * - `cswap`:   a claude-swap slot on that machine (`cswap run <slot> -- claude`).
- *              Linux/WSL only, since cswap switches a Linux config dir.
  * - `token`:   a long-lived `claude setup-token` held by this server and copied to the
  *              machine at launch (~/.config/claude-rc/<id>.secret, 0600), then exported
  *              as CLAUDE_CODE_OAUTH_TOKEN. This is how one login is shared across every
@@ -33,8 +31,10 @@
  * fields (ids match `[a-z0-9-]`, models a fixed shape, URLs `https?://` without quotes)
  * and shell-quoted; the browser never supplies command text.
  *
- * Usage (5-hour and 7-day windows) is read from `cswap list --json` on the machine
- * named by `usageHostId`, matched to accounts by email or cswap slot.
+ * Usage (5-hour and 7-day windows) of a `token` account is read by the server itself:
+ * a one-token request with that account's token returns the windows in its
+ * `anthropic-ratelimit-unified-*` response headers. (The OAuth usage endpoint needs the
+ * `user:profile` scope, which a `claude setup-token` token does not have; measured.)
  */
 
 import { execFile } from 'node:child_process';
@@ -45,16 +45,14 @@ import { shellescape } from './remote-hosts.js';
 import { remoteExecStatus, type RemoteExecError } from './remote-shell-pool.js';
 
 export type FleetSystem = 'wsl' | 'windows' | 'linux';
-export type FleetAccountKind = 'machine' | 'cswap' | 'token' | 'api' | 'shell';
+export type FleetAccountKind = 'machine' | 'token' | 'api' | 'shell';
 
 export interface FleetAccount {
   id: string;
   label: string;
   kind: FleetAccountKind;
-  /** Claude account email; links the account to its cswap usage reading. */
+  /** Claude account email (shown to tell accounts apart). */
   email?: string;
-  /** cswap slot number (kind `cswap`), also used to match usage. */
-  slot?: number;
   /** `api` only: Anthropic-compatible base URL. */
   baseUrl?: string;
   /** `api` only: model every Claude tier maps to (e.g. `glm-5.3`). */
@@ -69,8 +67,6 @@ export interface FleetAccount {
 
 export interface FleetConfig {
   accounts: FleetAccount[];
-  /** Remote host whose `cswap list --json` provides usage readings. */
-  usageHostId?: string;
 }
 
 export interface FleetUsage {
@@ -97,7 +93,7 @@ export function fleetPath(configDir: string): string {
 export async function readFleet(configDir: string): Promise<FleetConfig> {
   try {
     const raw = JSON.parse(await fs.readFile(fleetPath(configDir), 'utf8')) as Partial<FleetConfig>;
-    return { accounts: Array.isArray(raw.accounts) ? raw.accounts : [], usageHostId: raw.usageHostId };
+    return { accounts: Array.isArray(raw.accounts) ? raw.accounts : [] };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { accounts: [] };
     throw err;
@@ -117,7 +113,7 @@ export function publicAccount(account: FleetAccount): Omit<FleetAccount, 'secret
   return { ...rest, hasSecret: Boolean(secret) };
 }
 
-const ACCOUNT_KINDS = new Set<string>(['machine', 'cswap', 'token', 'api', 'shell']);
+const ACCOUNT_KINDS = new Set<string>(['machine', 'token', 'api', 'shell']);
 
 /** Validates an account from the browser; returns an error message or null. */
 export function validateAccount(account: FleetAccount): string | null {
@@ -128,9 +124,6 @@ export function validateAccount(account: FleetAccount): string | null {
     return 'Give the command as plain words, e.g. use-glm';
   }
   if (account.email && !/^[^\s@'"]+@[^\s@'"]+$/.test(account.email)) return 'Invalid email';
-  if (account.kind === 'cswap' && !(Number.isInteger(account.slot) && account.slot! >= 1 && account.slot! <= 99)) {
-    return 'cswap accounts need a slot number';
-  }
   if (account.kind === 'api') {
     if (!account.baseUrl || !URL_RE.test(account.baseUrl)) return 'API accounts need a base URL (http or https)';
     if (account.apiModel && !MODEL_RE.test(account.apiModel)) return 'Invalid model name';
@@ -165,15 +158,7 @@ export function buildLaunch(
   const env: Record<string, string> = {};
   let binary = windows ? WINDOWS_CLAUDE_BINARY : 'claude';
 
-  // cswap switches a Linux config dir, which Windows claude never reads; on Windows a
-  // cswap account uses the token saved with it instead.
-  const viaToken = account?.kind === 'token' || (account?.kind === 'cswap' && windows);
-  if (account?.kind === 'cswap' && windows && !account.secret) {
-    throw new Error(`${account.label} needs a token to run on Windows: add one in Machines & accounts`);
-  }
-  if (account?.kind === 'cswap' && account.slot && !windows) {
-    binary = `cswap run ${account.slot} -- claude`;
-  } else if (viaToken && account) {
+  if (account?.kind === 'token') {
     env.CLAUDE_CODE_OAUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
   } else if (account?.kind === 'shell' && account.setupCommand && SETUP_RE.test(account.setupCommand)) {
     setup.push(`${account.setupCommand} >/dev/null`);
@@ -260,9 +245,7 @@ export async function pushUploadToHost(
 
 /** Copies an account's secret to the host (0600). No-op for accounts without one. */
 export async function pushAccountSecret(host: RemoteHost, account: FleetAccount | undefined): Promise<void> {
-  const needed =
-    account &&
-    (account.kind === 'token' || account.kind === 'api' || (account.kind === 'cswap' && host.system === 'windows'));
+  const needed = account && (account.kind === 'token' || account.kind === 'api');
   if (!needed) return;
   if (!account.secret) throw new Error(`${account.label} has no token saved yet`);
   const file = secretFile(account.id);
@@ -313,63 +296,87 @@ export async function listHostFolders(host: RemoteHost, path: string): Promise<F
 
 // ── Usage ──────────────────────────────────────────────────────────────────
 
-interface CswapAccount {
-  number?: number;
-  email?: string;
-  usage?: {
-    fiveHour?: { pct?: number; resetsAt?: string };
-    sevenDay?: { pct?: number; resetsAt?: string };
+/** A small, cheap model for the one-token usage check. */
+const USAGE_PROBE_MODEL = 'claude-haiku-5-5';
+const USAGE_TTL_MS = 180_000;
+const usageCache = new Map<string, { at: number; usage: FleetUsage | null }>();
+const usageInFlight = new Map<string, Promise<FleetUsage | null>>();
+
+/** The 5-hour and 7-day windows from a response's unified rate-limit headers, or null. */
+export function parseUnifiedRateLimitHeaders(headers: Headers, fetchedAt: string): FleetUsage | null {
+  const pct = (name: string) => {
+    const v = Number.parseFloat(headers.get(`anthropic-ratelimit-unified-${name}-utilization`) ?? '');
+    return Number.isFinite(v) ? Math.round(v * 1000) / 10 : null;
   };
+  const at = (name: string) => {
+    const v = Number.parseInt(headers.get(`anthropic-ratelimit-unified-${name}-reset`) ?? '', 10);
+    return Number.isFinite(v) && v > 0 ? new Date(v * 1000).toISOString() : null;
+  };
+  const usage = {
+    fiveHour: pct('5h'),
+    fiveHourResetsAt: at('5h'),
+    sevenDay: pct('7d'),
+    sevenDayResetsAt: at('7d'),
+    fetchedAt,
+  };
+  return usage.fiveHour === null && usage.sevenDay === null ? null : usage;
 }
 
-let usageCache: { at: number; byKey: Map<string, FleetUsage> } | null = null;
-let usageInFlight: Promise<Map<string, FleetUsage>> | null = null;
-const USAGE_TTL_MS = 120_000;
-
-/** Usage per account id, from cswap on the usage host; cached two minutes. */
-export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): Promise<Map<string, FleetUsage>> {
-  const host = hosts.find((h) => h.id === config.usageHostId);
-  if (!host) return new Map();
-  if (usageCache && Date.now() - usageCache.at < USAGE_TTL_MS) return mapUsage(config, usageCache.byKey);
-  usageInFlight ??= (async () => {
-    try {
-      const result = await runOnHost(host, 'exec bash -lc "cswap list --json"', undefined, 30_000);
-      const byKey = new Map<string, FleetUsage>();
-      if (result.code === 0) {
-        const parsed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{'))) as { accounts?: CswapAccount[] };
-        const fetchedAt = new Date().toISOString();
-        for (const acct of parsed.accounts ?? []) {
-          const usage: FleetUsage = {
-            fiveHour: acct.usage?.fiveHour?.pct ?? null,
-            fiveHourResetsAt: acct.usage?.fiveHour?.resetsAt ?? null,
-            sevenDay: acct.usage?.sevenDay?.pct ?? null,
-            sevenDayResetsAt: acct.usage?.sevenDay?.resetsAt ?? null,
-            fetchedAt,
-          };
-          if (acct.email) byKey.set(`email:${acct.email.toLowerCase()}`, usage);
-          if (acct.number) byKey.set(`slot:${acct.number}`, usage);
-        }
-      }
-      usageCache = { at: Date.now(), byKey };
-      return byKey;
-    } catch {
-      usageCache = { at: Date.now(), byKey: new Map() };
-      return usageCache.byKey;
-    } finally {
-      usageInFlight = null;
-    }
-  })();
-  return mapUsage(config, await usageInFlight);
-}
-
-function mapUsage(config: FleetConfig, byKey: Map<string, FleetUsage>): Map<string, FleetUsage> {
-  const out = new Map<string, FleetUsage>();
-  for (const account of config.accounts) {
-    const hit =
-      (account.email && byKey.get(`email:${account.email.toLowerCase()}`)) ||
-      (account.kind === 'cswap' && account.slot && byKey.get(`slot:${account.slot}`));
-    if (hit) out.set(account.id, hit);
+/**
+ * Ask Anthropic for one token account's windows: a one-token request (about 35 tokens
+ * on the smallest model) whose response headers carry them. Never throws.
+ */
+async function probeTokenUsage(account: FleetAccount): Promise<FleetUsage | null> {
+  if (process.env.VITEST || !account.secret) return null;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${account.secret}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: USAGE_PROBE_MODEL,
+        max_tokens: 1,
+        system: "You are Claude Code, Anthropic's official CLI for Claude.",
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+      signal: AbortSignal.timeout(20_000),
+      redirect: 'error',
+    });
+    // A 429 still carries the windows (that is how a full limit looks).
+    const usage = parseUnifiedRateLimitHeaders(res.headers, new Date().toISOString());
+    await res.body?.cancel().catch(() => {});
+    return usage;
+  } catch {
+    return null;
   }
+}
+
+/** Usage per token account id, read with each account's own token; cached three minutes. */
+export async function readFleetUsage(config: FleetConfig): Promise<Map<string, FleetUsage>> {
+  const out = new Map<string, FleetUsage>();
+  await Promise.all(
+    config.accounts
+      .filter((a) => a.kind === 'token' && a.secret)
+      .map(async (account) => {
+        const cached = usageCache.get(account.id);
+        let usage: FleetUsage | null;
+        if (cached && Date.now() - cached.at < USAGE_TTL_MS) usage = cached.usage;
+        else {
+          let pending = usageInFlight.get(account.id);
+          if (!pending) {
+            pending = probeTokenUsage(account).finally(() => usageInFlight.delete(account.id));
+            usageInFlight.set(account.id, pending);
+          }
+          usage = await pending;
+          usageCache.set(account.id, { at: Date.now(), usage });
+        }
+        if (usage) out.set(account.id, usage);
+      })
+  );
   return out;
 }
 

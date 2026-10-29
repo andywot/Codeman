@@ -3,7 +3,6 @@
  *
  * - GET    /api/fleet                         machines (hosts grouped by machine), accounts
  *                                             (no secrets) with usage, this server's ssh key
- * - PUT    /api/fleet/settings                { usageHostId }
  * - PUT    /api/fleet/accounts/:id            create or update an account; omit `secret` to
  *                                             keep the saved one, send "" to clear it
  * - DELETE /api/fleet/accounts/:id
@@ -56,10 +55,9 @@ const MachineSchema = z.object({
 
 const AccountSchema = z.object({
   label: z.string().min(1).max(60),
-  kind: z.enum(['machine', 'cswap', 'token', 'api', 'shell']),
+  kind: z.enum(['machine', 'token', 'api', 'shell']),
   setupCommand: z.string().max(200).optional(),
   email: z.string().max(200).optional(),
-  slot: z.number().int().optional(),
   baseUrl: z.string().max(300).optional(),
   apiModel: z.string().max(70).optional(),
   apiSmallModel: z.string().max(70).optional(),
@@ -112,26 +110,15 @@ export function registerFleetRoutes(app: FastifyInstance): void {
     const no = denied(req, reply);
     if (no) return no;
     const [fleet, hosts] = await Promise.all([readFleet(CONFIG_DIR), readRemoteHosts(CONFIG_DIR)]);
-    const usage = await readFleetUsage(fleet, hosts).catch(() => new Map());
+    const usage = await readFleetUsage(fleet).catch(() => new Map());
     return {
       success: true,
       data: {
         machines: groupMachines(hosts),
         accounts: fleet.accounts.map((a) => ({ ...publicAccount(a), usage: usage.get(a.id) ?? null })),
-        usageHostId: fleet.usageHostId ?? null,
         publicKey: await ensureServerKey().catch(() => null),
       },
     };
-  });
-
-  app.put('/api/fleet/settings', async (req, reply) => {
-    const no = denied(req, reply);
-    if (no) return no;
-    const body = z.object({ usageHostId: z.string().max(100).nullable() }).parse(req.body);
-    const fleet = await readFleet(CONFIG_DIR);
-    fleet.usageHostId = body.usageHostId ?? undefined;
-    await writeFleet(CONFIG_DIR, fleet);
-    return { success: true };
   });
 
   app.put('/api/fleet/accounts/:id', async (req, reply) => {
@@ -248,7 +235,6 @@ export function registerFleetRoutes(app: FastifyInstance): void {
     const result = await runOnHost(
       host,
       `echo "@@ssh ok"; echo "@@tmux $(command -v tmux || echo missing)"; ` +
-        `echo "@@cswap $(bash -lc 'command -v cswap' 2>/dev/null || echo missing)"; ` +
         `echo "@@claude $(bash -lc ${JSON.stringify(claude)} 2>/dev/null | tr -d '\\r' | head -n 1 || echo missing)"`,
       undefined,
       25_000
@@ -267,7 +253,7 @@ export function registerFleetRoutes(app: FastifyInstance): void {
     }
     return {
       success: true,
-      data: { ok: true, tmux: line('tmux'), claude: line('claude'), cswap: line('cswap') },
+      data: { ok: true, tmux: line('tmux'), claude: line('claude') },
     };
   });
 

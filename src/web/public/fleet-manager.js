@@ -13,7 +13,6 @@
 
 const FLEET_KIND_LABELS = {
   machine: "Machine's own login",
-  cswap: 'cswap slot',
   token: 'Shared token (all machines)',
   api: 'API endpoint (GLM, …)',
   shell: 'Shell function on the machine',
@@ -124,7 +123,6 @@ Object.assign(CodemanApp.prototype, {
                   'ssh ok',
                   r.tmux === 'missing' ? 'tmux missing' : 'tmux ok',
                   r.claude === 'missing' ? 'claude missing' : `claude ${r.claude.replace(/\s*\(.*\)$/, '')}`,
-                  r.cswap === 'missing' ? '' : 'cswap',
                 ].filter(Boolean);
                 status.textContent = bits.join(' · ');
                 status.dataset.kind = r.tmux === 'missing' || r.claude === 'missing' ? 'warn' : 'ok';
@@ -171,7 +169,6 @@ Object.assign(CodemanApp.prototype, {
           'fm-addr',
           [
             FLEET_KIND_LABELS[a.kind],
-            a.kind === 'cswap' ? `#${a.slot}` : '',
             a.kind === 'shell' ? a.setupCommand : '',
             a.email || '',
             (a.kind === 'token' || a.kind === 'api') && !a.hasSecret ? 'no token saved' : '',
@@ -198,36 +195,6 @@ Object.assign(CodemanApp.prototype, {
       );
       accounts.appendChild(card);
     }
-
-    // ── Usage source ──
-    const usage = el('section', 'fm-section');
-    usage.appendChild(el('h3', 'fm-h', 'Usage readings'));
-    const usageRow = el('label', 'fm-row');
-    usageRow.appendChild(el('span', 'fm-muted', 'Read 5h / 7d usage from cswap on'));
-    const select = document.createElement('select');
-    select.className = 'ns-input fm-select';
-    select.appendChild(Object.assign(document.createElement('option'), { value: '', textContent: 'Nowhere' }));
-    for (const m of fleet.machines) {
-      for (const s of m.systems) {
-        if (/windows/i.test(s.system || s.label)) continue;
-        select.appendChild(
-          Object.assign(document.createElement('option'), {
-            value: s.hostId,
-            textContent: s.label,
-            selected: s.hostId === fleet.usageHostId,
-          })
-        );
-      }
-    }
-    select.addEventListener('change', async () => {
-      await this._fetchJson('/api/fleet/settings', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ usageHostId: select.value || null }),
-      }).catch((err) => this.showToast?.(err.message, 'error'));
-    });
-    usageRow.appendChild(select);
-    usage.appendChild(usageRow);
 
     // ── This server's key ──
     const key = el('section', 'fm-section');
@@ -330,22 +297,20 @@ Object.assign(CodemanApp.prototype, {
       <label class="ns-field"><span class="ns-label">Kind</span>
         <select class="ns-input" name="kind">
           <option value="token">Shared token: one login on every machine</option>
-          <option value="cswap">cswap slot on the machine</option>
           <option value="api">API endpoint (GLM, …)</option>
           <option value="shell">Shell function on the machine (e.g. use-glm)</option>
           <option value="machine">The machine's own login</option>
         </select>
       </label>
       <p class="fm-muted fm-kind-help"></p>
-      <label class="ns-field" data-for="token cswap machine"><span class="ns-label">Email (links usage readings)</span><input class="ns-input" name="email" placeholder="you@example.com"></label>
-      <label class="ns-field" data-for="cswap"><span class="ns-label">cswap slot</span><input class="ns-input" name="slot" inputmode="numeric" placeholder="2"></label>
+      <label class="ns-field" data-for="token machine"><span class="ns-label">Email (optional)</span><input class="ns-input" name="email" placeholder="you@example.com"></label>
       <label class="ns-field" data-for="shell"><span class="ns-label">Command</span><input class="ns-input" name="setupCommand" placeholder="use-glm"></label>
       <label class="ns-field" data-for="api"><span class="ns-label">Base URL</span><input class="ns-input" name="baseUrl" placeholder="https://api.z.ai/api/anthropic"></label>
       <div class="fm-grid" data-for="api">
         <label class="ns-field"><span class="ns-label">Model</span><input class="ns-input" name="apiModel" placeholder="glm-5.3"></label>
         <label class="ns-field"><span class="ns-label">Small model</span><input class="ns-input" name="apiSmallModel" placeholder="glm-5.3-flash"></label>
       </div>
-      <label class="ns-field" data-for="token api cswap"><span class="ns-label fm-secret-label">Token</span><input class="ns-input" name="secret" type="password" autocomplete="off" spellcheck="false"></label>
+      <label class="ns-field" data-for="token api"><span class="ns-label fm-secret-label">Token</span><input class="ns-input" name="secret" type="password" autocomplete="off" spellcheck="false"></label>
       <p class="ns-error" role="alert" hidden></p>
       <footer class="ns-foot">
         <button type="button" class="ns-cancel">Back</button>
@@ -353,9 +318,7 @@ Object.assign(CodemanApp.prototype, {
       </footer>`;
     const help = {
       token:
-        'Run "claude setup-token" in a shell on any machine (it opens a sign-in link for this account) and paste the token it prints. The server keeps it and copies it to whichever machine starts a session, so one login works everywhere and nothing gets signed out.',
-      cswap:
-        'Runs "cswap run <slot> -- claude" on WSL and Linux machines that have cswap. Windows claude cannot use cswap, so to run this account on Windows also paste a token from "claude setup-token" (run it once, signed in as this account).',
+        'Run "claude setup-token" in a shell on any machine (it opens a sign-in link for this account) and paste the token it prints. The server keeps it and copies it to whichever machine starts a session, so one login works everywhere and nothing gets signed out. Its 5-hour and 7-day usage is read with the same token.',
       api: 'An Anthropic-compatible endpoint. Every Claude tier maps to the model below.',
       machine: 'Uses whatever the machine is signed in as. Same as picking "Machine\'s login".',
       shell:
@@ -365,12 +328,7 @@ Object.assign(CodemanApp.prototype, {
       const kind = form.kind.value;
       form.querySelector('.fm-kind-help').textContent = help[kind];
       for (const node of form.querySelectorAll('[data-for]')) node.hidden = !node.dataset.for.split(' ').includes(kind);
-      form.querySelector('.fm-secret-label').textContent =
-        kind === 'api'
-          ? 'API key'
-          : kind === 'cswap'
-            ? 'Token for Windows (optional, from claude setup-token)'
-            : 'Token';
+      form.querySelector('.fm-secret-label').textContent = kind === 'api' ? 'API key' : 'Token';
       form.secret.placeholder = account?.hasSecret
         ? 'Saved. Leave empty to keep it'
         : kind === 'api'
@@ -381,7 +339,6 @@ Object.assign(CodemanApp.prototype, {
       form.label.value = account.label;
       form.kind.value = account.kind;
       form.email.value = account.email || '';
-      form.slot.value = account.slot || '';
       form.baseUrl.value = account.baseUrl || '';
       form.apiModel.value = account.apiModel || '';
       form.apiSmallModel.value = account.apiSmallModel || '';
@@ -406,15 +363,13 @@ Object.assign(CodemanApp.prototype, {
         `account-${Date.now()}`;
       const payload = { label: form.label.value.trim(), kind };
       if (form.email.value.trim() && kind !== 'api') payload.email = form.email.value.trim();
-      if (kind === 'cswap') payload.slot = Number(form.slot.value);
       if (kind === 'api') {
         payload.baseUrl = form.baseUrl.value.trim();
         if (form.apiModel.value.trim()) payload.apiModel = form.apiModel.value.trim();
         if (form.apiSmallModel.value.trim()) payload.apiSmallModel = form.apiSmallModel.value.trim();
       }
       if (kind === 'shell') payload.setupCommand = form.setupCommand.value.trim();
-      if ((kind === 'token' || kind === 'api' || kind === 'cswap') && form.secret.value.trim())
-        payload.secret = form.secret.value.trim();
+      if ((kind === 'token' || kind === 'api') && form.secret.value.trim()) payload.secret = form.secret.value.trim();
       try {
         await this._fetchJson(`/api/fleet/accounts/${encodeURIComponent(id)}`, {
           method: 'PUT',
