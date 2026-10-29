@@ -406,6 +406,8 @@ Object.assign(CodemanApp.prototype, {
       if (session.cliLatestVersion && session.cliLatestVersion !== session.cliVersion) {
         versionStr += ' ↑'; // Arrow indicates update available
       }
+      // Newer than the detectors were tested against (SessionState.cliVersionUntested).
+      if (session.cliVersionUntested) versionStr += ' (state detection untested)';
       parts.push(versionStr);
     }
 

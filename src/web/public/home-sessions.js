@@ -67,6 +67,7 @@ const HOME_SESSIONS_PILL_LABEL = {
   waiting: 'waiting',
   working: 'working',
   idle: 'idle',
+  unknown: 'unknown',
   done: 'done',
 };
 

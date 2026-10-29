@@ -46,6 +46,7 @@ const CHAT_STATE_LABEL = {
   waiting: 'Your turn',
   working: 'Working',
   idle: 'Idle',
+  unknown: 'Unknown',
   done: 'Stopped',
   exited: 'Exited',
 };

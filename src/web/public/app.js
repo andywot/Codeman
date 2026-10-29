@@ -6248,6 +6248,7 @@ class CodemanApp {
       waiting: 'waiting',
       working: 'working',
       idle: 'idle',
+      unknown: 'unknown',
       done: 'done',
     }[state] || state;
   }
@@ -6747,7 +6748,7 @@ class CodemanApp {
         // re-marks the session tab active moments after a web tab was selected,
         // leaving two tabs lit at once.
         const isActive = id === this.activeSessionId && !this.activeWebviewId;
-        const status = session.status || 'idle';
+        const status = sessionTabStatus(session);
         const name = this.getSessionName(session);
         const taskStats = session.taskStats || { running: 0, total: 0 };
         const hasRunningTasks = taskStats.running > 0;
@@ -7243,7 +7244,7 @@ class CodemanApp {
       // See the note in the incremental path: a web tab owns the active highlight
       // while one is open, even though activeSessionId stays set.
       const isActive = id === this.activeSessionId && !this.activeWebviewId;
-      const status = session.status || 'idle';
+      const status = sessionTabStatus(session);
       const name = this.getSessionName(session);
       const mode = session.mode || 'claude';
       const color = session.color || 'default';
@@ -8216,7 +8217,7 @@ class CodemanApp {
         if (ref.kind === 'session') {
           const session = this.sessions.get(ref.id);
           name = this.getSessionName(session);
-          statusHtml = `<span class="tab-status ${escapeHtml(session.status || 'idle')}" aria-hidden="true"></span>`;
+          statusHtml = `<span class="tab-status ${escapeHtml(sessionTabStatus(session))}" aria-hidden="true"></span>`;
           const alert = this.tabAlerts?.get(ref.id);
           alertClass = alert === 'action' ? ' tab-alert-action' : alert === 'idle' ? ' tab-alert-idle' : '';
         } else {

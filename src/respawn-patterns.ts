@@ -23,6 +23,16 @@ import { TOKEN_PATTERN, CLAUDE_WORKING_LINE_PATTERN } from './utils/index.js';
 const COMPLETION_TIME_PATTERN = /\bWorked\s+for\s+\d+[hms](\s*\d+[hms])*/i;
 
 /**
+ * The closing row current Claude Code draws instead: a randomized past-tense verb behind
+ * the turn glyph, `✻ Cogitated for 35s · done 1:20 AM` (2.1.312, verbatim fixture in
+ * test/fixtures/claude-screens/2.1.312/idle-after-turn.txt), `✻ Brewed for 1m 18s`.
+ * "Worked for" survives only in older builds. Anchored on the glyph (the working line's
+ * glyph set) so prose that says "waited for 5s" never matches, and the duration needs its
+ * unit right after the digits so `✻ Waiting for 1 dynamic workflow` does not either.
+ */
+const COMPLETION_ROW_PATTERN = /[✻✽✶✳✢∗·*]\s*[A-Z][a-z]+\s+for\s+\d+[hms](?:\s*\d+[hms])*\b/;
+
+/**
  * Patterns indicating Claude is ready for input (legacy fallback).
  * Used as secondary signals, not primary detection.
  */
@@ -91,13 +101,13 @@ export const WORKING_PATTERNS = [
 
 /**
  * Check if data contains a completion message pattern.
- * Matches "Worked for Xh Xm Xs" time duration patterns.
+ * Matches "Worked for Xh Xm Xs" and the current `✻ <Verb> for 35s` closing row.
  *
  * @param data - Raw terminal output data
  * @returns True if completion message pattern is found
  */
 export function isCompletionMessage(data: string): boolean {
-  return COMPLETION_TIME_PATTERN.test(data);
+  return COMPLETION_TIME_PATTERN.test(data) || COMPLETION_ROW_PATTERN.test(data);
 }
 
 /**

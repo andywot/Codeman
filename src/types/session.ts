@@ -971,6 +971,23 @@ export interface SessionState {
   cliAccountType?: string;
   /** Latest CLI version available (parsed from version check) */
   cliLatestVersion?: string;
+  /**
+   * Present (and true) when `cliVersion` is newer than the newest version this CLI's
+   * screen detectors were checked against (`capabilities.workDetect.testedThroughVersion`).
+   * Display-only: the dashboard shows a quiet hint that working/idle may be off.
+   */
+  cliVersionUntested?: boolean;
+  /** The `testedThroughVersion` the hint compares against; set only with `cliVersionUntested`. */
+  cliVersionTestedThrough?: string;
+  /**
+   * `'unknown'` while the screen-read working/idle detection cannot read this pane any
+   * more (src/session-detection-health.ts): the dashboard shows a neutral "unknown"
+   * instead of the stale working/idle verdict. Absent while detection is trusted.
+   * `status` itself is unchanged.
+   */
+  stateDetection?: 'unknown';
+  /** Why `stateDetection` is unknown; set only with it. */
+  stateDetectionReason?: 'unrecognized-screen' | 'unverified-activity';
   /** OpenCode-specific configuration (only for mode === 'opencode') */
   openCodeConfig?: OpenCodeConfig;
   /** Codex-specific configuration (only for mode === 'codex') */

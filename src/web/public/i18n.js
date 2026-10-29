@@ -1365,6 +1365,7 @@
     waiting: '等待中',
     working: '工作中',
     idle: '空闲',
+    unknown: '未知',
     done: '已完成',
     exited: '已退出',
   };
@@ -1481,13 +1482,13 @@
       // is required: bare state words stay out of the table, they collide with
       // state strings on other surfaces (see mobile-overview.js).
       [
-        /^(needs you|error|waiting|working|idle|done|exited) (<1m|\d+[dhm](?: \d+[hm])?)$/,
+        /^(needs you|error|waiting|working|idle|unknown|done|exited) (<1m|\d+[dhm](?: \d+[hm])?)$/,
         (_m, state, duration) => `${TILE_STATE_ZH[state]} ${duration}`,
       ],
       // The same while tiles can move, with the drag hint on a second line.
       // Anchored on the hint, so a bare state word is safe here.
       [
-        /^(needs you|error|waiting|working|idle|done|exited)(?: (<1m|\d+[dhm](?: \d+[hm])?))?\n(Drag to move the tile|Drag to move the tile, or out of the window to open it on its own|Drag out of the window to open the tile on its own)$/,
+        /^(needs you|error|waiting|working|idle|unknown|done|exited)(?: (<1m|\d+[dhm](?: \d+[hm])?))?\n(Drag to move the tile|Drag to move the tile, or out of the window to open it on its own|Drag out of the window to open the tile on its own)$/,
         (_m, state, duration, hint) => `${TILE_STATE_ZH[state]}${duration ? ` ${duration}` : ''}\n${ZH_CN[hint]}`,
       ],
     ];

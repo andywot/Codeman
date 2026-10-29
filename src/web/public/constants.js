@@ -880,8 +880,27 @@ const SESSION_ACTIVITY_RANK = {
   waiting: 2,
   working: 3,
   idle: 4,
+  // The screen detectors cannot read the pane (`SessionState.stateDetection`): ranked
+  // with idle, the quiet end, since nothing is known to be running or waiting.
+  unknown: 4,
   done: 5,
 };
+
+/**
+ * The class for a session's tab status dot: `status`, except that a live session whose
+ * screen the detectors can no longer read (`stateDetection: 'unknown'`, set server-side
+ * by src/session-detection-health.ts) shows a neutral `unknown` dot instead of a
+ * confident busy or idle one. `error` and `stopped` are not screen reads and stand.
+ *
+ * Pure. Unit-tested in test/claude-screen-detectors.test.ts.
+ * @param {{status?: string, stateDetection?: string}|null|undefined} session
+ * @returns {string}
+ */
+function sessionTabStatus(session) {
+  const status = (session && session.status) || 'idle';
+  if (session && session.stateDetection === 'unknown' && (status === 'busy' || status === 'idle')) return 'unknown';
+  return status;
+}
 
 /** States still in progress, where the OLDEST stamp sorts first. */
 const SESSION_ACTIVITY_OLDEST_FIRST = ['needs', 'error', 'waiting', 'working'];
@@ -982,6 +1001,7 @@ const TAB_TRIAGE_GROUP_OF_STATE = {
   waiting: 'waiting',
   working: 'working',
   idle: 'idle',
+  unknown: 'idle',
   done: 'idle',
 };
 
@@ -1567,6 +1587,7 @@ if (typeof window !== 'undefined') {
   };
   window.CodemanSessionOrder = {
     RANK: SESSION_ACTIVITY_RANK,
+    tabStatus: sessionTabStatus,
     anchor: sessionActivityAnchor,
     compare: compareSessionActivity,
     sort: sortSessionsByActivity,

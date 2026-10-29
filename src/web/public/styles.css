@@ -2026,6 +2026,9 @@ html[data-line-anim="blur"] .connection-line.line-enter {
 
 .session-tab .tab-status.error { background: var(--red); }
 .session-tab .tab-status.ended { background: var(--text-muted); opacity: 0.5; }
+/* The screen detectors cannot read this pane (sessionTabStatus(), constants.js): a
+   hollow neutral dot, neither the green of idle nor the motion of working. */
+.session-tab .tab-status.unknown { background: transparent; box-shadow: inset 0 0 0 1px var(--text-muted); }
 
 /* Session color coding - left border indicator */
 .session-tab[data-color="red"] { border-left: 3px solid var(--session-red); }
@@ -24086,6 +24089,15 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
   }
   .rc-account--high {
     color: var(--red);
+  }
+  /* Detection hints (status-bar.js _statusBarDetectionItems): quiet on purpose, a
+     muted ring rather than an alert colour, since nothing is wrong with the session. */
+  .rc-detect::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1px solid var(--text-muted);
   }
   footer.toolbar .version-display {
     font: var(--fs-xs) / 1 var(--font-mono);
