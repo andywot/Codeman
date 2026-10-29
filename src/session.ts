@@ -61,6 +61,7 @@ import {
   type OmpConfig,
   type SessionRemote,
   type SessionDocker,
+  type AdoptedTmux,
   type SessionNameSource,
   type SessionWriteOptions,
   type PaneExit,
@@ -846,6 +847,8 @@ export class Session extends EventEmitter {
   // Docker execution metadata, present when this session runs inside a container via
   // local tmux + `docker exec`. The container is per-CASE (shared by sibling sessions).
   private readonly _docker?: SessionDocker;
+  /** Fork: the local tmux session this one is attached to (adopted from discovery). */
+  private readonly _adoptedTmux?: AdoptedTmux;
 
   // Owning username in multi-user mode (undefined in single-user). Stamped at create
   // from req.authUser and round-tripped through recovery like _remote/_docker.
@@ -972,6 +975,8 @@ export class Session extends EventEmitter {
       remote?: SessionRemote;
       /** Docker execution metadata for sessions launched inside a container via local tmux. */
       docker?: SessionDocker;
+      /** Fork: a local tmux session adopted from discovery; the pane only attaches to it. */
+      adoptedTmux?: AdoptedTmux;
       /** Owning username (multi-user mode); undefined in single-user. */
       owner?: string;
       /** Session that spawned this one — tab lineage decoration, resolved by the caller. */
@@ -1142,6 +1147,7 @@ export class Session extends EventEmitter {
     this._tmuxHistoryLimit = config.tmuxHistoryLimit ?? DEFAULT_TMUX_HISTORY_LIMIT;
     this._remote = config.remote;
     this._docker = config.docker;
+    this._adoptedTmux = config.adoptedTmux;
     this._owner = config.owner;
     this._discoveredMuxSession = config.discoveredMuxSession === true;
     // Restored so a record that says the agent exited survives a server restart
@@ -1300,6 +1306,11 @@ export class Session extends EventEmitter {
   /** Remote-SSH metadata when this session runs on a remote host, else undefined. */
   get remote(): SessionRemote | undefined {
     return this._remote;
+  }
+
+  /** Fork: the adopted local tmux session this one attaches to, else undefined. */
+  get adoptedTmux(): AdoptedTmux | undefined {
+    return this._adoptedTmux;
   }
 
   /**
@@ -2164,6 +2175,7 @@ export class Session extends EventEmitter {
       workingDir: this.workingDir,
       remote: this._remote,
       docker: this._docker,
+      ...(this._adoptedTmux ? { adoptedTmux: this._adoptedTmux } : {}),
       owner: this._owner,
       parentSessionId: this._parentSessionId,
       currentTaskId: this._currentTaskId,
@@ -2610,6 +2622,7 @@ export class Session extends EventEmitter {
       historyLimit: this._tmuxHistoryLimit,
       remote: this._remote,
       docker: this._docker,
+      adoptedTmux: this._adoptedTmux,
       owner: this._owner,
     };
     return this._withCustomModelLaunchModel(options);
@@ -4156,6 +4169,7 @@ export class Session extends EventEmitter {
             historyLimit: this._tmuxHistoryLimit,
             remote: this._remote,
             docker: this._docker,
+            adoptedTmux: this._adoptedTmux,
             owner: this._owner,
           },
           createSessionOptions: {
@@ -4168,6 +4182,7 @@ export class Session extends EventEmitter {
             historyLimit: this._tmuxHistoryLimit,
             remote: this._remote,
             docker: this._docker,
+            adoptedTmux: this._adoptedTmux,
             owner: this._owner,
           },
           spawnErrLabel: 'shell mux attachment',
@@ -4175,7 +4190,10 @@ export class Session extends EventEmitter {
 
         // For NEW sessions: clear by sending 'clear' command to the shell
         // For RESTORED sessions: don't clear - we want to see the existing output
-        if (!isRestored) {
+        // ⚠️ Never into an ATTACHED session (a non-owned remote, or a local tmux session
+        // adopted by discovery): its pane is someone else's running program, often a
+        // Claude, where `clear` + Enter would be typed into the prompt and submitted.
+        if (!isRestored && this._remote?.owned !== false && !this._adoptedTmux) {
           setTimeout(() => {
             if (this.ptyProcess) {
               this._terminalBuffer.clear();

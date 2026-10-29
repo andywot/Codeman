@@ -33,6 +33,7 @@ import {
   type DeepSeekConfig,
   type OmpConfig,
   type RemoteHost,
+  type AdoptedTmux,
 } from '../../types.js';
 import {
   GuardedInputBusyError,
@@ -178,7 +179,7 @@ import { RunSummaryTracker } from '../../run-summary.js';
 import { MAX_INPUT_LENGTH, MAX_SESSION_NAME_LENGTH } from '../../config/terminal-limits.js';
 import { MAX_PASTE_IMAGE_BYTES, MAX_PASTE_VIDEO_BYTES } from '../../config/buffer-limits.js';
 import { VIDEO_ATTACHMENT_EXTENSIONS } from '../../attachment-registry.js';
-import { dataPath, getDataDir } from '../../config/instance.js';
+import { dataPath, getDataDir, resolveTmuxSocketName } from '../../config/instance.js';
 import {
   checkRemoteTmuxAvailable,
   readRemoteCases,
@@ -1170,7 +1171,10 @@ export function registerSessionRoutes(
       if (isMultiUserMode() && !isAdmin(req)) {
         return createErrorResponse(ApiErrorCode.FORBIDDEN, 'Remote hosts are admin-only in multi-user mode');
       }
-      const { hostId, remoteSessionName } = body.attachRemoteSession;
+      if (body.attachLocalTmux) {
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'Attach a remote or a local tmux session, not both');
+      }
+      const { hostId, remoteSessionName, remoteTmuxSocket } = body.attachRemoteSession;
       const host = (await readRemoteHosts(CODEMAN_CONFIG_DIR)).find((item) => item.id === hostId);
       if (!host) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Remote host not found');
       // An explicit wake request is the only thing that may wake a host, and the user
@@ -1191,8 +1195,30 @@ export function registerSessionRoutes(
       // Fork: the remote folder when the caller knows it (an absolute path passes the
       // local path checks and gives uploads a home); else the upstream placeholder.
       const remoteDir = typeof body.workingDir === 'string' && body.workingDir.startsWith('/') ? body.workingDir : '';
-      workingDir = remoteDir || `${host.username}@${host.host}:${remoteSessionName}`;
-      remote = toAttachedSessionRemote(host, remoteSessionName, workingDir);
+      // An adopted session's name can hold characters no local path check accepts, so
+      // without its folder it gets a neutral one rather than the placeholder.
+      workingDir = remoteDir || (remoteTmuxSocket ? '/tmp' : `${host.username}@${host.host}:${remoteSessionName}`);
+      remote = toAttachedSessionRemote(host, remoteSessionName, workingDir, remoteTmuxSocket);
+    }
+
+    // Fork (claude-discovery.ts): adopt a tmux session the user started on THIS server.
+    // Admin-only in multi-user mode like the remote attach above: it joins whatever runs
+    // in another tmux server of the account Codeman runs as.
+    let adoptedTmux: AdoptedTmux | undefined;
+    if (body.attachLocalTmux) {
+      if (isMultiUserMode() && !isAdmin(req)) {
+        return createErrorResponse(ApiErrorCode.FORBIDDEN, 'Adopting tmux sessions is admin-only in multi-user mode');
+      }
+      if (body.attachLocalTmux.socket === resolveTmuxSocketName()) {
+        return createErrorResponse(
+          ApiErrorCode.INVALID_INPUT,
+          "That tmux session is one of this dashboard's own; open its tab instead"
+        );
+      }
+      if ((body.mode ?? 'claude') !== 'shell') {
+        return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'attachLocalTmux sessions run in shell mode');
+      }
+      adoptedTmux = { socket: body.attachLocalTmux.socket, sessionName: body.attachLocalTmux.sessionName };
     }
 
     // Multi-user: shell mode is arbitrary command execution as the host account,
@@ -1421,6 +1447,7 @@ export function registerSessionRoutes(
       advisorModel: body.advisorModel,
       tmuxHistoryLimit: terminalHistoryConfig.tmuxHistoryLimit,
       remote,
+      ...(adoptedTmux ? { adoptedTmux } : {}),
       owner,
       parentSessionId: resolveParentSessionId(ctx, req, body.parentSessionId, owner),
     });
@@ -3954,6 +3981,7 @@ export function registerSessionRoutes(
       worktree,
       fleetAccountId,
       fleetModel,
+      resumeSessionId: qsResumeRequest,
     } = parseBody(QuickStartSchema, req.body);
 
     // Resolved ONCE here: the same value labels a case directory this request creates
@@ -4084,6 +4112,20 @@ export function registerSessionRoutes(
           return createErrorResponse(ApiErrorCode.OPERATION_FAILED, (err as Error).message);
         }
         if (account) remote.accountId = account.id;
+      }
+      // Fork (claude-discovery.ts): "Resume here" continues a conversation found running
+      // on that machine. A Windows system resumes through the Windows claude, which a
+      // plain launch there only gets from an account profile.
+      if (qsResumeRequest) {
+        // The id names a Claude Code conversation log, so only a CLI that keeps those
+        // can resume it.
+        if (getCli(mode)?.capabilities.transcript !== 'claude-jsonl') {
+          return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'resumeSessionId applies to claude sessions only');
+        }
+        if (!remote.launch && host.system === 'windows' && !host.commands?.claude) {
+          remote.launch = buildLaunch(host, undefined, undefined);
+        }
+        dockerResumeId = qsResumeRequest;
       }
     } else if (dockerCase) {
       // Docker case: the CLI executes INSIDE a container via local tmux + `docker
@@ -4595,6 +4637,14 @@ export function registerSessionRoutes(
       }
     }
 
+    // "Resume here" is wired for remote cases (above); a local folder resumes through
+    // POST /api/sessions, which checks the conversation log exists first.
+    if (qsResumeRequest && !remote) {
+      return createErrorResponse(
+        ApiErrorCode.INVALID_INPUT,
+        'resumeSessionId is for remote cases; use POST /api/sessions with resumeSessionId for a local folder'
+      );
+    }
     const qsSessionOptions: ConstructorParameters<typeof Session>[0] = {
       id: qsCustomModelSessionId,
       workingDir: workspacePath,

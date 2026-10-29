@@ -383,17 +383,30 @@ export async function probeRemoteCliVersion(
  */
 export function buildRemoteSessionAliveCommand(
   host: Pick<RemoteHost, 'username' | 'host' | 'port'> & RemoteSshOptions,
-  remoteSessionName: string
+  remoteSessionName: string,
+  socket = 'codeman-remote'
 ): string {
   const [ssh, ...connectionArgs] = buildSshConnectionArgs(host);
-  return [ssh, ...connectionArgs, remoteSshTarget(host), shellescape(remoteSessionAliveScript(remoteSessionName))].join(
-    ' '
-  );
+  return [
+    ssh,
+    ...connectionArgs,
+    remoteSshTarget(host),
+    shellescape(remoteSessionAliveScript(remoteSessionName, socket)),
+  ].join(' ');
 }
 
-/** The remote side of {@link buildRemoteSessionAliveCommand}. */
-export function remoteSessionAliveScript(remoteSessionName: string): string {
-  return withRemoteTmuxPath(`tmux -L codeman-remote has-session -t ${shellescape(remoteSessionName)} 2>/dev/null`);
+/**
+ * The remote side of {@link buildRemoteSessionAliveCommand}. `socket` is the tmux socket
+ * name the session lives on: this server's private `codeman-remote` by default, or the
+ * socket an adopted session was found on (fork, claude-discovery.ts), matched exactly.
+ */
+export function remoteSessionAliveScript(remoteSessionName: string, socket = 'codeman-remote'): string {
+  if (socket === 'codeman-remote') {
+    return withRemoteTmuxPath(`tmux -L codeman-remote has-session -t ${shellescape(remoteSessionName)} 2>/dev/null`);
+  }
+  return withRemoteTmuxPath(
+    `tmux -L ${shellescape(socket)} has-session -t ${shellescape(`=${remoteSessionName}`)} 2>/dev/null`
+  );
 }
 
 /**
@@ -416,13 +429,14 @@ export function remoteSessionAliveScript(remoteSessionName: string): string {
  */
 export async function remoteTmuxSessionAlive(
   remote: Pick<RemoteHost, 'username' | 'host' | 'port'> & RemoteSshOptions,
-  remoteSessionName: string
+  remoteSessionName: string,
+  socket = 'codeman-remote'
 ): Promise<boolean | undefined> {
   if (process.env.VITEST) return true;
   // Runs on the host's pooled shell: this check repeats for every remote session.
   try {
     const { remoteExec } = await shellPool();
-    await remoteExec(remote, remoteSessionAliveScript(remoteSessionName), { timeout: 15_000 });
+    await remoteExec(remote, remoteSessionAliveScript(remoteSessionName, socket), { timeout: 15_000 });
     return classifyRemoteAliveExit(0, false);
   } catch (err) {
     const e = err as { code?: unknown; killed?: boolean };
@@ -639,7 +653,8 @@ export function toSessionRemote(host: RemoteHost, remoteCase: RemoteCase): Sessi
 export function toAttachedSessionRemote(
   host: RemoteHost,
   remoteSessionName: string,
-  remotePath: string
+  remotePath: string,
+  remoteTmuxSocket?: string
 ): SessionRemote {
   return {
     hostId: host.id,
@@ -657,6 +672,8 @@ export function toAttachedSessionRemote(
     // Discovered + attached — another Codeman created it. Detach-not-kill.
     owned: false,
     remoteSessionName,
+    // Fork (claude-discovery.ts): the socket an adopted session was found on.
+    ...(remoteTmuxSocket ? { remoteTmuxSocket } : {}),
     identityFile: host.identityFile,
     socksProxy: host.socksProxy,
     jumpHost: host.jumpHost,

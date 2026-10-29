@@ -1311,7 +1311,7 @@ export class WebServer extends EventEmitter {
     registerStatusTelemetryRoutes(this.app, ctx);
     registerSystemRoutes(this.app, ctx);
     registerCaseRoutes(this.app, ctx);
-    registerFleetRoutes(this.app);
+    registerFleetRoutes(this.app, ctx);
     registerProjectRoutes(this.app);
     registerChatRoutes(this.app, ctx);
     registerWorktreeRoutes(this.app, ctx);
@@ -3900,6 +3900,9 @@ export class WebServer extends EventEmitter {
               // MuxSession.docker; state.json carries SessionState.docker), so recovery
               // rebuilds the `docker exec` launch instead of a broken local command.
               docker: muxSession.docker ?? savedState?.docker,
+              // Fork: an adopted local tmux session must come back as one, or a dead-pane
+              // respawn would launch a local shell in its place.
+              adoptedTmux: muxSession.adoptedTmux ?? savedState?.adoptedTmux,
               owner: recoveredOwner,
               // Tab lineage survives a restart. It is only decoration, so a parent
               // that did NOT come back is harmless: the frontend draws an edge only

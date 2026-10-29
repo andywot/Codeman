@@ -25,6 +25,7 @@ import type {
   OmpConfig,
   SessionRemote,
   SessionDocker,
+  AdoptedTmux,
   PaneExit,
   StatusLineExporter,
 } from './types.js';
@@ -47,6 +48,8 @@ export interface MuxSession {
   remote?: SessionRemote;
   /** Docker execution metadata for local tmux sessions wrapping `docker exec` */
   docker?: SessionDocker;
+  /** Fork: a local tmux session adopted from discovery; the pane only attaches to it. */
+  adoptedTmux?: AdoptedTmux;
   /** Owning username in multi-user mode (round-tripped through recovery like remote/docker) */
   owner?: string;
   /** Session mode */
@@ -139,6 +142,8 @@ export interface CreateSessionOptions {
   remote?: SessionRemote;
   /** Docker execution metadata for local tmux sessions wrapping `docker exec` */
   docker?: SessionDocker;
+  /** Fork: attach to this local tmux session instead of launching anything. */
+  adoptedTmux?: AdoptedTmux;
   /** Owning username in multi-user mode; persisted for recovery. */
   owner?: string;
 }
@@ -196,6 +201,8 @@ export interface RespawnPaneOptions {
   remote?: SessionRemote;
   /** Docker execution metadata for local tmux sessions wrapping `docker exec` */
   docker?: SessionDocker;
+  /** Fork: re-attach to this adopted local tmux session (never relaunch anything). */
+  adoptedTmux?: AdoptedTmux;
   /** Owning username (multi-user); redundant on respawn since the Session object survives, kept for shape parity. */
   owner?: string;
 }
