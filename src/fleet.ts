@@ -32,7 +32,7 @@
  * and shell-quoted; the browser never supplies command text.
  *
  * Usage (5-hour and 7-day windows) comes from the sessions themselves, at no cost: a
- * WSL/Linux session launched with an account gets a statusLine command that saves
+ * session launched with an account gets a statusLine command that saves
  * Claude's statusline JSON (it carries `rate_limits`) to
  * `~/.config/claude-rc/status/<account>.json` on its machine and prints nothing; the
  * server reads those files over the pooled shell. The newest reading per account wins,
@@ -47,6 +47,11 @@
  * remote pane command exports (tmux-manager.ts, the remote tmux session name, so a session
  * re-attached after a server restart still finds its files). The server tails both over the
  * pooled shell (remote-session-signals.ts). No prompt text, tool input or message is written.
+ *
+ * A Windows-native session gets the same files another way: Windows claude runs these commands
+ * in Git Bash or PowerShell, so they call `wsl.exe` back into the session's WSL, and its settings
+ * travel as a file path rather than as JSON on the Windows command line (see "Windows-native
+ * sessions" below). Its usage is saved for a token account only.
  */
 
 import { execFile } from 'node:child_process';
@@ -240,9 +245,16 @@ export function buildLaunch(
 
   // An api account fixes the model through the env above; --model would be a Claude name.
   let args = model && account?.kind !== 'api' && MODEL_RE.test(model) ? ` --model '${model}'` : '';
-  // Usage, alerts and per-session telemetry (see the file header). Windows claude runs
-  // statusLine and hook commands outside WSL's shell, so only WSL/Linux sessions get them.
-  if (windows) return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args };
+  // Usage, alerts and per-session telemetry (see the file header).
+  if (windows) {
+    // Windows claude runs these commands in Git Bash or PowerShell, so they go back into this
+    // WSL through wsl.exe (buildWindowsSignalsSetup). Usage is saved for a token account only:
+    // the Windows login is not the WSL one whose email MACHINE_LOGIN_ID is mapped through.
+    const usageId = account?.kind === 'token' && ID_RE.test(account.id) ? account.id : null;
+    setup.push(buildWindowsSignalsSetup(usageId));
+    args += ` --settings "$${WINDOWS_SETTINGS_VAR}"`;
+    return { setup: setup.join('; ') + '; ', binary, args, signals: REMOTE_SIGNALS_VERSION };
+  }
   // The per-account usage reading: Claude logins only (an api/shell account has no plan
   // windows, or not this account's). A session on the machine's own login saves as
   // MACHINE_LOGIN_ID; the server maps that reading to the account whose email the
@@ -281,10 +293,13 @@ export function buildRemoteSignalsSettings(usageId: string | null): {
     (usageId ? `mv -f $t ${d}/status/${usageId}.json` : 'rm -f $t');
   const hookCommand = (event: string) =>
     `cat >/dev/null; test -z ${key} || { mkdir -p ${d}/events && echo $(date +%s) ${event} >> ${d}/events/${key}.log; }`;
-  const hooks: Record<
-    string,
-    Array<{ matcher?: string; hooks: Array<{ type: 'command'; command: string; timeout: number }> }>
-  > = {};
+  return signalsSettings(statusLine, hookCommand);
+}
+
+type SignalsSettings = ReturnType<typeof buildRemoteSignalsSettings>;
+
+function signalsSettings(statusLine: string, hookCommand: (event: string) => string): SignalsSettings {
+  const hooks: SignalsSettings['hooks'] = {};
   for (const spec of REMOTE_HOOK_EVENTS) {
     const entry = {
       ...('matcher' in spec ? { matcher: spec.matcher } : {}),
@@ -293,6 +308,90 @@ export function buildRemoteSignalsSettings(usageId: string | null): {
     (hooks[spec.hook] ??= []).push(entry);
   }
   return { statusLine: { type: 'command', command: statusLine }, hooks };
+}
+
+// ── Windows-native sessions ─────────────────────────────────────────────────
+//
+// Windows claude runs statusLine and hook commands in Git Bash when Git for Windows is
+// installed, otherwise in PowerShell (code.claude.com/docs/en/statusline "Windows
+// configuration", /docs/en/hooks "shell"). So every command here is plain words that both
+// read the same way: no quotes, no `$`, no `~`, no backslash, no `;`/`&`/`|`/`>`. Each one
+// runs `wsl.exe` back into the session's own WSL distro and user, where a small sh script
+// writes the same files a WSL session's commands write (buildRemoteSignalsSettings), so the
+// server reads them unchanged.
+//
+// ⚠️ The script path is RELATIVE, climbing from wsl.exe's working directory (the Windows
+// working directory, translated) to `/`: Git Bash rewrites an argument that starts with `/`
+// into a Windows path before it reaches wsl.exe (MSYS path conversion), but leaves a
+// relative one alone, and `..` past `/` stays at `/`.
+//
+// ⚠️ The settings never cross a Windows command line as JSON. `cmd.exe /c claude` (and the
+// npm `claude.cmd` shim's `%*`) parse `"` themselves, so the launch writes the JSON to a file
+// in WSL and passes its `\\wsl.localhost\…` path (wslpath -w), which has no quote or space.
+// The session key, distro and user are filled in at launch by the pane's own shell.
+
+/** Relative to $HOME on the machine: the Windows script and per-session settings files. */
+export const WINDOWS_SIGNALS_DIR = '.config/claude-rc/win';
+/** The shell variable the launch's setup leaves the `--settings` value in (`{}` when it could not). */
+export const WINDOWS_SETTINGS_VAR = 'rc_s';
+/** `..` steps from wsl.exe's working directory up to `/` (more than any real path is deep). */
+const WSL_CLIMB = Array(32).fill('..').join('/');
+
+/**
+ * The sh script Windows sessions' commands run in WSL: `rc.sh <key> s <usage-id|->` saves a
+ * statusline from stdin, `rc.sh <key> e <event>` appends `<unix seconds> <event>`. Its folder is
+ * found from `$0`, so it needs no $HOME. Prints nothing and always exits 0 (a Stop hook that
+ * exits 2 would block the turn). No single quote or backslash: the launch writes it with echo
+ * inside single quotes.
+ */
+export const WINDOWS_SIGNALS_SCRIPT = [
+  'd=${0%/win/rc.sh}; k=$1',
+  'case $k in ""|*[!A-Za-z0-9._-]*) exit 0;; esac',
+  'if [ "$2" = s ]; then t=$d/.st.$$; mkdir -p "$d/session" "$d/status" && cat > "$t" || exit 0',
+  'cp "$t" "$d/session/.$k.$$" && mv -f "$d/session/.$k.$$" "$d/session/$k.json"',
+  'case $3 in ""|-|*[!A-Za-z0-9_-]*) rm -f "$t";; *) mv -f "$t" "$d/status/$3.json";; esac',
+  'else cat >/dev/null; case $3 in ""|*[!a-z_]*) exit 0;; esac',
+  'mkdir -p "$d/events" && echo "$(date +%s) $3" >> "$d/events/$k.log"; fi',
+  'exit 0',
+].join('; ');
+
+/** Stands in for the command prefix (`wsl.exe … rc.sh <key>`) until the launch fills it in. */
+const WIN_PREFIX = '@@RC@@';
+
+/**
+ * The `--settings` object of a Windows launch, with `prefix` as the `wsl.exe … rc.sh <key>`
+ * part of every command (the launch's shell supplies the real one).
+ */
+export function buildWindowsSignalsSettings(usageId: string | null, prefix = WIN_PREFIX): SignalsSettings {
+  return signalsSettings(`${prefix} s ${usageId ?? '-'}`, (event) => `${prefix} e ${event}`);
+}
+
+/**
+ * The shell statement a Windows launch runs first: checks the session key, distro and user,
+ * writes {@link WINDOWS_SIGNALS_SCRIPT} and the session's settings JSON under
+ * {@link WINDOWS_SIGNALS_DIR}, and leaves the file's Windows path in `$rc_s`. Anything missing
+ * or odd leaves `rc_s={}` (no signals; the session still starts). POSIX sh and zsh.
+ */
+export function buildWindowsSignalsSetup(usageId: string | null): string {
+  if (usageId !== null && !ID_RE.test(usageId)) usageId = null;
+  const json = JSON.stringify(buildWindowsSignalsSettings(usageId));
+  const script = WINDOWS_SIGNALS_SCRIPT;
+  if (/['\\]/.test(json) || /['\\]/.test(script)) throw new Error('Windows signals text must not hold quotes');
+  const v = WINDOWS_SETTINGS_VAR;
+  const spliced = json.split(WIN_PREFIX).join(`'"$rc_c"'`);
+  const write =
+    `mkdir -p "$rc_d" && echo '${script}' > "$rc_d/.rc.$$" && mv -f "$rc_d/.rc.$$" "$rc_d/rc.sh" && ` +
+    `echo '${spliced}' > "$rc_d/.$rc_k.$$" && mv -f "$rc_d/.$rc_k.$$" "$rc_d/$rc_k.json" && ` +
+    `${v}=$(wslpath -w "$rc_d/$rc_k.json")`;
+  return (
+    `${v}={}; rc_k=$${REMOTE_SESSION_ENV}; rc_n=$WSL_DISTRO_NAME; rc_u=$(id -un 2>/dev/null); ` +
+    `rc_d=$HOME/${WINDOWS_SIGNALS_DIR}; ` +
+    `case "$rc_k:$rc_n:$rc_u" in :*|*::*|*:|*[!A-Za-z0-9._:-]*) ;; *) ` +
+    `case "$rc_d" in /*[!A-Za-z0-9._/-]*|[!/]*) ;; *) ` +
+    `rc_c="wsl.exe -d $rc_n -u $rc_u -e sh ${WSL_CLIMB}$rc_d/rc.sh $rc_k"; ` +
+    `${write} || ${v}={};; esac;; esac; ` +
+    `[ -n "$${v}" ] || ${v}={}`
+  );
 }
 
 const SSH_TIMEOUT_MS = 20_000;
@@ -479,10 +578,11 @@ async function readHostStatus(host: RemoteHost): Promise<void> {
  */
 export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): Promise<Map<string, FleetUsage>> {
   if (process.env.VITEST) return new Map();
-  // A machine's Windows system shares its WSL files; ask each address once.
+  // A machine's Windows system shares its WSL files (its ssh lands in WSL, and its sessions
+  // save there through wsl.exe); ask each address once, through the WSL system when there is one.
   const seen = new Set<string>();
-  const targets = hosts.filter((h) => {
-    if (h.system === 'windows') return false;
+  const ordered = [...hosts].sort((a, b) => Number(a.system === 'windows') - Number(b.system === 'windows'));
+  const targets = ordered.filter((h) => {
     const key = `${h.username}@${h.host}:${h.port ?? 22}`;
     if (seen.has(key)) return false;
     seen.add(key);

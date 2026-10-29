@@ -176,7 +176,8 @@ export interface SessionRemote extends RemoteSshOptions {
     /**
      * Fork (fleet.ts `REMOTE_SIGNALS_VERSION`): the launch carries the hooks and per-session
      * statusLine that record alerts and telemetry to files on the machine (read by
-     * remote-session-signals.ts). Absent on launches built before that, and on Windows.
+     * remote-session-signals.ts). Absent on launches built before that (on Windows, before
+     * fleet.ts `buildWindowsSignalsSetup`).
      */
     signals?: number;
   };

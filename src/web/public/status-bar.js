@@ -203,7 +203,7 @@ Object.assign(CodemanApp.prototype, {
                 'so it never shows "needs you" and its state comes from the screen only. ' +
                 'Start it again from the dashboard to get them.'
               : 'Alerts and token counts do not reach the dashboard from this session ' +
-                '(a native Windows session, a custom host command, or a tmux session Claude RC did not start), ' +
+                '(a custom host command, or a tmux session Claude RC did not start), ' +
                 'so its state comes from the screen only.',
         })
       );

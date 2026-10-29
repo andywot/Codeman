@@ -48,9 +48,11 @@ describe('usage from session statuslines', () => {
     });
   });
 
-  it('adds nothing for Windows sessions, and no per-account usage for api/shell accounts', () => {
-    expect(buildLaunch({ system: 'windows' }, account, undefined).args).not.toContain('--settings');
-    expect(buildLaunch({ system: 'windows' }, undefined, undefined).args).not.toContain('--settings');
+  it('passes Windows sessions a settings file, and saves no per-account usage for api/shell accounts', () => {
+    // Windows: the JSON goes to a file in WSL first (test/remote-session-signals.test.ts runs it).
+    expect(buildLaunch({ system: 'windows' }, account, undefined).args).toBe(' --settings "$rc_s"');
+    expect(buildLaunch({ system: 'windows' }, account, undefined).setup).toContain(' s personal"');
+    expect(buildLaunch({ system: 'windows' }, undefined, undefined).setup).toContain(' s -"');
     // A shell (or api) account still gets the per-session statusline and the alert hooks
     // (test/remote-session-signals.test.ts), but its reading is not an account's usage.
     const { args } = buildLaunch(

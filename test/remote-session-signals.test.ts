@@ -23,8 +23,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildLaunch,
   buildRemoteSignalsSettings,
+  buildWindowsSignalsSettings,
   REMOTE_HOOK_EVENTS,
   REMOTE_SIGNALS_VERSION,
+  WINDOWS_CLAUDE_BINARY,
+  WINDOWS_SIGNALS_DIR,
+  WINDOWS_SIGNALS_SCRIPT,
   type FleetAccount,
 } from '../src/fleet.js';
 import { shellescape } from '../src/remote-hosts.js';
@@ -199,12 +203,6 @@ describe('the launch records hook events and statuslines on the machine', () => 
     expect(argv.slice(2)).toEqual(['--session-id', SESSION_ID]);
   });
 
-  it('Windows sessions get none of it', () => {
-    const launch = buildLaunch({ system: 'windows' }, account, undefined);
-    expect(launch.args).not.toContain('--settings');
-    expect(launch.signals).toBeUndefined();
-  });
-
   it('the remote pane exports $CLAUDE_RC_SESSION (its tmux name) for claude only', () => {
     const r = remote();
     const claude = buildRemoteLaunchCommand({ mode: 'claude', remote: r, sessionId: SESSION_ID });
@@ -232,6 +230,198 @@ describe('the launch records hook events and statuslines on the machine', () => 
     const launch = buildLaunch({ system: 'wsl' }, account, 'opus');
     const line = buildRemoteLaunchCommand({ mode: 'claude', remote: remote({ launch }), sessionId: SESSION_ID });
     expect(line).toContain('CLAUDE_RC_SESSION');
+    expect(line.length).toBeLessThan(10_000);
+  });
+});
+
+// Windows-native sessions (fleet.ts `buildWindowsSignalsSetup`). Windows claude runs statusLine
+// and hook commands in Git Bash, else PowerShell, so the commands call wsl.exe back into WSL.
+// Neither Windows shell nor wsl.exe can run here, so the tests pin what they depend on:
+// - the launch, run through the same shell layers as the pane, writes the script and the
+//   session's settings file and hands claude only the file's `\\wsl.localhost\…` path;
+// - every command is plain words (nothing Git Bash, PowerShell or cmd would expand or
+//   re-quote, no argument starting with `/`, which Git Bash rewrites into a Windows path);
+// - what wsl.exe would then run (`sh <relative script> …`, from a Windows working directory
+//   mapped under /mnt/c, with another HOME) writes the files the server's read script finds.
+describe('Windows-native sessions record through wsl.exe', () => {
+  const DISTRO = 'Ubuntu-22.04';
+  const USER = execFileSync('id', ['-un']).toString().trim();
+
+  /** A fake `wslpath -w` and `claude` (records argv) on PATH. */
+  function fakeBin(): { bin: string; argvFile: string } {
+    const bin = home();
+    const argvFile = join(bin, 'argv');
+    writeFileSync(
+      join(bin, 'wslpath'),
+      `#!/bin/sh\nprintf '%s\\n' "\\\\\\\\wsl.localhost\\\\${DISTRO}$2" | tr / '\\\\'\n`
+    );
+    writeFileSync(join(bin, 'claude'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done > ${argvFile}\n`);
+    chmodSync(join(bin, 'wslpath'), 0o755);
+    chmodSync(join(bin, 'claude'), 0o755);
+    return { bin, argvFile };
+  }
+
+  /** Runs a launch the way the pane does (a login shell's `-c` around it), with `claude` faked. */
+  function runLaunch(
+    launch: ReturnType<typeof buildLaunch>,
+    env: Record<string, string | undefined>,
+    shell = 'sh'
+  ): { argv: string[]; h: string } {
+    const { bin, argvFile } = fakeBin();
+    const h = home();
+    // The token/api accounts' keys, which the launch reads from the machine.
+    execFileSync('mkdir', ['-p', join(h, '.config/claude-rc')]);
+    for (const id of ['personal', 'glm']) writeFileSync(join(h, `.config/claude-rc/${id}.secret`), 'k\n');
+    const inner = `${launch.setup}claude${launch.args} --session-id ${SESSION_ID}`;
+    const fullEnv: Record<string, string | undefined> = {
+      ...process.env,
+      HOME: h,
+      PATH: `${bin}:${process.env.PATH}`,
+      WSL_DISTRO_NAME: DISTRO,
+      CLAUDE_RC_SESSION: KEY,
+      ...env,
+    };
+    for (const k of Object.keys(fullEnv)) if (fullEnv[k] === undefined) delete fullEnv[k];
+    execFileSync('sh', ['-c', `${shell} -c ${shellescape(inner)}`], { env: fullEnv as NodeJS.ProcessEnv });
+    return { argv: readFileSync(argvFile, 'utf8').trimEnd().split('\n'), h };
+  }
+
+  /** What wsl.exe would run for one command: checks its words, then runs `sh <script> …`. */
+  function runAsWsl(command: string, h: string, input: string): string {
+    expect(command).toMatch(/^[A-Za-z0-9 ._/-]+$/);
+    const words = command.split(' ');
+    expect(words.some((w) => w.startsWith('/'))).toBe(false);
+    expect(words.slice(0, 7)).toEqual(['wsl.exe', '-d', DISTRO, '-u', USER, '-e', 'sh']);
+    // The Windows working directory, as WSL maps it (deep, under a stand-in for /mnt/c), and a
+    // HOME that is not the session's: the script must find its folder from its own path.
+    const cwd = join(home(), 'mnt/c/Users/me/source/repos/some/project');
+    execFileSync('mkdir', ['-p', cwd]);
+    return execFileSync('sh', words.slice(7), { cwd, input, env: { ...process.env, HOME: home() } }).toString();
+  }
+
+  function settingsFile(h: string): ReturnType<typeof buildRemoteSignalsSettings> {
+    return JSON.parse(readFileSync(join(h, WINDOWS_SIGNALS_DIR, `${KEY}.json`), 'utf8'));
+  }
+
+  it('the launch writes the settings to a file and passes only its Windows path', () => {
+    const launch = buildLaunch({ system: 'windows' }, account, 'opus');
+    expect(launch.binary).toBe(WINDOWS_CLAUDE_BINARY);
+    expect(launch.signals).toBe(REMOTE_SIGNALS_VERSION);
+    // No JSON reaches the Windows command line.
+    expect(launch.args).not.toContain('{');
+    for (const shell of ['sh', 'bash']) {
+      const { argv, h } = runLaunch(launch, {}, shell);
+      const file = join(h, WINDOWS_SIGNALS_DIR, `${KEY}.json`);
+      expect(argv).toEqual([
+        '--model',
+        'opus',
+        '--settings',
+        `\\\\wsl.localhost\\${DISTRO}${file.replace(/\//g, '\\')}`,
+        '--session-id',
+        SESSION_ID,
+      ]);
+      // A path claude.exe can take through cmd.exe and the claude.cmd shim: no quote, space or metacharacter.
+      expect(argv[3]).toMatch(/^[A-Za-z0-9\\._-]+$/);
+      const script = `${'../'.repeat(31)}..${h}/${WINDOWS_SIGNALS_DIR}/rc.sh`;
+      expect(settingsFile(h)).toEqual(
+        buildWindowsSignalsSettings('personal', `wsl.exe -d ${DISTRO} -u ${USER} -e sh ${script} ${KEY}`)
+      );
+      expect(readFileSync(join(h, WINDOWS_SIGNALS_DIR, 'rc.sh'), 'utf8').trim()).toBe(WINDOWS_SIGNALS_SCRIPT);
+    }
+  });
+
+  it('hooks append `<seconds> <event>` and the statusLine saves per session and per account, via wsl.exe', () => {
+    const { h } = runLaunch(buildLaunch({ system: 'windows' }, account, undefined), {});
+    const settings = settingsFile(h);
+    const before = Math.floor(Date.now() / 1000);
+    for (const { event } of REMOTE_HOOK_EVENTS) {
+      expect(runAsWsl(hookCommand(settings, event), h, HOOK_INPUT)).toBe('');
+    }
+    const log = readFileSync(join(h, '.config/claude-rc/events', `${KEY}.log`), 'utf8');
+    expect(log).not.toContain('SECRET');
+    const lines = log.trimEnd().split('\n');
+    expect(lines.map((l) => l.split(' ')[1])).toEqual(REMOTE_HOOK_EVENTS.map((e) => e.event));
+    for (const line of lines) {
+      expect(line).toMatch(/^\d+ [a-z_]+$/);
+      expect(Number(line.split(' ')[0])).toBeGreaterThanOrEqual(before);
+    }
+    expect(settings.hooks.Notification.map((e) => e.matcher)).toEqual(
+      REMOTE_HOOK_EVENTS.filter((e) => e.hook === 'Notification').map((e) => e.matcher)
+    );
+
+    expect(runAsWsl(settings.statusLine.command, h, STATUSLINE)).toBe('');
+    expect(readFileSync(join(h, '.config/claude-rc/session', `${KEY}.json`), 'utf8')).toBe(STATUSLINE);
+    expect(readFileSync(join(h, '.config/claude-rc/status/personal.json'), 'utf8')).toBe(STATUSLINE);
+    // No temp file left behind.
+    const entries = execFileSync('ls', ['-A', join(h, '.config/claude-rc')])
+      .toString()
+      .split('\n');
+    expect(entries.filter((e) => e && !e.endsWith('.secret'))).toEqual(['events', 'session', 'status', 'win']);
+
+    // The server's read script, run on the machine, finds them like a WSL session's.
+    const read = parseSignalsReadOutput(
+      execFileSync('sh', ['-c', buildSignalsReadScript([{ key: KEY, offset: 0, statusMtime: null }])], {
+        env: { ...process.env, HOME: h },
+      }).toString()
+    );
+    expect(parseEventLines(read.events.get(KEY)!.body).events.map((e) => e.event)).toEqual(
+      REMOTE_HOOK_EVENTS.map((e) => e.event)
+    );
+    expect(JSON.parse(read.status.get(KEY)!.body)).toEqual(JSON.parse(STATUSLINE));
+  });
+
+  it('saves no account usage for the Windows login or an api account, only the session figures', () => {
+    const api: FleetAccount = { id: 'glm', label: 'GLM', kind: 'api', baseUrl: 'https://a.example', secret: 'k' };
+    for (const acct of [undefined, api]) {
+      const { h } = runLaunch(buildLaunch({ system: 'windows' }, acct, undefined), {});
+      const settings = settingsFile(h);
+      expect(settings.statusLine.command.endsWith(`${KEY} s -`)).toBe(true);
+      runAsWsl(settings.statusLine.command, h, STATUSLINE);
+      expect(readFileSync(join(h, '.config/claude-rc/session', `${KEY}.json`), 'utf8')).toBe(STATUSLINE);
+      expect(execFileSync('ls', ['-A', join(h, '.config/claude-rc/status')]).toString()).toBe('');
+    }
+  });
+
+  it('starts claude with empty settings, writing nothing, when the key, distro or home is missing or odd', () => {
+    const launch = buildLaunch({ system: 'windows' }, undefined, undefined);
+    for (const env of [
+      { CLAUDE_RC_SESSION: undefined },
+      { CLAUDE_RC_SESSION: 'bad key' },
+      { WSL_DISTRO_NAME: undefined },
+      { WSL_DISTRO_NAME: 'My Distro' },
+    ]) {
+      const { argv, h } = runLaunch(launch, env);
+      expect(argv).toEqual(['--settings', '{}', '--session-id', SESSION_ID]);
+      expect(existsSync(join(h, WINDOWS_SIGNALS_DIR))).toBe(false);
+    }
+    // A HOME with a space would split the command words.
+    const { argv } = runLaunch(launch, { HOME: join(home(), 'my home') });
+    expect(argv.slice(0, 2)).toEqual(['--settings', '{}']);
+  });
+
+  it('the script never fails a hook and ignores a bad key or event', () => {
+    const h = home();
+    const dir = join(h, WINDOWS_SIGNALS_DIR);
+    execFileSync('mkdir', ['-p', dir]);
+    writeFileSync(join(dir, 'rc.sh'), WINDOWS_SIGNALS_SCRIPT);
+    const run = (...args: string[]) =>
+      execFileSync('sh', [join(dir, 'rc.sh'), ...args], { input: HOOK_INPUT, cwd: h, stdio: 'pipe' }).toString();
+    expect(run('bad/key', 'e', 'stop')).toBe('');
+    expect(run(KEY, 'e', 'Stop;rm')).toBe('');
+    expect(existsSync(join(h, '.config/claude-rc/events'))).toBe(false);
+    // A folder it cannot write still exits 0 (a Stop hook exiting 2 would block the turn).
+    writeFileSync(join(h, '.config/claude-rc/events'), 'not a folder');
+    expect(run(KEY, 'e', 'stop')).toBe('');
+  });
+
+  it('keeps the Windows launch line well inside tmux command limits', () => {
+    const launch = buildLaunch({ system: 'windows' }, account, 'opus');
+    const line = buildRemoteLaunchCommand({
+      mode: 'claude',
+      remote: remote({ system: 'windows', launch }),
+      sessionId: SESSION_ID,
+    });
+    expect(line).toContain(`export CLAUDE_RC_SESSION=${KEY}`);
     expect(line.length).toBeLessThan(10_000);
   });
 });
@@ -398,11 +588,12 @@ describe('RemoteSessionSignals', () => {
     expect(ports.exec).toHaveBeenCalledTimes(2);
   });
 
-  it('reads nothing for sessions launched before this, on Windows, or not claude', async () => {
+  it('reads nothing for sessions launched before this (Windows ones too), or not claude', async () => {
     const reads = vi.fn(async () => '');
+    const oldWindows = { setup: '', binary: WINDOWS_CLAUDE_BINARY, args: '' };
     const sessions: SignalsSession[] = [
       { id: 'a', mode: 'claude', remote: remote({ launch: { setup: '', binary: 'claude', args: '' } }) },
-      { id: 'b', mode: 'claude', remote: remote({ system: 'windows' }) },
+      { id: 'b', mode: 'claude', remote: remote({ system: 'windows', launch: oldWindows }) },
       { id: 'c', mode: 'shell', remote: remote() },
       { id: 'd', mode: 'claude' },
     ];
@@ -426,7 +617,13 @@ describe('who gets it', () => {
       remoteSignalsSupport({ mode: 'claude', remote: remote({ launch: { setup: '', binary: 'claude', args: '' } }) })
     ).toBe('relaunch');
     expect(remoteSignalsSupport({ mode: 'claude', remote: remote({ launch: undefined }) })).toBe('relaunch');
-    expect(remoteSignalsSupport({ mode: 'claude', remote: remote({ system: 'windows' }) })).toBe('unsupported');
+    // Windows-native: told apart by its launch record like the others (wsl.exe route).
+    expect(remoteSignalsSupport({ mode: 'claude', remote: remote({ system: 'windows' }) })).toBe('on');
+    const oldWindows = remote({ system: 'windows', launch: { setup: '', binary: WINDOWS_CLAUDE_BINARY, args: '' } });
+    expect(remoteSignalsSupport({ mode: 'claude', remote: oldWindows })).toBe('relaunch');
+    expect(
+      remoteSignalsSupport({ mode: 'claude', remote: remote({ system: 'windows', commands: { claude: 'x' } }) })
+    ).toBe('unsupported');
     expect(remoteSignalsSupport({ mode: 'claude', remote: remote({ commands: { claude: 'x' } }) })).toBe('unsupported');
     const adopted = remote({ owned: false, remoteSessionName: 'main', remoteTmuxSocket: 'default' });
     expect(remoteSignalsSupport({ mode: 'claude', remote: adopted })).toBe('unsupported');

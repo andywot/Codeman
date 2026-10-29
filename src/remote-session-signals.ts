@@ -13,7 +13,8 @@
  * - `~/.config/claude-rc/session/<key>.json`: the latest statusline JSON.
  *
  * `<key>` is the remote tmux session name (`remoteSignalsKey`), exported to the pane as
- * `$CLAUDE_RC_SESSION` (tmux-manager.ts).
+ * `$CLAUDE_RC_SESSION` (tmux-manager.ts). A Windows-native session's commands run on Windows and
+ * write the same files by calling `wsl.exe` back into its WSL (fleet.ts `buildWindowsSignalsSetup`).
  *
  * This service reads them back over each host's pooled shell (remote-shell-pool.ts): ONE command
  * per host per poll for all of that host's sessions, which prints only the event bytes past the
@@ -86,7 +87,9 @@ export function remoteSignalsSupport(
   // The CLI whose remote launch carries the fleet profile and reports a statusline (claude),
   // as data rather than an id check (test/cli-registry-no-id-branching.test.ts).
   if (!remote || session.docker || !getCli(session.mode)?.capabilities.statusLineTelemetry) return undefined;
-  if (remote.system === 'windows' || remote.commands?.claude) return 'unsupported';
+  // A Windows-native launch records through wsl.exe (fleet.ts `buildWindowsSignalsSetup`), so it is
+  // told apart by its launch record like the others.
+  if (remote.commands?.claude) return 'unsupported';
   // An adopted session was started by someone else, without these hooks.
   if (remote.remoteTmuxSocket || (remote.owned === false && !isReclaimedRemote(remote))) return 'unsupported';
   if ((remote.launch?.signals ?? 0) >= 1 || seen) return 'on';
