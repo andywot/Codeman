@@ -504,7 +504,7 @@ Object.assign(CodemanApp.prototype, {
   openAppSettings() {
     // Load current settings
     const settings = this.loadAppSettingsFromStorage();
-    document.getElementById('appSettingsDisplayName').value = settings.displayName || 'Codeman';
+    document.getElementById('appSettingsDisplayName').value = settings.displayName || 'Claude RC';
     document.getElementById('appSettingsLanguage').value = settings.language === 'zh-CN' ? 'zh-CN' : 'en';
     document.getElementById('appSettingsClaudeMdPath').value = settings.defaultClaudeMdPath || '';
     document.getElementById('appSettingsDefaultDir').value = settings.defaultWorkingDir || '';
