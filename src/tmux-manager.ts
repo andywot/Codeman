@@ -1440,7 +1440,7 @@ export function buildRemoteLaunchCommand(options: {
  */
 export function buildRemoteKillCommand(options: { remote: SessionRemote; sessionId: string }): string {
   const { remote, sessionId } = options;
-  const remoteName = remoteTmuxSessionName(sessionId);
+  const remoteName = isReclaimedRemote(remote) ? remote.remoteSessionName! : remoteTmuxSessionName(sessionId);
   const killCmd = `tmux -L ${REMOTE_TMUX_SOCKET} kill-session -t ${shellescape(remoteName)}`;
   const [ssh, ...connectionArgs] = buildSshConnectionArgs(remote);
   return [ssh, ...connectionArgs, remoteSshTarget(remote), shellescape(withRemoteTmuxPath(killCmd))].join(' ');
@@ -1823,8 +1823,18 @@ export function resolveDockerLaunchOptions(
  *   connects identically to launch / discovery / the prereq probe. `-t` sits
  *   right after `ssh -o BatchMode=yes` (a PTY is required for interactive tmux).
  */
+/**
+ * Fork: a `codeman-ssh-*` remote session was launched by THIS server (on its dedicated
+ * socket) and lost from the dashboard; re-attaching it reclaims ownership, so closing
+ * it ends it like any session this server started.
+ */
+export function isReclaimedRemote(remote: SessionRemote): boolean {
+  return remote.owned === false && (remote.remoteSessionName ?? '').startsWith('codeman-ssh-');
+}
+
 export function buildRemoteAttachCommand(remote: SessionRemote, remoteSessionName: string): string {
-  const tmuxInvocation = `tmux -L codeman attach -t ${shellescape(remoteSessionName)}`;
+  const socket = remoteSessionName.startsWith('codeman-ssh-') ? REMOTE_TMUX_SOCKET : 'codeman';
+  const tmuxInvocation = `tmux -L ${socket} attach -t ${shellescape(remoteSessionName)}`;
   const [ssh, batchMode, ...connectionArgs] = buildSshConnectionArgs(remote);
   const sshParts = [
     ssh,
@@ -3082,7 +3092,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
     // for a non-owned session. The only `kill-session` we run is on OUR LOCAL
     // socket (`this.tmux()` = `tmux -L codeman` on THIS host), which kills the
     // local pane — it does NOT reach the REMOTE socket.
-    if (session.remote && session.remote.owned === false) {
+    if (session.remote && session.remote.owned === false && !isReclaimedRemote(session.remote)) {
       console.log(`[TmuxManager] DETACH (non-owned remote): tearing down local pane only for ${session.muxName}`);
       if (isValidMuxName(session.muxName)) {
         try {
