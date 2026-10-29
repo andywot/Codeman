@@ -16,7 +16,10 @@ let savedPath: string | undefined;
 beforeAll(() => {
   const bin = mkdtempSync(join(tmpdir(), 'rcpool-ssh-'));
   // ssh's last argument is the remote command; run it with sh, as sshd would.
-  writeFileSync(join(bin, 'ssh'), '#!/bin/sh\nfor a; do last=$a; done\nexec sh -c "$last"\n');
+  writeFileSync(
+    join(bin, 'ssh'),
+    '#!/bin/sh\nfor a; do last=$a; case $a in *SlowLogin*) sleep 0.5;; esac; done\nexec sh -c "$last"\n'
+  );
   chmodSync(join(bin, 'ssh'), 0o755);
   savedPath = process.env.PATH;
   process.env.PATH = `${bin}:${process.env.PATH}`;
@@ -46,6 +49,15 @@ describe('remoteExec', () => {
       code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
     });
     expect((await remoteExec(target, 'echo ok')).stdout.toString()).toBe('ok\n');
+  });
+
+  it('keeps a shell that was still connecting when a command timed out', async () => {
+    const slow = { host: 'slow.test', username: 'tester', extraSshOptions: ['SlowLogin=yes'] };
+    await expect(remoteExec(slow, 'echo never', { timeout: 100 })).rejects.toMatchObject({ killed: true });
+    const started = Date.now();
+    expect((await remoteExec(slow, 'echo ok')).stdout.toString()).toBe('ok\n');
+    // Served by the shell that finished logging in, not a second slow login.
+    expect(Date.now() - started).toBeLessThan(450);
   });
 
   it('times out one command without breaking later ones, and runs commands in parallel', async () => {

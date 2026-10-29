@@ -153,10 +153,16 @@ class PooledShell {
     this.idleTimer = null;
     const id = `${this.nonce}_${++this.seq}`;
     const timer = setTimeout(() => {
-      // The command may still be running remotely; only a fresh shell is safe now.
       const current = this.job;
       this.job = null;
       current?.reject(new RemoteExecError('timed out', { code: null, killed: true }));
+      // Still connecting: the command was never sent, so the shell is clean; let it
+      // finish logging in and serve the next command (a desktop login takes ~4 s).
+      if (!this.ready) {
+        this.onIdle(this);
+        return;
+      }
+      // The command may still be running remotely; only a fresh shell is safe now.
       this.die('timed out');
     }, job.opts.timeout ?? 20_000);
     this.job = { ...job, id, timer };
