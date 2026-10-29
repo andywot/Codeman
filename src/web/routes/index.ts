@@ -19,6 +19,7 @@ export { registerGitStatusRoutes } from './git-status-routes.js';
 export { registerStatusTelemetryRoutes } from './status-telemetry-routes.js';
 export { registerCaseRoutes } from './case-routes.js';
 export { registerFleetRoutes } from './fleet-routes.js';
+export { registerSharedConfigRoutes } from './shared-config-routes.js';
 export { registerChatRoutes } from './chat-routes.js';
 export { registerWorktreeRoutes } from './worktree-routes.js';
 export { registerSessionRoutes } from './session-routes.js';
