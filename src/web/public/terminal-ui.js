@@ -2047,6 +2047,16 @@ Object.assign(CodemanApp.prototype, {
             flushInput();
             return;
           }
+          if (data === '/' && !this._localEchoOverlay?.pendingText) {
+            // Fork: a "/" opening the line pops the CLI's live command picker,
+            // which only filters if it sees every keystroke. Hand the line to
+            // plain PTY echo until Enter or Ctrl+C, like a nav key does.
+            if (!this._echoPassthroughSessions) this._echoPassthroughSessions = new Set();
+            this._echoPassthroughSessions.add(this.activeSessionId);
+            this._pendingInput += data;
+            flushInput();
+            return;
+          }
           if (data.length === 1 && data.charCodeAt(0) >= 32) {
             // Printable char: add to overlay only (sent on Enter)
             this._localEchoOverlay?.addChar(data);
