@@ -35,7 +35,6 @@ Object.assign(CodemanApp.prototype, {
   shouldShowOverviewBoard() {
     if (this.isSoloWindow) return false;
     if (this.shouldUseMobileOverview?.()) return false;
-    if (!this.sessions || this.sessions.size === 0) return false;
     return window.innerWidth >= OVERVIEW_BOARD_MIN_WIDTH;
   },
 
@@ -142,6 +141,19 @@ Object.assign(CodemanApp.prototype, {
 
     const body = document.createElement('div');
     body.className = 'ob-body';
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ob-empty';
+      const line = document.createElement('p');
+      line.textContent = 'No sessions running. Start one on any machine.';
+      const start = document.createElement('button');
+      start.type = 'button';
+      start.className = 'ob-new';
+      start.dataset.obAction = 'new';
+      start.textContent = 'New session';
+      empty.append(line, start);
+      body.appendChild(empty);
+    }
     if (attention.length) {
       body.appendChild(this._buildOverviewSection('Needs you', attention, order, { attention: true }));
     }

@@ -23965,3 +23965,18 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+.ob-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 40px 0;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.ob-empty p {
+  margin: 0;
+}
+.ob-empty .ob-new {
+  margin-left: 0;
+}
