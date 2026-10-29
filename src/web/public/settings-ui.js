@@ -522,7 +522,7 @@ Object.assign(CodemanApp.prototype, {
     document.getElementById('appSettingsShowResponseViewer').checked = settings.showResponseViewer ?? defaults.showResponseViewer ?? false;
     document.getElementById('appSettingsShowFileViewerButton').checked = settings.showFileViewerButton ?? defaults.showFileViewerButton ?? true;
     document.getElementById('appSettingsShowAttachmentsButton').checked = settings.showAttachmentsButton ?? defaults.showAttachmentsButton ?? false;
-    document.getElementById('appSettingsSkin').value = settings.skin ?? defaults.skin ?? 'daylight-blue';
+    document.getElementById('appSettingsSkin').value = settings.skin ?? defaults.skin ?? 'monokai-pro-light';
     // Entrance animations. Deliberately NOT part of the settings payload: the
     // styles persist to their own localStorage keys via setAnimTheme(), which
     // keeps them per-device without touching the .strict() SettingsUpdateSchema.
@@ -4266,7 +4266,7 @@ Object.assign(CodemanApp.prototype, {
         cjkInputEnabled: false,
         terminalWheelLocalScrollback: false, // mobile scrolls via touch, not wheel
         webglRendererEnabled: false, // mobile always uses the DOM renderer
-        skin: 'daylight-blue',
+        skin: 'monokai-pro-light',
       };
     }
     // Desktop defaults - rely on ?? operators in apply functions
@@ -4325,7 +4325,7 @@ Object.assign(CodemanApp.prototype, {
   applySkin() {
     const settings = this.loadAppSettingsFromStorage();
     const defaults = this.getDefaultSettings();
-    const skin = settings.skin ?? defaults.skin ?? 'daylight-blue';
+    const skin = settings.skin ?? defaults.skin ?? 'monokai-pro-light';
     document.documentElement.setAttribute('data-skin', skin);
     window.__codemanSkin = skin;
     const themeColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-dark').trim();

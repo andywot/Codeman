@@ -3318,7 +3318,7 @@ html.mobile-init .file-browser-panel {
 /* Light-skin compatibility for mobile-only chrome. These components predate
    the shared skin system and intentionally retain their original dark values
    for the three dark skins above. */
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.header, .toolbar, .keyboard-accessory-bar) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.header, .toolbar, .keyboard-accessory-bar) {
   background: var(--glass-bg);
   border-color: var(--glass-border);
   color: var(--text);
@@ -3330,13 +3330,13 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
    both stylesheets and repainted the armed modifier back to a resting button on
    all four light skins. Excluding the state here fixes phone and tablet at once;
    adding a class to the armed rules would only have moved the tie. */
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-voice-mobile, .btn-attach-mobile, .btn-settings-mobile, .btn-toolbar.btn-shell, .accessory-btn:not(.armed)) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-voice-mobile, .btn-attach-mobile, .btn-settings-mobile, .btn-toolbar.btn-shell, .accessory-btn:not(.armed)) {
   background: var(--control-bg);
   border-color: var(--control-border);
   color: var(--text-dim);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-voice-mobile:active, .btn-attach-mobile:active, .btn-settings-mobile:active, .btn-toolbar.btn-shell:hover, .btn-toolbar.btn-shell:active, .accessory-btn:active) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-voice-mobile:active, .btn-attach-mobile:active, .btn-settings-mobile:active, .btn-toolbar.btn-shell:hover, .btn-toolbar.btn-shell:active, .accessory-btn:active) {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
   color: var(--text);
@@ -3345,86 +3345,86 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 /* Attach's press feedback comes from its wrapper (the file input over the button
    takes the press). Kept out of the :is() list above on purpose: a descendant
    selector there would raise that list's specificity for every button in it. */
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) .btn-attach-mobile-wrap:active .btn-attach-mobile {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) .btn-attach-mobile-wrap:active .btn-attach-mobile {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
   color: var(--text);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-claude, .btn-toolbar.btn-run-gear.mode-claude) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-claude, .btn-toolbar.btn-run-gear.mode-claude) {
   background: linear-gradient(135deg, var(--accent-grad-a), var(--accent-grad-b));
   border-color: var(--accent);
   color: var(--accent-ink);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-opencode, .btn-toolbar.btn-run-gear.mode-opencode) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-opencode, .btn-toolbar.btn-run-gear.mode-opencode) {
   background: linear-gradient(135deg, var(--accent-d), var(--accent-grad-b));
   border-color: var(--accent);
   color: var(--accent-ink);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-gemini, .btn-toolbar.btn-run-gear.mode-gemini) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-gemini, .btn-toolbar.btn-run-gear.mode-gemini) {
   background: linear-gradient(135deg, #174ea6, #4f46e5);
   border-color: #315fc3;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-antigravity, .btn-toolbar.btn-run-gear.mode-antigravity) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-antigravity, .btn-toolbar.btn-run-gear.mode-antigravity) {
   background: linear-gradient(135deg, #0e7490, #0891b2);
   border-color: #155e75;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-pi, .btn-toolbar.btn-run-gear.mode-pi) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-pi, .btn-toolbar.btn-run-gear.mode-pi) {
   background: linear-gradient(135deg, #be185d, #db2777);
   border-color: #9d174d;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-omp, .btn-toolbar.btn-run-gear.mode-omp) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-omp, .btn-toolbar.btn-run-gear.mode-omp) {
   background: linear-gradient(135deg, #4f46e5, #6366f1);
   border-color: #4338ca;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-copilot, .btn-toolbar.btn-run-gear.mode-copilot) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-copilot, .btn-toolbar.btn-run-gear.mode-copilot) {
   background: linear-gradient(135deg, #6d28d9, #8b5cf6);
   border-color: #5b21b6;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-grok, .btn-toolbar.btn-run-gear.mode-grok) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-grok, .btn-toolbar.btn-run-gear.mode-grok) {
   background: linear-gradient(135deg, #27272a, #52525b);
   border-color: #18181b;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.btn-toolbar.btn-run.mode-deepseek, .btn-toolbar.btn-run-gear.mode-deepseek) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.btn-toolbar.btn-run.mode-deepseek, .btn-toolbar.btn-run-gear.mode-deepseek) {
   background: linear-gradient(135deg, #2740c4, #4d6bfe);
   border-color: #1b2a8f;
   color: #ffffff;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) .btn-toolbar.btn-run-gear {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) .btn-toolbar.btn-run-gear {
   border-left-color: var(--control-border-hover) !important;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.case-settings-popover-mobile, .mobile-case-picker-sheet) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.case-settings-popover-mobile, .mobile-case-picker-sheet) {
   background: var(--floating-bg);
   border-color: var(--control-border);
   color: var(--text);
   box-shadow: var(--elevated-shadow);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(.case-settings-popover-mobile .checkbox-inline, #createCaseModal .form-row label) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(.case-settings-popover-mobile .checkbox-inline, #createCaseModal .form-row label) {
   color: var(--text);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) .case-settings-popover-mobile .form-hint {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) .case-settings-popover-mobile .form-hint {
   color: var(--text-muted);
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) .mobile-case-picker .modal-backdrop {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) .mobile-case-picker .modal-backdrop {
   background: var(--modal-backdrop);
 }
 

@@ -310,12 +310,44 @@ html[data-skin="rose-pine-dawn"] {
   --ui-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
+/* Monokai Pro Light (the fork's default). Flat surfaces, no glass or gradients:
+   the gradient pairs collapse to one colour and the ring is a focus outline.
+   Accents carry state; purple is selection and the primary action. */
+html[data-skin="monokai-pro-light"] {
+  color-scheme: light;
+  --bg-dark: #faf4f2; --bg-card: #f3ece9; --bg-input: #ede5e2; --bg-hover: #e6ddda;
+  --border: #e2d8d5; --border-light: #cbc1be;
+  --text: #29242a; --text-dim: #545055; --text-muted: #6b666a;
+  --accent: #7058be; --accent-hover: #5e47a8;
+  --term-bg: #faf4f2;
+  --green: #1f8a5b; --yellow: #a8640a; --red: #d03a68;
+  --glass-bg: #fbf7f6; --glass-border: rgba(41, 36, 42, 0.12);
+  --control-bg: rgba(41, 36, 42, 0.045); --control-bg-hover: rgba(41, 36, 42, 0.085);
+  --control-border: rgba(41, 36, 42, 0.13); --control-border-hover: rgba(41, 36, 42, 0.22);
+  --floating-bg: #fdf9f8;
+  --banner-bg-a: #fdf9f8; --banner-bg-b: #f3ece9;
+  --modal-backdrop: rgba(41, 36, 42, 0.26);
+  --elevated-shadow: 0 12px 36px rgba(41, 36, 42, 0.14), 0 2px 8px rgba(41, 36, 42, 0.08);
+  --subtle-shadow: 0 -1px 0 rgba(41, 36, 42, 0.06);
+  --accent-d: #5e47a8; --emerald: #1c8ca8; --teal: #1c8ca8;
+  --accent-soft: #269d69; --accent-ink: #ffffff;
+  --accent-rgb: 112, 88, 190;
+  --accent-grad-a: #7058be; --accent-grad-b: #7058be;
+  --run-hover-a: #5e47a8; --run-hover-b: #5e47a8; --gear-hover: #4a3790;
+  --ring-glow: 0 0 0 2px rgba(112, 88, 190, 0.28);
+  --session-red: #e14775; --session-orange: #e16032; --session-yellow: #cc7a0a;
+  --session-green: #269d69; --session-blue: #1c8ca8; --session-purple: #7058be; --session-pink: #c2457e;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, monospace;
+  --ui-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --btn-radius: 4px;
+}
+
 /* Components that predate skin tokens used literal dark glass fills. Keep
    their structure, but make those elevated surfaces coherent in light mode. */
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) {
   scrollbar-color: var(--border-light) var(--bg-input);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .modal-content,
   .ralph-dropdown,
   .ralph-panel.detached,
@@ -328,7 +360,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   color: var(--text);
   box-shadow: var(--elevated-shadow);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .settings-item,
   .cron-job-row,
   #cronModal .form-row-switch.cron-switch-row,
@@ -337,7 +369,7 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   background: var(--control-bg);
   border-color: var(--control-border);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .settings-item:hover,
   .cron-job-row:hover,
   .cron-weekdays label:hover
@@ -351,27 +383,27 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
    1.0–1.9:1 once the tint sits on a light surface — the search filter chips
    literally vanish. Re-point the ink at each skin's own dark tokens and keep
    the tint as the category signal. */
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .search-filter-chip.active,
   .search-badge-session,
   .history-view-all-btn
 ) {
   color: var(--accent-d);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .search-badge-file,
   .tunnel-panel-btn.btn-start,
   .voice-provider-status.active
 ) {
   color: var(--green);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .ralph-task-priority.priority-p1,
   .ralph-circuit-breaker.half-open
 ) {
   color: var(--yellow);
 }
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) :is(
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) :is(
   .search-badge-event,
   .respawn-state,
   .history-detail-path,
@@ -10035,7 +10067,7 @@ kbd {
   transform: none;
 }
 
-html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"]) .security-notice {
+html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="catppuccin-latte"], [data-skin="rose-pine-dawn"], [data-skin="monokai-pro-light"]) .security-notice {
   --notice-ink: color-mix(in srgb, var(--yellow) 85%, black);
 }
 

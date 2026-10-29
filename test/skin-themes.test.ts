@@ -12,7 +12,13 @@ const stylesSource = readFileSync(resolve('src/web/public/styles.css'), 'utf8');
 const mobileStylesSource = readFileSync(resolve('src/web/public/mobile.css'), 'utf8');
 const terminalSource = readFileSync(resolve('src/web/public/terminal-ui.js'), 'utf8');
 
-const LIGHT_SKINS = ['paper-gray', 'solarized-light', 'catppuccin-latte', 'rose-pine-dawn'] as const;
+const LIGHT_SKINS = [
+  'paper-gray',
+  'solarized-light',
+  'catppuccin-latte',
+  'rose-pine-dawn',
+  'monokai-pro-light',
+] as const;
 
 function hexRgb(hex: string): [number, number, number] {
   const normalized = hex.replace('#', '');

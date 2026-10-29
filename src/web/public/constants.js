@@ -1201,8 +1201,10 @@ const TERMINAL_FONT_WAIT_MS = 2000;
  */
 const TERMINAL_FONT_UNMEASURED = new Set(['monospace', 'serif', 'sans-serif', 'system-ui', 'symbols nerd font mono']);
 
+// The bundled JetBrains Mono leads so every device draws the same face; the
+// installed families after it only matter if the woff2 fails to load.
 const TERMINAL_FONT_DEFAULT_STACK =
-  '"Fira Code", "Cascadia Code", "JetBrains Mono", "SF Mono", Monaco, "Symbols Nerd Font Mono", monospace';
+  '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", Monaco, "Symbols Nerd Font Mono", monospace';
 
 /**
  * Resolve the xterm fontFamily from the per-device `terminalFontFamily`
