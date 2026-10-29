@@ -51,6 +51,11 @@
   <script>if(window.innerWidth<768||(('ontouchstart' in window||navigator.maxTouchPoints>0)&&window.innerWidth<1024))document.documentElement.classList.add('mobile-init');</script>
   <!-- Synchronous skin selection — runs before first paint to prevent theme flash -->
   <script>try{var s=localStorage.getItem('codeman:skin'),a=['og','daylight-green','daylight-blue','paper-gray','solarized-light','catppuccin-latte','rose-pine-dawn','monokai-pro-light'];if(a.indexOf(s)<0)s='monokai-pro-light';document.documentElement.dataset.skin=s;window.__codemanSkin=s;}catch(e){document.documentElement.dataset.skin='monokai-pro-light';window.__codemanSkin='monokai-pro-light';}</script>
+  <!-- Synchronous appearance (accent colour, UI font, data font, UI size) — before first paint, like the skin.
+       Reads localStorage['codeman:appearance'], which applyAppearance() in settings-ui.js keeps in step with the
+       settings blob. A compact copy of CodemanAppearance.plan() in constants.js; test/appearance.test.ts runs this
+       very script against it, so change them together. -->
+  <script>try{var o=JSON.parse(localStorage.getItem('codeman:appearance')||'{}'),r=document.documentElement,x=r.style,O=(m,k)=>typeof k==='string'&&({}).hasOwnProperty.call(m,k),U={system:"system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",serif:"ui-serif, Georgia, Cambria, 'Times New Roman', serif",mono:"'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"},D={system:"ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"},h=typeof o.accent==='string'&&/^#[0-9a-f]{6}$/i.test(o.accent)?o.accent.toLowerCase():'',P=(c,i)=>parseInt(c.substr(i,2),16),L=c=>{var a=[.2126,.7152,.0722];return[1,3,5].reduce((t,i,j)=>{var v=P(c,i)/255;return t+a[j]*(v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4))},0)},C=(c,d)=>{var a=L(c),b=L(d);return(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};if(h&&h!=='#e14775'){var W=C(h,'#ffffff'),K=C(h,'#1f1b20')>=W*1.2,I=K?'#1f1b20':'#ffffff',F=h,i;for(i=1;i<=100&&C(F,I)<4.5;i++)F='#'+[1,3,5].map(n=>Math.round(P(h,n)*(1-i/100)+(K?255:0)*i/100).toString(16).padStart(2,'0')).join('');r.setAttribute('data-accent','custom');x.setProperty('--accent',h);x.setProperty('--accent-rgb',P(h,1)+', '+P(h,3)+', '+P(h,5));x.setProperty('--accent-ink',I);x.setProperty('--accent-fill',F);x.setProperty('--accent-shade',K?'#fff':'#000')}if(O(U,o.uiFont))x.setProperty('--ui-font',U[o.uiFont]);if(O(D,o.dataFont))x.setProperty('--font-mono',D[o.dataFont]);if([90,110,125].indexOf(Number(o.uiScale))>=0)x.setProperty('--ui-scale',String(Number(o.uiScale)/100))}catch(e){}</script>
   <!-- Apply the saved per-device language before first paint. The full translation
        layer loads below; setting lang/dir here prevents an English accessibility
        tree from flashing while the deferred scripts start. -->
@@ -2379,6 +2384,70 @@
                         <option value="daylight-green">Daylight Green</option>
                         <option value="og">OG Codeman</option>
                       </optgroup>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="set-group">
+                <div class="set-group-head"><h4>Look</h4><span class="set-scope">device</span></div>
+                <div class="set-group-body">
+                  <div class="set-row has-field set-row-accent" data-search="accent colour color highlight pink orange yellow green blue purple custom">
+                    <div class="set-row-text">
+                      <span class="set-row-label">Accent Colour</span>
+                      <span class="set-row-desc">Buttons, selection and focus. The text on it switches to dark or light so it stays readable.</span>
+                    </div>
+                    <div class="set-accent" id="appSettingsAccentPicker">
+                      <div class="set-accent-swatches" role="group" aria-label="Accent colour">
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#e14775" title="Pink (default)" aria-label="Pink (default)" style="--sw:#e14775"></button>
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#e16032" title="Orange" aria-label="Orange" style="--sw:#e16032"></button>
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#cc7a0a" title="Yellow" aria-label="Yellow" style="--sw:#cc7a0a"></button>
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#269d69" title="Green" aria-label="Green" style="--sw:#269d69"></button>
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#1c8ca8" title="Blue" aria-label="Blue" style="--sw:#1c8ca8"></button>
+                        <button type="button" class="set-accent-swatch" aria-pressed="false" data-accent="#7058be" title="Purple" aria-label="Purple" style="--sw:#7058be"></button>
+                        <label class="set-accent-custom" title="Custom colour">
+                          <input type="color" id="appSettingsAccentCustom" value="#e14775" aria-label="Custom accent colour">
+                        </label>
+                      </div>
+                      <input type="hidden" id="appSettingsAccent" value="">
+                      <div class="set-accent-preview" aria-live="polite">
+                        <span class="set-accent-chip" id="appSettingsAccentChip">Save</span>
+                        <span class="set-accent-note" id="appSettingsAccentNote"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="set-row has-field" data-search="ui font typeface sans serif system interface">
+                    <div class="set-row-text">
+                      <span class="set-row-label">Interface Font</span>
+                      <span class="set-row-desc">Menus, tabs and dialogs. The terminal keeps its own font.</span>
+                    </div>
+                    <select id="appSettingsUiFont" class="set-select">
+                      <option value="default">Manrope (default)</option>
+                      <option value="system">System UI</option>
+                      <option value="serif">Serif</option>
+                      <option value="mono">Monospace</option>
+                    </select>
+                  </div>
+                  <div class="set-row has-field" data-search="data font monospace mono numbers code jetbrains">
+                    <div class="set-row-text">
+                      <span class="set-row-label">Data Font</span>
+                      <span class="set-row-desc">Paths, ids, counts and code in the interface.</span>
+                    </div>
+                    <select id="appSettingsDataFont" class="set-select">
+                      <option value="default">JetBrains Mono (default)</option>
+                      <option value="system">System monospace</option>
+                    </select>
+                  </div>
+                  <div class="set-row has-field" data-search="ui size scale zoom text bigger smaller density">
+                    <div class="set-row-text">
+                      <span class="set-row-label">Interface Size</span>
+                      <span class="set-row-desc">Scales the interface text and bars. The terminal font size is set separately.</span>
+                    </div>
+                    <select id="appSettingsUiScale" class="set-select">
+                      <option value="90">90%</option>
+                      <option value="100">100% (default)</option>
+                      <option value="110">110%</option>
+                      <option value="125">125%</option>
                     </select>
                   </div>
                 </div>

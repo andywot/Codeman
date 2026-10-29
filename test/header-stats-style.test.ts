@@ -317,7 +317,8 @@ describe('header stats wiring (static)', () => {
   it('keeps the open Tiles and Split buttons pressed (accent) in the boxed styles, hover included', () => {
     // The box rule (html[data-header-stats] .header-right > .btn-icon-header)
     // outranks the buttons' own open-state accent, so nothing would show that
-    // the next click closes the grid or the split.
+    // the next click closes the grid or the split. The fill is --accent-fill (the accent
+    // darkened until its ink reads at 4.5:1), the outline stays the accent itself.
     const found = new Map<string, Record<string, string>>();
     postcss.parse(css).walkRules((rule) => {
       const decls: Record<string, string> = {};
@@ -334,7 +335,7 @@ describe('header stats wiring (static)', () => {
           const sel = `html[data-header-stats='${style}'] .header-right > .btn-icon-header.${open}${hover}`;
           const d = found.get(sel);
           if (
-            d?.background !== 'var(--accent)' ||
+            d?.background !== 'var(--accent-fill)' ||
             d['border-color'] !== 'var(--accent)' ||
             d.color !== 'var(--accent-ink)'
           )

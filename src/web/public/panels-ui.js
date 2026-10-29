@@ -7034,7 +7034,7 @@ Object.assign(CodemanApp.prototype, {
     textarea.value = text;
 
     const copyBtn = document.createElement('button');
-    copyBtn.style.cssText = 'background:var(--accent);color:var(--accent-ink);border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:var(--fs-base);font-weight:600';
+    copyBtn.style.cssText = 'background:var(--accent-fill);color:var(--accent-ink);border:none;border-radius:4px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:var(--fs-base);font-weight:600';
     copyBtn.textContent = 'Copy to Clipboard';
 
     modal.appendChild(header);

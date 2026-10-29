@@ -406,7 +406,7 @@ html.mobile-init .file-browser-panel {
      plan overlays in styles.css) follow it instead of drifting 8px under the
      header. Costs 8px of terminal height on a phone. */
   :root {
-    --header-height: 44px;
+    --header-height: calc(44px * var(--ui-scale, 1));
   }
 
   /* Phone brand collapses to a single "C" home button: hide the wordmark,
@@ -2961,9 +2961,9 @@ html.mobile-init .file-browser-panel {
     white-space: nowrap;
   }
   .mobile-overview-approval-btn.primary {
-    background: var(--accent);
+    background: var(--accent-fill);
     border-color: var(--accent);
-    color: white;
+    color: var(--accent-ink);
   }
   .mobile-overview-approval-btn.danger {
     border-color: var(--error);
@@ -3985,6 +3985,16 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
     min-width: 0;
     max-width: none;
     box-sizing: border-box;
+  }
+
+  /* The accent picker wraps under its label like the other fields */
+  :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent {
+    align-items: flex-start;
+  }
+
+  :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatches,
+  :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-preview {
+    justify-content: flex-start;
   }
 
   :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-row-actions-wide {

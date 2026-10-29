@@ -4281,3 +4281,208 @@ if (typeof window !== 'undefined') {
     urlOk: (url) => typeof url === 'string' && SECURITY_NOTICE_URL_PATTERN.test(url),
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Appearance: accent colour, UI font, data font and UI size (App Settings →
+// Appearance → Look). Pure, so the shipped code is what the tests exercise.
+//
+// The four values are PER-DEVICE display settings (settings-ui.js keeps them in
+// _displaySettingKeySet() and strips them from the settings PUT; none is in
+// SettingsUpdateSchema). Their effect is a handful of custom properties on
+// <html>, set inline, which the stylesheet's tokens already read:
+//
+//   --accent, --accent-rgb, --accent-ink   a custom accent, its ink and --accent-fill
+//   --accent-fill, --accent-shade          (the accent darkened or lightened until the
+//                                          ink reads at 4.5:1) and the colour hovers
+//                                          mix toward. data-accent="custom" switches on
+//                                          the color-mix block in styles.css that
+//                                          derives --accent-hover, --accent-d, the
+//                                          gradient pair, the run hover pair and
+//                                          --gear-hover from them
+//   --ui-font / --font-mono                the UI face and the data face (the
+//                                          terminal keeps its own font setting)
+//   --ui-scale                             multiplies the --fs-* scale and the
+//                                          chrome heights (the terminal font
+//                                          size is its own setting)
+//
+// The inline pre-paint script in index.html applies the same plan from
+// localStorage['codeman:appearance'] before first paint; it is a compact copy of
+// planAppearance() and test/appearance.test.ts runs it against this one.
+// ─────────────────────────────────────────────────────────────────────────────
+const APPEARANCE_STORAGE_KEY = 'codeman:appearance';
+const APPEARANCE_INK_LIGHT = '#ffffff';
+const APPEARANCE_INK_DARK = '#1f1b20';
+/** Dark ink wins only when it reads clearly better: the skins' own ink on an accent is white. */
+const APPEARANCE_INK_DARK_BIAS = 1.2;
+/** PRODUCT.md: text must hold WCAG AA (4.5:1), button labels on an accent fill included. */
+const APPEARANCE_MIN_INK_CONTRAST = 4.5;
+/** Monokai Pro Light filter palette. Pink is the skin's own accent, so it stores '' (no override). */
+const APPEARANCE_ACCENT_PRESETS = Object.freeze([
+  Object.freeze({ id: 'pink', label: 'Pink', hex: '#e14775' }),
+  Object.freeze({ id: 'orange', label: 'Orange', hex: '#e16032' }),
+  Object.freeze({ id: 'yellow', label: 'Yellow', hex: '#cc7a0a' }),
+  Object.freeze({ id: 'green', label: 'Green', hex: '#269d69' }),
+  Object.freeze({ id: 'blue', label: 'Blue', hex: '#1c8ca8' }),
+  Object.freeze({ id: 'purple', label: 'Purple', hex: '#7058be' }),
+]);
+const APPEARANCE_DEFAULT_ACCENT = '#e14775';
+/** null = the skin's own face. Only faces that ship with the app or exist on every OS. */
+const APPEARANCE_UI_FONTS = Object.freeze({
+  default: null,
+  system: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+  serif: "ui-serif, Georgia, Cambria, 'Times New Roman', serif",
+  mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+});
+const APPEARANCE_MONO_FONTS = Object.freeze({
+  default: null,
+  system: "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+});
+const APPEARANCE_SCALES = Object.freeze([90, 100, 110, 125]);
+
+/** '#rgb' or '#rrggbb' (any case, surrounding space ignored) to '#rrggbb' lowercase, else null. */
+function parseAppearanceHex(value) {
+  if (typeof value !== 'string') return null;
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!m) return null;
+  let h = m[1].toLowerCase();
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  return '#' + h;
+}
+
+function appearanceRgb(hex) {
+  const h = parseAppearanceHex(hex);
+  if (!h) return null;
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+}
+
+/** WCAG relative luminance of a hex colour. */
+function appearanceLuminance(hex) {
+  const rgb = appearanceRgb(hex);
+  if (!rgb) return 0;
+  const c = rgb.map((v) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+
+/** WCAG contrast ratio of two colours, 1 to 21. */
+function appearanceContrast(a, b) {
+  const la = appearanceLuminance(a);
+  const lb = appearanceLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** The ink for text and icons ON an accent fill: white, unless dark ink is clearly better. */
+function appearanceInkFor(hex) {
+  const white = appearanceContrast(hex, APPEARANCE_INK_LIGHT);
+  const dark = appearanceContrast(hex, APPEARANCE_INK_DARK);
+  return dark >= white * APPEARANCE_INK_DARK_BIAS ? APPEARANCE_INK_DARK : APPEARANCE_INK_LIGHT;
+}
+
+/** Mix a colour toward black (target 0) or white (target 255) by t, 0 to 1, as '#rrggbb'. */
+function appearanceMix(hex, t, target) {
+  const rgb = appearanceRgb(hex);
+  return (
+    '#' +
+    rgb
+      .map((v) => Math.round(v * (1 - t) + target * t).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+/**
+ * The colour to paint BEHIND appearanceInkFor(hex): the accent itself when its ink already reads at 4.5:1,
+ * else the nearest step toward black (white ink) or white (dark ink) that does. The accent stays the accent
+ * for outlines, text and rings; only fills that carry a label use this (--accent-fill in styles.css). The
+ * default Monokai pink needs it too: white on #e14775 is 3.9:1, so the skin block carries this function's
+ * answer for it as a literal (test/appearance.test.ts pins the two together).
+ */
+function appearanceFillFor(hex) {
+  const ink = appearanceInkFor(hex);
+  const target = ink === APPEARANCE_INK_LIGHT ? 0 : 255;
+  let fill = hex;
+  for (let i = 1; i <= 100 && appearanceContrast(fill, ink) < APPEARANCE_MIN_INK_CONTRAST; i++) {
+    fill = appearanceMix(hex, i / 100, target);
+  }
+  return fill;
+}
+
+/** A custom accent as stored: a valid colour, or '' for "the skin's own". Pink is the skin's own. */
+function normalizeAppearanceAccent(value) {
+  const hex = parseAppearanceHex(value);
+  return hex && hex !== APPEARANCE_DEFAULT_ACCENT ? hex : '';
+}
+
+function normalizeAppearanceScale(value) {
+  const n = Number(value);
+  return APPEARANCE_SCALES.includes(n) ? n : 100;
+}
+
+function normalizeAppearanceFont(value, table) {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(table, value) ? value : 'default';
+}
+
+/**
+ * Turn the four stored values into what goes on <html>. `vars` maps a custom property to its value, or to
+ * null when it must be removed (so a reset leaves no trace); `accentAttr` is the data-accent attribute.
+ */
+function planAppearance(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const accent = normalizeAppearanceAccent(src.accent);
+  const uiFont = normalizeAppearanceFont(src.uiFont, APPEARANCE_UI_FONTS);
+  const dataFont = normalizeAppearanceFont(src.dataFont, APPEARANCE_MONO_FONTS);
+  const scale = normalizeAppearanceScale(src.uiScale);
+  const rgb = accent ? appearanceRgb(accent) : null;
+  return {
+    accent,
+    uiFont,
+    dataFont,
+    scale,
+    vars: {
+      '--accent': accent || null,
+      '--accent-rgb': rgb ? rgb.join(', ') : null,
+      '--accent-ink': accent ? appearanceInkFor(accent) : null,
+      '--accent-fill': accent ? appearanceFillFor(accent) : null,
+      '--accent-shade': accent ? (appearanceInkFor(accent) === APPEARANCE_INK_LIGHT ? '#000' : '#fff') : null,
+      '--ui-font': APPEARANCE_UI_FONTS[uiFont],
+      '--font-mono': APPEARANCE_MONO_FONTS[dataFont],
+      '--ui-scale': scale === 100 ? null : String(scale / 100),
+    },
+    accentAttr: accent ? 'custom' : null,
+  };
+}
+
+/** Write a plan onto the root element (inline custom properties and the data-accent switch). */
+function applyAppearancePlan(plan, root) {
+  if (!plan || !root || !root.style) return;
+  for (const [name, value] of Object.entries(plan.vars)) {
+    if (value === null || value === undefined) root.style.removeProperty(name);
+    else root.style.setProperty(name, value);
+  }
+  if (plan.accentAttr) root.setAttribute('data-accent', plan.accentAttr);
+  else root.removeAttribute('data-accent');
+}
+
+if (typeof window !== 'undefined') {
+  window.CodemanAppearance = {
+    STORAGE_KEY: APPEARANCE_STORAGE_KEY,
+    ACCENT_PRESETS: APPEARANCE_ACCENT_PRESETS,
+    DEFAULT_ACCENT: APPEARANCE_DEFAULT_ACCENT,
+    UI_FONTS: APPEARANCE_UI_FONTS,
+    MONO_FONTS: APPEARANCE_MONO_FONTS,
+    SCALES: APPEARANCE_SCALES,
+    INK_LIGHT: APPEARANCE_INK_LIGHT,
+    INK_DARK: APPEARANCE_INK_DARK,
+    parseHex: parseAppearanceHex,
+    luminance: appearanceLuminance,
+    contrast: appearanceContrast,
+    inkFor: appearanceInkFor,
+    fillFor: appearanceFillFor,
+    MIN_INK_CONTRAST: APPEARANCE_MIN_INK_CONTRAST,
+    normalizeAccent: normalizeAppearanceAccent,
+    normalizeScale: normalizeAppearanceScale,
+    plan: planAppearance,
+    apply: applyAppearancePlan,
+  };
+}

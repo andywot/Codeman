@@ -40,14 +40,18 @@
 }
 
 :root {
-  /* Type scale (fork): every UI size snaps to one of these steps. */
-  --fs-2xs: 10px;
-  --fs-xs: 11px;
-  --fs-sm: 12px;
-  --fs-base: 13px;
-  --fs-md: 14px;
-  --fs-lg: 16px;
-  --fs-xl: 20px;
+  /* Type scale (fork): every UI size snaps to one of these steps. Each step is
+     multiplied by --ui-scale, the App Settings "UI size" (90/100/110/125%),
+     which the pre-paint script and applyAppearance() set inline on <html>.
+     The terminal's own font size is a separate setting and is NOT scaled. */
+  --ui-scale: 1;
+  --fs-2xs: calc(10px * var(--ui-scale));
+  --fs-xs: calc(11px * var(--ui-scale));
+  --fs-sm: calc(12px * var(--ui-scale));
+  --fs-base: calc(13px * var(--ui-scale));
+  --fs-md: calc(14px * var(--ui-scale));
+  --fs-lg: calc(16px * var(--ui-scale));
+  --fs-xl: calc(20px * var(--ui-scale));
   /* Dark is the safe fallback. Light skins override this so native selects,
      date/time pickers, form controls, and scrollbars match the chosen skin. */
   color-scheme: dark;
@@ -77,11 +81,11 @@
   --accent-ink: #04223a;
   --warm: #e8c79a;
   --ring-glow: 0 0 12px -2px rgba(56, 182, 240, 0.55);
-  --header-height: 36px;
-  --toolbar-height: 42px;
+  --header-height: calc(36px * var(--ui-scale));
+  --toolbar-height: calc(42px * var(--ui-scale));
   --tab-rail-width: 256px;
-  --sidebar-width: 260px;
-  --sidebar-width-rich: 300px; /* detailed rows carry a stamps line as well */
+  --sidebar-width: calc(260px * var(--ui-scale));
+  --sidebar-width-rich: calc(300px * var(--ui-scale)); /* detailed rows carry a stamps line as well */
   --sidebar-width-collapsed: 44px; /* == --touch-target-min */
   --sidebar-transition: 0.18s ease;
   --glass-bg: rgba(31, 38, 48, 0.85);
@@ -121,6 +125,11 @@
      These :root values equal the daylight-blue palette so the no-attribute fallback
      matches current behavior. */
   --ui-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Fill behind --accent-ink (a button, a badge): the accent itself unless a skin or
+     the custom accent needs a step darker to keep its label at 4.5:1. --accent-shade
+     is what a hover mixes toward. */
+  --accent-fill: var(--accent);
+  --accent-shade: #000;
   --accent-rgb: 56, 182, 240;
   --accent-grad-a: #3ec8ee;
   --accent-grad-b: #2b8fd9;
@@ -341,7 +350,12 @@ html[data-skin="monokai-pro-light"] {
   --accent-d: #c73a63; --emerald: #1c8ca8; --teal: #1c8ca8;
   --accent-soft: #269d69; --accent-ink: #ffffff;
   --accent-rgb: 225, 71, 117;
-  --accent-grad-a: #e14775; --accent-grad-b: #e14775;
+  /* White on #e14775 is 3.9:1, under the 4.5:1 PRODUCT.md asks of text. Filled
+     controls (Save, Allow, Wake, New session) paint this step instead: the
+     accent darkened until white ink holds 4.5:1 (CodemanAppearance.fillFor,
+     pinned by test/appearance.test.ts). Outlines, links and focus keep --accent. */
+  --accent-fill: #cf416c;
+  --accent-grad-a: #cf416c; --accent-grad-b: #cf416c;
   --run-hover-a: #c73a63; --run-hover-b: #c73a63; --gear-hover: #a82f53;
   --ring-glow: 0 0 0 2px #a59fa0;
   --session-red: #e14775; --session-orange: #e16032; --session-yellow: #cc7a0a;
@@ -349,6 +363,28 @@ html[data-skin="monokai-pro-light"] {
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, monospace;
   --ui-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --btn-radius: 4px;
+}
+
+/* Custom accent (App Settings → Appearance → Look). The pre-paint script and
+   applyAppearance() set data-accent="custom" and --accent, --accent-rgb and
+   --accent-ink, --accent-fill and --accent-shade inline on <html> (a contrast-checked
+   ink and the fill it reads on: constants.js, CodemanAppearance); every other accent
+   token is derived here, so the hover, pressed, gradient pair, run hover pair and
+   gear hover follow it.
+   With no data-accent the skin's own literal values apply untouched. Must stay
+   AFTER every html[data-skin] token block: equal specificity, last one wins. */
+html[data-accent] {
+  --accent-hover: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
+  --accent-d: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
+  --accent-grad-a: var(--accent-fill);
+  --accent-grad-b: var(--accent-fill);
+  --run-hover-a: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
+  --run-hover-b: color-mix(in srgb, var(--accent-fill) 86%, var(--accent-shade));
+  --gear-hover: color-mix(in srgb, var(--accent-fill) 72%, var(--accent-shade));
+}
+/* The dark skins draw a glow ring from the accent. */
+html[data-accent]:is([data-skin="og"], [data-skin="daylight-green"], [data-skin="daylight-blue"]) {
+  --ring-glow: 0 0 10px -2px rgba(var(--accent-rgb), 0.45);
 }
 
 /* Components that predate skin tokens used literal dark glass fills. Keep
@@ -433,8 +469,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   top: -50px;
   left: 8px;
   padding: 8px 16px;
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   text-decoration: none;
   border-radius: 4px;
   z-index: 10000;
@@ -493,7 +529,7 @@ textarea:focus-visible {
   width: 1px !important;
   height: 1px !important;
   z-index: 0 !important;
-  font-size: var(--fs-lg) !important; /* prevent iOS auto-zoom on focus */
+  font-size: 16px !important; /* prevent iOS auto-zoom on focus; deliberately not scaled */
 }
 
 .xterm-helpers .codeman-ime-preview {
@@ -505,7 +541,7 @@ textarea:focus-visible {
   white-space: pre;
   color: var(--terminal-foreground, var(--text, #fff));
   font-family: var(--font-mono, monospace);
-  font-size: var(--fs-md);
+  font-size: calc(var(--fs-md) / var(--ui-scale, 1)); /* tracks the terminal, not the UI size */
   font-weight: 400;
   font-style: normal;
   line-height: 1.2;
@@ -2983,7 +3019,7 @@ html[data-header-stats] .header-system-stats .stat-item[hidden] {
 /* While the grid is open the button's click closes it (aria-pressed too). */
 .btn-icon-header.btn-tile-grid.tiles-open,
 .btn-icon-header.btn-tile-grid.tiles-open:hover {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
 }
 
@@ -2998,12 +3034,12 @@ html[data-header-stats] .header-system-stats .stat-item[hidden] {
    behaviours the next click will get (aria-pressed carries the same state
    for assistive tech). */
 .btn-icon-header.btn-split.split-open {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
 }
 
 .btn-icon-header.btn-split.split-open:hover {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
 }
 
@@ -5890,9 +5926,9 @@ html[data-skin="og"] .welcome-primary:hover {
 }
 
 .btn-toolbar.btn-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: white;
+  color: var(--accent-ink);
 }
 
 .btn-toolbar.btn-primary:hover {
@@ -7174,8 +7210,8 @@ html[data-skin="og"] .welcome-primary:hover {
 }
 
 .tab-count-btn:active {
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
 }
 
 .tab-count-input {
@@ -8672,7 +8708,7 @@ html[data-skin="og"] .welcome-primary:hover {
   padding: 0.2rem 0.6rem;
 }
 .wt-btn-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
@@ -8795,9 +8831,9 @@ html[data-skin="og"] .welcome-primary:hover {
 }
 
 .duration-preset-btn.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .duration-custom {
@@ -10593,8 +10629,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   border-radius: 8px;
   font-size: var(--fs-2xs);
   cursor: pointer;
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   margin-left: 4px;
   transition: transform 0.1s, background 0.15s;
 }
@@ -11343,8 +11379,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .subagent-badge {
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   font-size: var(--fs-xs);
   padding: 0.1rem 0.4rem;
   border-radius: 8px;
@@ -11708,8 +11744,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .subagent-window-title .status.completed {
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
 }
 
 .subagent-window-actions {
@@ -12835,9 +12871,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .file-preview-editbar-btn--save {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .file-preview-editbar-btn--save:hover {
@@ -13029,8 +13065,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   font-size: var(--fs-2xs);
   padding: 0.1rem 0.4rem;
   border-radius: 4px;
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   flex-shrink: 0;
 }
 
@@ -13148,9 +13184,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .wizard-step.active .wizard-step-number {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 .wizard-step.completed .wizard-step-number {
@@ -13277,8 +13313,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 /* Existing Plan Badge (in case selector) */
 .existing-plan-badge {
   font-size: var(--fs-xs);
-  background: var(--accent);
-  color: white;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   padding: 0.1rem 0.4rem;
   border-radius: 3px;
   margin-left: 0.5rem;
@@ -13434,9 +13470,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .plan-detail-btn.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* Plan Editor */
@@ -13813,9 +13849,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
 }
 
 .iteration-preset-btn.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* Case Select Inline */
@@ -14112,14 +14148,14 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
    this modal on purpose; un-greying every btn-primary on the new skins is a
    design call, not this feature's. */
 .readmymind-modal .modal-footer .btn-toolbar.btn-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 .readmymind-modal .modal-footer .btn-toolbar.btn-primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* Keyboard-accessory 🧠 key: the phone surface for the same opt-in setting
@@ -14249,8 +14285,8 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   letter-spacing: 0.04em;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
 }
 .approval-kind-question .approval-kind-badge {
   background: #d97706;
@@ -14324,9 +14360,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   border-color: var(--accent);
 }
 .approval-btn-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 .approval-btn-danger {
   border-color: var(--error, #e5484d);
@@ -14513,9 +14549,9 @@ html:is([data-skin="paper-gray"], [data-skin="solarized-light"], [data-skin="cat
   color: var(--text);
 }
 .ultracode-phase-chip.selected {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
-  color: white;
+  color: var(--accent-ink);
 }
 
 /* RIGHT pane: per-phase header + agent cards */
@@ -15568,7 +15604,7 @@ body.touch-device.cjk-input-visible .main {
    `.armed` by hand. Without the exclusion the modifier looks unarmed on the four
    light skins, which is worse than having no armed style at all. */
 .accessory-btn.accessory-btn-ctrl.armed {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 700;
@@ -15594,7 +15630,7 @@ body.touch-device.cjk-input-visible .main {
 
 .accessory-btn-arrow {
   padding: 6px 10px;
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
@@ -15608,7 +15644,7 @@ body.touch-device.cjk-input-visible .main {
   flex: 1 1 0;
   max-width: 100px;
   padding: 10px 8px;
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
@@ -15702,8 +15738,8 @@ body.touch-device.cjk-input-visible .main {
 }
 
 .paste-send {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -16097,8 +16133,8 @@ body.touch-device.cjk-input-visible .main {
 }
 
 .path-picker-actions .path-picker-confirm {
-  color: #fff;
-  background: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-fill);
   border-color: var(--accent);
   font-weight: 600;
 }
@@ -16727,8 +16763,8 @@ body.touch-device.cjk-input-visible .main {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   font-size: var(--fs-2xs);
   font-weight: 700;
   border-radius: 8px;
@@ -17269,7 +17305,7 @@ html:not([data-skin="og"]) {
 }
 .cron-weekdays label:hover { border-color: var(--accent); color: var(--text); }
 .cron-weekdays label input { position: absolute; opacity: 0; width: 0; height: 0; }
-.cron-weekdays label:has(input:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cron-weekdays label:has(input:checked) { background: var(--accent-fill); border-color: var(--accent); color: var(--accent-ink); }
 
 /* Footer */
 .cron-form-error { color: var(--danger, #e55); margin-top: 0.4rem; }
@@ -17767,7 +17803,7 @@ html:not([data-skin="og"]) {
 }
 
 .offline-overlay-btn--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
@@ -18709,6 +18745,90 @@ html[data-tab-orientation='vertical'] .home-sessions {
 
 :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-input {
   width: 220px;
+}
+
+/* Accent colour picker (App Settings → Appearance → Look): preset swatches, a
+   custom colour well, and a chip previewing the label on the chosen fill. */
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatch,
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom {
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-light);
+  cursor: pointer;
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatch {
+  background: var(--sw);
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatch[aria-pressed="true"],
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom.is-active {
+  box-shadow: 0 0 0 2px var(--text);
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatch:focus-visible,
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* The custom well is the colour input itself, invisible over a spectrum disc. */
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  background: conic-gradient(#e14775, #e16032, #cc7a0a, #269d69, #1c8ca8, #7058be, #e14775);
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom input[type="color"] {
+  position: absolute;
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  opacity: 0;
+  cursor: pointer;
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-preview {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-chip {
+  padding: 3px 12px;
+  border-radius: var(--btn-radius);
+  background: var(--chip-bg, var(--accent-fill));
+  color: var(--chip-ink, var(--accent-ink));
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+:is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-note.is-warn {
+  color: var(--yellow);
+}
+@media (pointer: coarse) {
+  :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-swatch,
+  :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-accent-custom {
+    width: 34px;
+    height: 34px;
+  }
 }
 
 :is(#appSettingsModal, #sessionOptionsModal, #createCaseModal) .set-num {
@@ -23432,7 +23552,7 @@ html[data-header-stats='compact'] .header-right > .btn-icon-header.btn-tile-grid
 html[data-header-stats='compact'] .header-right > .btn-icon-header.btn-tile-grid.tiles-open:hover,
 html[data-header-stats='compact'] .header-right > .btn-icon-header.btn-split.split-open,
 html[data-header-stats='compact'] .header-right > .btn-icon-header.btn-split.split-open:hover {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
@@ -23466,8 +23586,8 @@ body.keyboard-visible .terminal-container .xterm-screen {
    to the skin so the upstream skins keep their own chrome. Flat surfaces,
    1px rules, colour only for state and selection. */
 html[data-skin="monokai-pro-light"] {
-  --header-height: 36px;
-  --toolbar-height: 32px;
+  --header-height: calc(36px * var(--ui-scale));
+  --toolbar-height: calc(32px * var(--ui-scale));
   --tab-rail-width: 264px;
   scrollbar-color: #cbc1be transparent;
 }
@@ -23683,7 +23803,7 @@ html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
   padding: 0 14px;
   border: 0;
   border-radius: 4px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
   font: inherit;
   font-size: var(--fs-base);
@@ -24052,7 +24172,7 @@ html[data-tab-orientation="vertical"] .tab-rail-new {
 }
 .ns-start {
   border: 0;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
   font-weight: 600;
 }
@@ -25121,8 +25241,8 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   padding: 0 12px;
   border: 1px solid var(--accent);
   border-radius: 4px;
-  background: var(--accent);
-  color: var(--accent-ink, #fff);
+  background: var(--accent-fill);
+  color: var(--accent-ink);
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -25692,7 +25812,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 .approval-btn-primary,
 .approval-btn-primary:hover {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
@@ -25734,7 +25854,7 @@ html[data-skin="monokai-pro-light"] .modal-content {
   border-radius: 6px;
 }
 html[data-skin="monokai-pro-light"] .btn-toolbar.btn-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
