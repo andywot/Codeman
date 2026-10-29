@@ -7,13 +7,14 @@
 // the launch's single quoting, Windows and api/shell accounts get none, and the saved
 // JSON parses into percentages with ISO reset times.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildLaunch,
   parseStatuslineUsage,
+  parseStatusRead,
   parseStatusReadOutput,
   STATUS_READ_SCRIPT,
   type FleetAccount,
@@ -49,9 +50,34 @@ describe('usage from session statuslines', () => {
 
   it('adds nothing for Windows sessions or for api/shell accounts', () => {
     expect(buildLaunch({ system: 'windows' }, account, undefined).args).not.toContain('--settings');
+    expect(buildLaunch({ system: 'windows' }, undefined, undefined).args).not.toContain('--settings');
     expect(
       buildLaunch({ system: 'linux' }, { ...account, kind: 'shell', setupCommand: 'use-glm' }, undefined).args
     ).toBe('');
+  });
+
+  it("saves a machine-login session's reading with the email that login belongs to", () => {
+    const { args } = buildLaunch({ system: 'linux' }, undefined, undefined);
+    const command = JSON.parse(args.match(/--settings '([^']*)'/)?.[1] as string).statusLine.command as string;
+    const home = mkdtempSync(join(tmpdir(), 'rc-status-'));
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'Me@Example.com' } }));
+    execFileSync('sh', ['-c', command], { input: payload, env: { ...process.env, HOME: home } });
+    const read = execFileSync('sh', ['-c', STATUS_READ_SCRIPT], { env: { ...process.env, HOME: home } }).toString();
+    const parsed = parseStatusRead(read);
+    expect(parsed.email).toBe('me@example.com');
+    expect(parsed.byAccount.get('_machine')).toMatchObject({ fiveHour: 11 });
+  });
+
+  it('stops a token launch whose secret is missing instead of using the machine login', () => {
+    const { setup } = buildLaunch({ system: 'linux' }, account, undefined);
+    const home = mkdtempSync(join(tmpdir(), 'rc-launch-'));
+    let code = 0;
+    try {
+      execFileSync('sh', ['-c', `${setup} echo ran`], { env: { ...process.env, HOME: home }, stdio: 'pipe' });
+    } catch (err) {
+      code = (err as { status: number }).status;
+    }
+    expect(code).toBe(1);
   });
 
   it('reads no usage from a statusline without rate limits or from broken JSON', () => {

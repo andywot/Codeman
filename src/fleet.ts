@@ -89,6 +89,8 @@ const URL_RE = /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~/-]*)?$/;
 const SECRET_DIR = '~/.config/claude-rc';
 /** Relative to $HOME on each machine: the statusline JSON per account (usage readings). */
 const STATUS_DIR = '.config/claude-rc/status';
+/** Status file id for sessions on the machine's own login (outside ID_RE, so no account can clash). */
+const MACHINE_LOGIN_ID = '_machine';
 const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:[\]=-]+){0,6}$/;
 
 export function fleetPath(configDir: string): string {
@@ -191,6 +193,14 @@ export function buildLaunch(
     setup.push(...keys.map((key) => `export ${key}="${env[key].replace(/^'|'$/g, '')}"`));
     // WSLENV carries the variables across into the Windows process.
     if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${keys.map((k) => `${k}/u`).join(':')}"`);
+    // An empty token silently runs claude on the machine's own login instead, so a
+    // missing secret file stops the launch where the pane shows why.
+    const tokenKey = keys.find((k) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || k === 'ANTHROPIC_AUTH_TOKEN');
+    if (tokenKey && account && ID_RE.test(account.id)) {
+      setup.push(
+        `[ -n "$${tokenKey}" ] || { echo "Claude RC: the ${account.id} token is missing on this machine. Start the session again from the dashboard." >&2; exit 1; }`
+      );
+    }
   }
 
   // An api account fixes the model through the env above; --model would be a Claude name.
@@ -198,9 +208,12 @@ export function buildLaunch(
   // Usage reporting (see the file header). Windows claude runs statusLine commands
   // outside WSL's shell, so only WSL/Linux sessions report. The command contains no
   // quote characters, so it sits safely inside the single-quoted JSON.
-  if (account && account.kind !== 'api' && account.kind !== 'shell' && !windows && ID_RE.test(account.id)) {
+  // A session on the machine's own login saves as MACHINE_LOGIN_ID; the server maps
+  // that reading to the account whose email the machine is logged in with.
+  const statusId = account ? account.id : MACHINE_LOGIN_ID;
+  if (account?.kind !== 'api' && account?.kind !== 'shell' && !windows && (!account || ID_RE.test(account.id))) {
     const dir = `$HOME/${STATUS_DIR}`;
-    const save = `mkdir -p ${dir} && cat > ${dir}/.${account.id}.$$ && mv -f ${dir}/.${account.id}.$$ ${dir}/${account.id}.json`;
+    const save = `mkdir -p ${dir} && cat > ${dir}/.${statusId}.$$ && mv -f ${dir}/.${statusId}.$$ ${dir}/${statusId}.json`;
     args += ` --settings '${JSON.stringify({ statusLine: { type: 'command', command: save } })}'`;
   }
   return { setup: setup.length ? setup.join('; ') + '; ' : '', binary, args };
@@ -312,7 +325,10 @@ export async function listHostFolders(host: RemoteHost, path: string): Promise<F
 const USAGE_TTL_MS = 120_000;
 /** A machine that did not answer is not asked again for this long. */
 const USAGE_FAIL_BACKOFF_MS = 10 * 60_000;
-const hostReadings = new Map<string, { at: number; ok: boolean; byAccount: Map<string, FleetUsage> }>();
+const hostReadings = new Map<
+  string,
+  { at: number; ok: boolean; byAccount: Map<string, FleetUsage>; email?: string | null }
+>();
 const hostInFlight = new Map<string, Promise<void>>();
 
 /** One account's windows from a saved statusline JSON (`rate_limits`), or null. */
@@ -344,26 +360,41 @@ export function parseStatuslineUsage(text: string, fetchedAt: string): FleetUsag
 /** Prints every saved statusline on a machine: `\n@@<account> <mtime>\n` then its JSON. */
 export const STATUS_READ_SCRIPT =
   `cd "$HOME/${STATUS_DIR}" 2>/dev/null || exit 0; for f in *.json; do [ -f "$f" ] || continue; ` +
-  `printf '\\n@@%s %s\\n' "\${f%.json}" "$(stat -c %Y "$f" 2>/dev/null || echo 0)"; head -c 65536 "$f"; done`;
+  `printf '\\n@@%s %s\\n' "\${f%.json}" "$(stat -c %Y "$f" 2>/dev/null || echo 0)"; head -c 65536 "$f"; done; ` +
+  // The email the machine's own login belongs to (not a secret), for MACHINE_LOGIN_ID.
+  `printf '\\n@@=email %s\\n' "$(grep -o '"emailAddress": *"[^"]*"' "$HOME/.claude.json" 2>/dev/null | head -n 1 | sed 's/.*"\\([^"]*\\)"$/\\1/')"`;
 
 /** {@link STATUS_READ_SCRIPT}'s output as readings per account id. */
 export function parseStatusReadOutput(stdout: string): Map<string, FleetUsage> {
+  return parseStatusRead(stdout).byAccount;
+}
+
+/** {@link STATUS_READ_SCRIPT}'s output: readings per status id, and the machine login's email. */
+export function parseStatusRead(stdout: string): { byAccount: Map<string, FleetUsage>; email: string | null } {
   const byAccount = new Map<string, FleetUsage>();
+  let email: string | null = null;
   for (const block of stdout.split('\n@@').slice(1)) {
     const nl = block.indexOf('\n');
-    const [id, mtime] = block.slice(0, nl).split(' ');
-    if (!ID_RE.test(id)) continue;
+    const head = nl < 0 ? block : block.slice(0, nl);
+    if (head.startsWith('=email ')) {
+      const value = head.slice(7).trim().toLowerCase();
+      if (/^[^\s@'"]+@[^\s@'"]+$/.test(value)) email = value;
+      continue;
+    }
+    const [id, mtime] = head.split(' ');
+    if (!ID_RE.test(id) && id !== MACHINE_LOGIN_ID) continue;
     const at = Number(mtime) > 0 ? new Date(Number(mtime) * 1000).toISOString() : new Date().toISOString();
     const usage = parseStatuslineUsage(block.slice(nl + 1), at);
     if (usage) byAccount.set(id, usage);
   }
-  return byAccount;
+  return { byAccount, email };
 }
 
 async function readHostStatus(host: RemoteHost): Promise<void> {
   const result = await runOnHost(host, STATUS_READ_SCRIPT, undefined, 20_000);
-  const byAccount = result.code === 0 ? parseStatusReadOutput(result.stdout) : new Map<string, FleetUsage>();
-  hostReadings.set(host.id, { at: Date.now(), ok: result.code === 0, byAccount });
+  const read =
+    result.code === 0 ? parseStatusRead(result.stdout) : { byAccount: new Map<string, FleetUsage>(), email: null };
+  hostReadings.set(host.id, { at: Date.now(), ok: result.code === 0, ...read });
 }
 
 /**
@@ -401,9 +432,16 @@ export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): 
   const out = new Map<string, FleetUsage>();
   for (const account of config.accounts) {
     for (const host of targets) {
-      const usage = hostReadings.get(host.id)?.byAccount.get(account.id);
-      const best = out.get(account.id);
-      if (usage && (!best || usage.fetchedAt > best.fetchedAt)) out.set(account.id, usage);
+      const reading = hostReadings.get(host.id);
+      const own = reading?.byAccount.get(account.id);
+      const viaLogin =
+        account.email && reading?.email === account.email.toLowerCase()
+          ? reading.byAccount.get(MACHINE_LOGIN_ID)
+          : undefined;
+      for (const usage of [own, viaLogin]) {
+        const best = out.get(account.id);
+        if (usage && (!best || usage.fetchedAt > best.fetchedAt)) out.set(account.id, usage);
+      }
     }
   }
   return out;

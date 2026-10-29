@@ -5390,6 +5390,18 @@ export class Session extends EventEmitter {
   }
 
   /**
+   * Fork: one person moves between devices, so a phone or tablet the user is
+   * actually using (typed into, or just opened the session on) takes the pane
+   * from a desktop claim, the mirror of noteDesktopActivity. The desktop takes
+   * it back on its own next keystroke.
+   */
+  noteSmallViewportActivity(dims: { cols: number; rows: number; viewportType: ResizeViewportType }): void {
+    if (this._desktopSizeClaims.size === 0 && !this._mobileSizeOverride) return;
+    this._lastDesktopActivityAt = 0;
+    this.resize(dims.cols, dims.rows, { viewportType: dims.viewportType });
+  }
+
+  /**
    * Resizes the PTY terminal dimensions.
    * Skips the resize if dimensions haven't changed to avoid triggering
    * unnecessary Ink full-screen redraws (visible flicker on tab switch).

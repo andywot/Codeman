@@ -211,5 +211,21 @@ describe('Session resize arbitration', () => {
       session.noteDesktopActivity();
       expect(resize).not.toHaveBeenCalled();
     });
+
+    it('fork: a phone the user opens or types on takes the pane from an active desktop', () => {
+      const session = new Session({ workingDir: '/tmp', mode: 'shell' });
+      const resize = attachFakePty(session, 160, 48);
+
+      session.resize(208, 45, { viewportType: 'desktop' });
+      session.claimDesktopSizing(Symbol('desktop-conn'));
+      session.resize(48, 28, { viewportType: 'mobile' }); // a glance alone: declined
+      expect(resize).toHaveBeenLastCalledWith(208, 45);
+
+      session.noteSmallViewportActivity({ cols: 48, rows: 28, viewportType: 'mobile' });
+      expect(resize).toHaveBeenLastCalledWith(48, 28);
+
+      session.noteDesktopActivity(); // back at the desktop keyboard
+      expect(resize).toHaveBeenLastCalledWith(208, 45);
+    });
   });
 });

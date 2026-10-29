@@ -4052,7 +4052,8 @@ export function registerSessionRoutes(
       remote = toSessionRemote(host, remoteCase);
       // Fork (fleet.ts): the account and model chosen in the New session dialog.
       // Only claude's remote launch reads `launch`, so other modes ignore it.
-      if (fleetAccountId || fleetModel) {
+      // A WSL/Linux session on the machine's own login gets a profile too, for its usage reading.
+      if (fleetAccountId || fleetModel || host.system !== 'windows') {
         const fleet = await readFleet(CODEMAN_CONFIG_DIR);
         const account = fleetAccountId ? fleet.accounts.find((a) => a.id === fleetAccountId) : undefined;
         if (fleetAccountId && !account) return createErrorResponse(ApiErrorCode.NOT_FOUND, 'Account not found');

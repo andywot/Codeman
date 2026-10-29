@@ -173,6 +173,9 @@ export function registerWsRoutes(app: FastifyInstance, ctx: SessionPort, getHost
       // connected (see Session._desktopSizeClaims).
       const sizingToken = Symbol('ws-desktop-sizing');
       let holdsDesktopClaim = false;
+      // Fork: the last small-viewport size this socket asked for, and whether it
+      // has asked yet (the first ask is the user opening the session here).
+      let smallViewportDims: { cols: number; rows: number; viewportType: 'mobile' | 'tablet' } | null = null;
 
       // Set once an input frame could not be held behind a guarded submit's lease
       // (the hold queue was full). Nothing later from this socket is applied: it is
@@ -194,6 +197,7 @@ export function registerWsRoutes(app: FastifyInstance, ctx: SessionPort, getHost
           // Typed input from a claim-holding desktop keeps the claim "hot"
           // and re-asserts the desktop layout after a mobile override.
           if (holdsDesktopClaim) session.noteDesktopActivity();
+          else if (smallViewportDims && msg.d.length > 0) session.noteSmallViewportActivity(smallViewportDims);
           // Browser keystrokes are the user's own, so they may name the tab.
           delivered = session.write(msg.d, { fromUser: true });
           // A session whose PTY is gone swallows the write. ACKing anyway told
@@ -289,6 +293,13 @@ export function registerWsRoutes(app: FastifyInstance, ctx: SessionPort, getHost
               holdsDesktopClaim = false;
             }
             const force = msg.f === true;
+            if (viewportType === 'mobile' || viewportType === 'tablet') {
+              const opening = smallViewportDims === null;
+              smallViewportDims = { cols: msg.c, rows: msg.r, viewportType };
+              if (opening) session.noteSmallViewportActivity(smallViewportDims);
+            } else {
+              smallViewportDims = null;
+            }
             session.resize(msg.c, msg.r, { viewportType, force });
             // Report the geometry that actually took. Resize used to be
             // write-only, so a client whose request was declined by the

@@ -128,6 +128,17 @@ Object.assign(CodemanApp.prototype, {
           `${name}: ${value}% used${resets ? `, resets ${new Date(resets).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`
         );
       }
+      if (account.pending) {
+        const ring = document.createElement('span');
+        ring.className = 'rc-ring rc-ring--empty';
+        ring.style.setProperty('--p', '0');
+        ring.setAttribute('aria-hidden', 'true');
+        const tag = document.createElement('span');
+        tag.className = 'rc-ring-key';
+        tag.textContent = '–';
+        item.append(ring, tag);
+        lines.push('No reading yet. It appears once a WSL or Linux session on this account answers once.');
+      }
       item.title = lines.join('\n');
       item.setAttribute('aria-label', lines.join('. '));
       parts.push(item);
@@ -141,14 +152,17 @@ Object.assign(CodemanApp.prototype, {
       if (!res.ok) return;
       const json = await res.json();
       const accounts = json?.data?.accounts ?? [];
+      // Claude logins (token accounts, or any with an email) show even before their
+      // first reading, so an empty wheel says why instead of the wheel going missing.
       this._statusBarAccounts = accounts
-        .filter((a) => a.usage)
+        .filter((a) => a.usage || a.kind === 'token' || a.kind === 'machine' || a.email)
         .map((a) => ({
           label: a.label,
-          fiveHour: a.usage.fiveHour ?? null,
-          fiveHourResetsAt: a.usage.fiveHourResetsAt ?? null,
-          sevenDay: a.usage.sevenDay ?? null,
-          resetsAt: a.usage.sevenDayResetsAt ?? null,
+          pending: !a.usage,
+          fiveHour: a.usage?.fiveHour ?? null,
+          fiveHourResetsAt: a.usage?.fiveHourResetsAt ?? null,
+          sevenDay: a.usage?.sevenDay ?? null,
+          resetsAt: a.usage?.sevenDayResetsAt ?? null,
         }));
       this.renderStatusBar();
     } catch {
