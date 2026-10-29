@@ -1,7 +1,12 @@
 # Codeman on arr (192.168.0.50), behind SWAG at https://codeman.siumimi.com (LAN + WireGuard only).
 #
 # Differs from docker/docker-compose.yaml on purpose:
-#  - no published ports: SWAG reaches it as http://codeman:3000 over swag-network
+#  - no published ports: SWAG reaches it as http://codeman:3000 over codeman-net, a
+#    network shared only with SWAG (swag-network holds internet-facing containers)
+#  - you log in with tinyauth (Pocket ID, admins group) at SWAG, LAN/WireGuard only;
+#    SWAG then adds Codeman's own Basic credentials to every request
+#    (nginx/snippets/codeman-auth.conf, 0600), so the browser never sees a Basic prompt
+#    while anything that skips SWAG still needs the password
 #  - no Docker socket and no cases path: "Docker cases" are not used, and the socket
 #    would give the web UI root-equivalent control of the host
 #  - no repo bind mount: runs the code baked into the image; self-update is disabled,
@@ -40,7 +45,7 @@ services:
         source: /docker/appdata/codeman
         target: /home/codeman
     networks:
-      - swag-network
+      - codeman-net
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -61,6 +66,8 @@ services:
       retries: 3
       start_period: 30s
 
+# Created once with `docker network create codeman-net`; SWAG joins it too
+# (/srv/swag/docker-compose.yml).
 networks:
-  swag-network:
+  codeman-net:
     external: true
