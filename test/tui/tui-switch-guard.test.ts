@@ -236,7 +236,14 @@ describe.skipIf(!hasTmux)('TUI M-1..M-9 switch only the attaching client', () =>
     await client.unbindSwitchKey('M-2', tty);
     await client.disarmTuiSwitchGuard(tty);
     expect(run(['list-keys', '-T', 'root'])).not.toContain(`switch-client -t ${beta}`);
-    expect(() => run(['show-options', '-gv', '@codeman-tui-pid'])).toThrow();
+    // The option is gone: newer tmux errors on an unset user option, 3.2a prints nothing.
+    let leftover = '';
+    try {
+      leftover = run(['show-options', '-gv', '@codeman-tui-pid']).trim();
+    } catch {
+      /* unset */
+    }
+    expect(leftover).toBe('');
 
     // A hook armed for a tty this one is a prefix of (pts/4 vs pts/41) is
     // another TUI's, and this tty's disarm must leave it.
