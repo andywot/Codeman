@@ -4828,6 +4828,8 @@ Object.assign(CodemanApp.prototype, {
 
     const subagentsPanel = document.getElementById('subagentsPanel');
     if (subagentsPanel) {
+      // index.html ships it display:none so it never flashes before settings load.
+      subagentsPanel.style.display = showSubagents ? '' : 'none';
       if (showSubagents) {
         subagentsPanel.classList.remove('hidden');
       } else {
