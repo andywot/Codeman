@@ -548,6 +548,7 @@ winver() {
  *     @@x <file> <reason>            an outbox file moved to outbox/rejected/
  *     @@p <base64 presence line>     an outside agent's presence file
  *     @@c <mailbox> <pending> <unseen>
+ *     @@u <mailbox> <id>             one of the newest ten unseen messages
  *
  * Writes go to a temp file then `mv` (a reader never sees half a message). Install is marker-owned
  * and add-only: the CLI and the skill are written only where absent or carrying our marker line, and
@@ -609,9 +610,11 @@ export const MAIL_POLL_SCRIPT = [
   'done',
   'for d in "$M"/inbox/*/; do',
   '  [ -d "$d" ] || continue; mb=${d%/}; mb=${mb##*/}; okname "$mb" || continue',
-  '  p=0; u=0',
-  '  for j in "$d"*.json; do [ -f "$j" ] || continue; p=$((p + 1)); i=${j##*/}; [ -e "$d.seen/${i%.json}" ] || u=$((u + 1)); done',
+  "  p=0; u=0; ul=''",
+  '  for j in "$d"*.json; do [ -f "$j" ] || continue; p=$((p + 1)); i=${j##*/}; [ -e "$d.seen/${i%.json}" ] || { u=$((u + 1)); ul="$ul ${i%.json}"; }; done',
   `  printf '@@c %s %s %s\\n' "$mb" "$p" "$u"`,
+  // The newest ten unseen ids (names sort by time), so a restarted server can tell what to nudge.
+  `  for x in $(printf '%s\\n' $ul | tail -n 10); do okid "$x" && printf '@@u %s %s\\n' "$mb" "$x"; done`,
   'done',
   'exit 0',
 ].join('\n');
@@ -631,6 +634,8 @@ export interface PollOutput {
   rejected: Array<{ file: string; reason: string }>;
   presence: string[];
   counts: Map<string, { pending: number; unseen: number }>;
+  /** Mailbox → ids of its newest unseen messages (oldest first, at most ten). */
+  unseenIds: Map<string, string[]>;
 }
 
 export function parsePollOutput(stdout: string): PollOutput {
@@ -645,6 +650,7 @@ export function parsePollOutput(stdout: string): PollOutput {
     rejected: [],
     presence: [],
     counts: new Map(),
+    unseenIds: new Map(),
   };
   for (const line of stdout.split('\n')) {
     if (!line.startsWith('@@')) continue;
@@ -679,6 +685,13 @@ export function parsePollOutput(stdout: string): PollOutput {
         break;
       case 'p':
         if (a) out.presence.push(Buffer.from(a, 'base64').toString('utf8'));
+        break;
+      case 'u':
+        if (MAILBOX_RE.test(a) && MESSAGE_ID_RE.test(b)) {
+          const list = out.unseenIds.get(a) ?? [];
+          list.push(b);
+          out.unseenIds.set(a, list);
+        }
         break;
       case 'c':
         if (MAILBOX_RE.test(a) && /^\d+$/.test(b) && /^\d+$/.test(c)) {

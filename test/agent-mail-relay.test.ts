@@ -209,6 +209,69 @@ describe('agent mail relay', () => {
     expect(w.nudges.map((n) => n.id)).toEqual([REMOTE_SID]);
   });
 
+  describe('after a server restart', () => {
+    /** Mail delivered to w1-api while it was busy, then a fresh relay restored from the snapshot. */
+    async function restarted(readFirst: boolean) {
+      const w = world();
+      const clock = { t: Date.now() };
+      await ticks(w, 1, clock);
+      w.views[LOCAL_SID] = { idle: false, composerEmpty: true, lastHumanInputAt: 0 };
+      w.cli('u@pc:22', ['send', 'w1-api', 'Deploy lost this', 'body'], AS_BUILDER);
+      await ticks(w, 3, clock);
+      expect(w.nudges).toEqual([]);
+      if (readFirst) {
+        const ids = w
+          .cli('local', ['inbox'], AS_API)
+          .out.split('\n')
+          .map((l) => l.split(' ')[0])
+          .filter((x) => /^\d+-/.test(x));
+        for (const id of ids) w.cli('local', ['read', id], AS_API);
+      }
+      const w2 = world({ restore: w.saved[w.saved.length - 1] });
+      Object.assign(w2.homes, w.homes);
+      return { w2, clock };
+    }
+
+    it('nudges an idle session about unseen mail once, never twice', async () => {
+      const { w2, clock } = await restarted(false);
+      await ticks(w2, 3, clock);
+      expect(w2.nudges).toHaveLength(1);
+      expect(w2.nudges[0].id).toBe(LOCAL_SID);
+      expect(w2.nudges[0].text).toContain('Deploy lost this');
+      expect(w2.nudges[0].text).not.toContain('body');
+      // Unread still, long after the rate limit: the same message is not nudged again.
+      clock.t += 60 * 60_000;
+      await ticks(w2, 4, clock);
+      expect(w2.nudges).toHaveLength(1);
+    });
+
+    it('waits for an idle, empty composer, and never nudges mail already read', async () => {
+      const { w2, clock } = await restarted(false);
+      w2.views[LOCAL_SID] = { idle: false, composerEmpty: true, lastHumanInputAt: 0 };
+      await ticks(w2, 3, clock);
+      expect(w2.nudges).toEqual([]);
+      w2.views[LOCAL_SID] = { idle: true, composerEmpty: true, lastHumanInputAt: 0 };
+      await ticks(w2, 2, clock);
+      expect(w2.nudges).toHaveLength(1);
+
+      const read = await restarted(true);
+      await ticks(read.w2, 3, read.clock);
+      expect(read.w2.nudges).toEqual([]);
+    });
+
+    it('does not nudge when the session switch is off', async () => {
+      const { w2, clock } = await restarted(false);
+      await w2.relay.tick(clock.t + 1); // loads the snapshot
+      w2.relay.setNudge(LOCAL_SID, false);
+      await ticks(w2, 3, clock);
+      expect(w2.nudges.length).toBeLessThanOrEqual(1);
+      const before = w2.nudges.length;
+      w2.cli('u@pc:22', ['send', 'w1-api', 'More', 'b'], AS_BUILDER);
+      await ticks(w2, 3, clock);
+      expect(w2.nudges).toHaveLength(before);
+    });
+  });
+
   it('keeps mail for an offline machine, persisted, and delivers it later', async () => {
     const w = world();
     const clock = { t: Date.now() };

@@ -211,6 +211,10 @@ export class AgentMailRelay {
   private nudgeOff = new Set<string>();
   private readonly pendingNudges = new Map<string, PendingNudge>();
   private readonly lastNudgeAt = new Map<string, number>();
+  /** Message ids behind each pending nudge. */
+  private readonly pendingIds = new Map<string, Set<string>>();
+  /** Message ids already nudged (or given up on) in this server run: never nudged twice. */
+  private readonly nudgedIds = new Set<string>();
   /** Remote endpoint id → the endpoint whose tree it shares (`local`). */
   private readonly aliases = new Map<string, string>();
   private directory: MailAgent[] = [];
@@ -249,6 +253,7 @@ export class AgentMailRelay {
     else {
       this.nudgeOff.add(sessionId);
       this.pendingNudges.delete(sessionId);
+      this.pendingIds.delete(sessionId);
     }
     this.dirty = true;
     void this.persist();
@@ -261,6 +266,7 @@ export class AgentMailRelay {
   /** Session deleted: forget its switch and any pending nudge. */
   remove(sessionId: string): void {
     this.pendingNudges.delete(sessionId);
+    this.pendingIds.delete(sessionId);
     this.lastNudgeAt.delete(sessionId);
     if (this.nudgeOff.delete(sessionId)) {
       this.dirty = true;
@@ -525,6 +531,7 @@ export class AgentMailRelay {
     if (ackFiles.length || statusIds.length) this.dirty = true;
 
     for (const id of out.delivered) this.onDelivered(id, ep, endpoints, now);
+    this.deriveNudges(ep, endpoints, out.unseenIds, now);
     for (const r of out.rejected) {
       const id = r.file.slice(0, -5);
       this.setStatus(ep.id, id, renderSentStatus({ to: '?', subject: '?' }, 'rejected', new Date(), r.reason));
@@ -558,6 +565,7 @@ export class AgentMailRelay {
       (a) => a.machine === machine && a.mailbox === to?.mailbox && a.kind === 'dashboard' && a.sid
     );
     if (agent?.sid && !this.nudgeOff.has(agent.sid)) {
+      this.noteId(agent.sid, id);
       const prev = this.pendingNudges.get(agent.sid);
       this.pendingNudges.set(agent.sid, {
         count: (prev?.count ?? 0) + 1,
@@ -565,6 +573,57 @@ export class AgentMailRelay {
         subject: q.message.subject,
         since: prev?.since ?? now,
       });
+    }
+  }
+
+  private noteId(sid: string, id: string): void {
+    const ids = this.pendingIds.get(sid) ?? new Set<string>();
+    ids.add(id);
+    this.pendingIds.set(sid, ids);
+  }
+
+  /**
+   * Durable-state nudges: unseen mail in a dashboard session's inbox that no nudge in this server
+   * run has covered (the "just delivered" event is lost by a restart) queues one, naming the newest
+   * unseen message. The usual gates in {@link runNudges} still apply; read mail never appears here.
+   */
+  private deriveNudges(
+    ep: MailEndpoint,
+    endpoints: readonly MailEndpoint[],
+    unseenIds: ReadonlyMap<string, string[]>,
+    now: number
+  ): void {
+    const machine = this.machineOf(ep, endpoints);
+    for (const [mailbox, ids] of unseenIds) {
+      const agent = this.directory.find(
+        (a) => a.machine === machine && a.mailbox === mailbox && a.kind === 'dashboard' && a.sid
+      );
+      const sid = agent?.sid;
+      if (!sid || this.nudgeOff.has(sid)) continue;
+      const known = this.pendingIds.get(sid);
+      const fresh = ids.filter((id) => !this.nudgedIds.has(id) && !known?.has(id));
+      if (!fresh.length) continue;
+      for (const id of fresh) this.noteId(sid, id);
+      const newest = this.log.find((e) => e.id === fresh[fresh.length - 1]);
+      const prev = this.pendingNudges.get(sid);
+      this.pendingNudges.set(sid, {
+        count: (prev?.count ?? 0) + fresh.length,
+        from: newest?.from ?? prev?.from ?? 'another agent',
+        subject: newest?.subject ?? prev?.subject ?? 'see inbox',
+        since: prev?.since ?? now,
+      });
+    }
+  }
+
+  private markNudged(sid: string): void {
+    for (const id of this.pendingIds.get(sid) ?? []) this.nudgedIds.add(id);
+    this.pendingIds.delete(sid);
+    if (this.nudgedIds.size > 5000) {
+      let drop = this.nudgedIds.size - 4000;
+      for (const id of this.nudgedIds) {
+        if (drop-- <= 0) break;
+        this.nudgedIds.delete(id);
+      }
     }
   }
 
@@ -682,6 +741,7 @@ export class AgentMailRelay {
       const view = agent ? this.ports.nudgeView(sid) : null;
       if (!agent || !view) {
         this.pendingNudges.delete(sid);
+        this.pendingIds.delete(sid);
         continue;
       }
       const ep = this.endpointForMachine(agent.machine, endpoints);
@@ -696,9 +756,13 @@ export class AgentMailRelay {
         composerEmpty: view.composerEmpty,
         lastHumanInputAt: view.lastHumanInputAt,
       });
-      if (decision === 'drop') this.pendingNudges.delete(sid);
+      if (decision === 'drop') {
+        this.pendingNudges.delete(sid);
+        this.markNudged(sid);
+      }
       if (decision !== 'nudge') continue;
       this.pendingNudges.delete(sid);
+      this.markNudged(sid);
       this.lastNudgeAt.set(sid, now);
       const ok = await this.ports.nudge(sid, buildNudgeText(pending)).catch(() => false);
       this.ports.log?.(`[AgentMail] ${ok ? 'nudged' : 'could not nudge'} ${sid.slice(0, 8)} (${pending.count} new)`);
