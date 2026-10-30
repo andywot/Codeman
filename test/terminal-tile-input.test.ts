@@ -747,15 +747,17 @@ describe('TerminalTile links and paste follow THIS pane', () => {
     expect(paste).toHaveBeenCalledWith({ terminal: term, sessionId: 's-tile' });
   });
 
-  it('leaves Ctrl+Shift+V (voice input) out of the paste trap', async () => {
+  // Ctrl+Shift+V is the Linux terminal paste chord (it used to start voice input).
+  it('routes Ctrl+Shift+V into the same paste trap as Ctrl+V', async () => {
     const app = makeApp();
     const paste = vi.fn();
     app._handleImagePaste = paste;
     const { term } = await connectTile(app);
 
-    term.keyHandler!({ type: 'keydown', key: 'V', ctrlKey: true, shiftKey: true, code: 'KeyV' });
+    const handled = term.keyHandler!({ type: 'keydown', key: 'V', ctrlKey: true, shiftKey: true, code: 'KeyV' });
 
-    expect(paste).not.toHaveBeenCalled();
+    expect(handled).toBe(false);
+    expect(paste).toHaveBeenCalledWith({ terminal: term, sessionId: 's-tile' });
   });
 });
 

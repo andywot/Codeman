@@ -69,7 +69,8 @@ sequences, so word jumps and history keys keep working.
 
 ## Voice dictation
 
-`Ctrl+Shift+V`, or the microphone button. There are three providers and the default is
+The microphone button, or a key you bind to Voice Input in App Settings → Shortcuts (it has
+none by default: `Ctrl+Shift+V` pastes). There are three providers and the default is
 `auto`, which prefers them in this order:
 
 | Provider           | Needs                                          | Notes                                                        |

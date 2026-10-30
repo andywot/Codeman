@@ -59,7 +59,7 @@ default. See [Tile Grid](Tile-Grid).
 
 | Shortcut          | Action                                                       |
 | ----------------- | ------------------------------------------------------------ |
-| `Ctrl+Shift+V`    | Toggle voice input.                                          |
+| `Ctrl+V` / `Ctrl+Shift+V` | Paste. Voice Input has no key by default (bind one in App Settings → Shortcuts). |
 | `Ctrl+?`          | Shortcut reference overlay.                                  |
 | `Escape`          | Close panels and modals.                                     |
 | `Alt+←` / `Alt+→` | File Viewer window: back / forward between previewed files.  |

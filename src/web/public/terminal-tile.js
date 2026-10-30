@@ -342,13 +342,13 @@
         // they must never reach this tile's PTY. Every event type, and before
         // the Shift+Enter branch below.
         if (global.app?.tileShortcutFor?.(ev)) return false;
-        // Ctrl+V / Cmd+V: the primary pane's paste trap, aimed at THIS pane, so
+        // Ctrl+V / Cmd+V and Ctrl+Shift+V: the primary pane's paste trap, aimed at THIS pane, so
         // a pasted image uploads to this pane's session and its path is typed
         // here. Plain text goes to this pane's session as a Codeman-built
         // bracketed-paste frame; this terminal is only refocused and receives
         // input(framed), which onData delivers. Mirrors terminal-ui.js's own
         // Ctrl+V gate; without it xterm's default only ever pasted text.
-        if ((ev.ctrlKey || ev.metaKey) && ev.key === 'v' && ev.type === 'keydown') {
+        if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === 'v' && ev.type === 'keydown') {
           global.app?._handleImagePaste?.({ terminal: this.terminal, sessionId: this.sessionId });
           return false;
         }

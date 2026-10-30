@@ -203,6 +203,7 @@ Implements the xterm.js `ITerminalAddon` interface. It deliberately does **not**
 |--------|---------|-------------|
 | `addChar(char)` | `void` | Add a single printable character. Auto-detects existing buffer text on the first keystroke. |
 | `appendText(text)` | `void` | Append multiple characters (paste). |
+| `appendToken(label, value)` | `void` | Append an atomic token: drawn as `label` (e.g. `[Image #1]`), sent as `value` (`pendingText` carries the value). `removeChar()` removes it whole; nothing can be typed inside it. |
 | `removeChar()` | `'pending'` \| `'flushed'` \| `false` | Remove the last character and drop any IME composition. See [backspace handling](#backspace-handling). |
 | `clear()` | `void` | Clear all state, the composition included, and hide the overlay. Call on Enter, Ctrl+C, Escape. |
 | `setComposition(text)` | `void` | Show text an IME is still composing as an underlined tail after the typed text. Pass `''` to remove it. See [IME composition](#ime-composition). |
@@ -266,6 +267,7 @@ Finds text that exists after the prompt but was never typed through the overlay.
 | Method | Description |
 |--------|-------------|
 | `setPrompt(finder)` | Replace the prompt detection strategy at runtime. |
+| `setLayout(layout)` | Describe how the CLI lays out its composer (`ComposerLayout`): `continuationIndent` (a column, or `'prompt'` for a hanging indent), `rightMargin`, `wordWrap`, and `followCursor`, which continues typed text at the terminal cursor when the composer already holds text the overlay never saw (for CLIs that keep the cursor at their caret, like Claude Code). Replaces the whole layout. |
 | `findPrompt()` | Find the prompt position. Returns `{ row, col }` or `null`. |
 | `readPromptText()` | Read the text after the prompt marker. Returns a string or `null`. |
 
@@ -273,7 +275,9 @@ Finds text that exists after the prompt but was never typed through the overlay.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `pendingText` | `string` | Unacknowledged text (read-only) |
+| `pendingText` | `string` | Unacknowledged text as it must be sent, tokens expanded to their values (read-only) |
+| `pendingDisplayText` | `string` | The same text as drawn, tokens as their labels (read-only) |
+| `pendingTokens` | `{ label, value }[]` | The tokens in the pending text, in order (read-only) |
 | `hasPending` | `boolean` | `true` if there is pending or flushed text. Excludes the IME composition, so it can be `false` while the overlay still shows one |
 | `composition` | `string` | The text set by `setComposition()`, `''` when none (read-only) |
 | `state` | `ZerolagInputState` | Full snapshot: `pendingText`, `flushedLength`, `flushedText`, `visible`, `promptPosition` |
@@ -289,6 +293,7 @@ Finds text that exists after the prompt but was never typed through the overlay.
   showCursor?: boolean,        // Default: true
   cursorColor?: string,        // Default: terminal theme cursor
   scrollDebounceMs?: number,   // Default: 50
+  layout?: ComposerLayout,     // Default: {} (see setLayout)
 }
 ```
 

@@ -49,7 +49,10 @@ describe('help modal shortcuts', () => {
     expectShortcut(helpModal, ['Ctrl', '}'], 'Move Active Tab Right');
     expectShortcut(helpModal, ['Ctrl', '?'], 'Show Shortcuts');
     expect(helpModal).not.toMatch(/Ctrl<\/kbd>\s*\+\s*<kbd>\/<\/kbd>.*?Show Shortcuts/i);
-    expectShortcut(helpModal, ['Ctrl', 'Shift', 'V'], 'Voice Input');
+    // Ctrl+Shift+V pastes (the Linux terminal chord); Voice Input has no key by default.
+    expectShortcut(helpModal, ['Ctrl', 'Shift', 'V'], 'Paste');
+    expectShortcut(helpModal, ['Ctrl/Cmd', 'V'], 'Paste');
+    expect(helpModal).not.toMatch(/Voice Input/i);
     expectShortcut(helpModal, ['Escape'], 'Close Panels');
     expectShortcut(helpModal, ['Alt/Option', 'ArrowLeft'], 'File Viewer Back / Forward');
   });

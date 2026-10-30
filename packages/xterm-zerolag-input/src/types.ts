@@ -132,14 +132,62 @@ export interface ZerolagInputOptions {
    * @default 50
    */
   scrollDebounceMs?: number;
+
+  /**
+   * How the CLI lays out its composer, so the overlay draws typed text where
+   * the CLI will (see `ComposerLayout`). Change it at runtime with `setLayout()`.
+   * @default {} (no hanging indent, no right margin, character wrap, prompt anchor)
+   */
+  layout?: ComposerLayout;
+}
+
+/**
+ * How a CLI lays out its composer. Every field is optional; the defaults are
+ * the overlay's historical layout.
+ */
+export interface ComposerLayout {
+  /**
+   * Column wrapped and continued lines start at: a number, or `'prompt'` for
+   * the prompt's own text column (a hanging indent, as Claude Code's `❯ `
+   * composer draws it).
+   * @default 0
+   */
+  continuationIndent?: number | 'prompt';
+  /**
+   * Columns the CLI leaves free at the right edge before it wraps.
+   * @default 0
+   */
+  rightMargin?: number;
+  /**
+   * Wrap after the last space of a line rather than mid-word.
+   * @default false
+   */
+  wordWrap?: boolean;
+  /**
+   * Continue typed text from the terminal cursor when the CLI's composer
+   * already holds text the overlay never saw (a paste, an upload path, text
+   * restored on a tab switch, a Shift+Enter line break): the cursor then sits
+   * past the prompt start, and the CLI is already drawing everything before
+   * it. Without this the overlay draws from the prompt start, over the
+   * composer's own text, and the CLI's cursor shows as a second one further on.
+   *
+   * Only for CLIs that keep the terminal cursor at the composer caret (Claude
+   * Code does). The cursor is followed only while it is on the prompt row or a
+   * continuation row below it, so a cursor parked outside the composer is
+   * ignored.
+   * @default false
+   */
+  followCursor?: boolean;
 }
 
 /**
  * Read-only state snapshot of the overlay.
  */
 export interface ZerolagInputState {
-  /** Characters typed but not yet acknowledged by the server */
+  /** Characters typed but not yet acknowledged by the server, tokens expanded to their values */
   pendingText: string;
+  /** The same text as drawn: tokens as their labels (see `appendToken`) */
+  pendingDisplayText: string;
   /** Number of characters flushed to PTY but echo not yet received */
   flushedLength: number;
   /** Text content of the flushed portion */
@@ -190,6 +238,13 @@ export interface RenderParams {
   cursorColor: string;
   /** Terminal instance for CJK wide character width detection */
   terminal?: XtermTerminal | null;
+  /**
+   * Where each of `lines` goes (see layoutLines): its text column, the column
+   * its opaque background starts at, and its code-point offset in the whole
+   * text. Omit for the historical layout: the first line at `startCol`, every
+   * other line at column 0.
+   */
+  layout?: Array<{ col: number; bgCol: number; offset: number }>;
 }
 
 /** Cached font style properties for overlay rendering. */

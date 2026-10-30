@@ -921,9 +921,10 @@ Object.assign(CodemanApp.prototype, {
         return false;
       }
 
-      // Ctrl+V / Cmd+V: intercept before xterm sends ^V to PTY.
+      // Ctrl+V / Cmd+V, and Ctrl+Shift+V (the Linux terminal paste chord): intercept
+      // before xterm sends ^V to PTY.
       // Route through our paste trap which handles both images and text.
-      if ((ev.ctrlKey || ev.metaKey) && ev.key === 'v' && ev.type === 'keydown') {
+      if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === 'v' && ev.type === 'keydown') {
         if (this.activeSessionId && this._handleImagePaste) {
           this._handleImagePaste();
         }
@@ -4446,6 +4447,7 @@ Object.assign(CodemanApp.prototype, {
             }
           },
         });
+        this._localEchoOverlay.setLayout?.(null);
       } else if (session.mode === 'shell' || session.mode === 'codex') {
         // Shell mode: the shell provides its own PTY echo so the overlay isn't needed.
         // Codex mode: the composer is fully interactive per keystroke. Typing
@@ -4487,6 +4489,20 @@ Object.assign(CodemanApp.prototype, {
               return null;
             }
           },
+        });
+        // How a `❯ ` composer lays itself out (measured against Claude Code
+        // 2.1.314): wrapped and continued lines hang at the prompt's text column,
+        // it wraps at word boundaries two columns short of the right edge, and it
+        // keeps the terminal cursor at its caret. followCursor is what keeps typed
+        // text after composer content the overlay never saw (a pasted block, an
+        // upload path, text flushed on a tab switch or by Shift+Enter): without
+        // it the overlay drew from the ❯ over the composer's first row and the
+        // CLI's own cursor showed as a second one at the real end of the text.
+        this._localEchoOverlay.setLayout?.({
+          continuationIndent: 'prompt',
+          rightMargin: 2,
+          wordWrap: true,
+          followCursor: true,
         });
       }
     }

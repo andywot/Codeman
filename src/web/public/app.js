@@ -494,7 +494,10 @@ const DEFAULT_SHORTCUTS = [
     id: 'voice-input',
     group: 'Terminal',
     label: 'Voice Input',
-    bindings: [{ modifiers: ['ctrl', 'shift'], key: 'V' }],
+    // Unbound by default: Ctrl+Shift+V is paste, the Linux terminal convention
+    // (the xterm key handlers route it to the paste trap like Ctrl+V). Voice
+    // stays bindable from App Settings → Shortcuts.
+    bindings: [],
     action: 'toggleVoiceInput',
   },
   {
@@ -679,6 +682,14 @@ const DEFAULT_SHORTCUTS = [
     group: 'Terminal',
     label: 'Insert Newline',
     displayBindings: ['Shift+Enter', 'Ctrl+Enter'],
+  },
+  {
+    // Fixed chords handled by the xterm key handlers (terminal-ui.js, terminal-tile.js),
+    // not by the registry: Ctrl+Shift+V is the Linux terminal paste chord.
+    id: 'paste',
+    group: 'Terminal',
+    label: 'Paste',
+    displayBindings: ['Ctrl/Cmd+V', 'Ctrl+Shift+V'],
   },
   {
     id: 'close-panels',

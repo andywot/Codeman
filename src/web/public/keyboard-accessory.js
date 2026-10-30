@@ -666,6 +666,10 @@ const KeyboardAccessoryBar = {
   // Prompt drafts intentionally stay in memory: prompts routinely contain secrets,
   // so persistence would need the same treatment as the 0600 intent store.
   _composerDrafts: new Map(),
+  // Upload tokens of each session's draft, sessionId -> [{ label, value }]: the
+  // draft shows `[Image #1]`, Send carries the path (see _expandComposerTokens).
+  // In memory only, like the drafts.
+  _composerTokens: new Map(),
   _composerUploads: new Map(),
   _composerOverlay: null,
   // Longest prompt or shell paste Send accepts: the input frame limit minus both markers.
@@ -1194,7 +1198,16 @@ const KeyboardAccessoryBar = {
    *  that prefix before making the textarea authoritative. */
   _takePendingLocalEcho(sessionId) {
     if (!app._localEchoEnabled || !app._localEchoOverlay) return '';
-    const pending = app._localEchoOverlay.pendingText || '';
+    // Upload tokens come along as tokens: the text as drawn, and the paths they
+    // stand for added to the session's composer tokens (renumbered if the parked
+    // draft already uses a label). The flushed part is plain text: it is in the
+    // CLI's composer, where no label survives.
+    const overlayTokens = app._localEchoOverlay.pendingTokens || [];
+    let pending =
+      overlayTokens.length > 0
+        ? app._localEchoOverlay.pendingDisplayText || ''
+        : app._localEchoOverlay.pendingText || '';
+    if (overlayTokens.length > 0) pending = this._adoptComposerTokens(sessionId, pending, overlayTokens);
     const overlayFlushed = app._localEchoOverlay.getFlushed?.() || {};
     const flushedText = overlayFlushed.text || app._flushedTexts?.get(sessionId) || '';
     const flushedLength = Array.from(flushedText).length;
@@ -1206,6 +1219,207 @@ const KeyboardAccessoryBar = {
       app._sendInputAsync(sessionId, '\x7f'.repeat(flushedLength), { useMux: true });
     }
     return flushedText + pending;
+  },
+
+  // ── Upload tokens in the Compose draft ──────────────────────────────────
+  //
+  // An uploaded file shows in the draft as `[Image #1]` and goes out as its
+  // path. The label is ordinary textarea text, made atomic by
+  // _bindComposerTokens: an edit that would cut into one removes it whole, and
+  // the caret steps over it. A label the user still managed to break is no
+  // longer a token and goes out as the text it is.
+
+  /** The session's draft tokens ([{ label, value }]), a copy. */
+  _composerTokenList(sessionId) {
+    return (this._composerTokens.get(sessionId) || []).map((t) => ({ label: t.label, value: t.value }));
+  },
+
+  /** Keep only the tokens whose label is still in `text`. */
+  _setComposerTokens(sessionId, text, tokens) {
+    const kept = (tokens || []).filter((t) => t && t.label && String(text || '').includes(t.label));
+    if (kept.length > 0) this._composerTokens.set(sessionId, kept);
+    else this._composerTokens.delete(sessionId);
+  },
+
+  /** Every occurrence of every token label in `text`, as non-overlapping
+   *  { start, end, value } ranges in text order (earliest, then longest, wins). */
+  _composerTokenRanges(text, tokens) {
+    const value = String(text || '');
+    const found = [];
+    for (const token of tokens || []) {
+      if (!token?.label) continue;
+      let at = value.indexOf(token.label);
+      while (at >= 0) {
+        found.push({ start: at, end: at + token.label.length, value: token.value });
+        at = value.indexOf(token.label, at + token.label.length);
+      }
+    }
+    found.sort((a, b) => a.start - b.start || b.end - a.end);
+    const ranges = [];
+    for (const r of found) {
+      if (ranges.length === 0 || r.start >= ranges[ranges.length - 1].end) ranges.push(r);
+    }
+    return ranges;
+  },
+
+  /** `text` with every token label replaced by the path it stands for: what Send delivers. */
+  _expandComposerTokens(text, tokens) {
+    const value = String(text || '');
+    let out = '';
+    let at = 0;
+    for (const r of this._composerTokenRanges(value, tokens)) {
+      out += value.slice(at, r.start) + r.value;
+      at = r.end;
+    }
+    return out + value.slice(at);
+  },
+
+  /** Merge `incoming` tokens into the session's, relabelling any whose label the
+   *  session already uses for a different path. Returns `text` with those labels
+   *  rewritten. */
+  _adoptComposerTokens(sessionId, text, incoming) {
+    const tokens = this._composerTokenList(sessionId);
+    let out = String(text || '');
+    for (const token of incoming || []) {
+      if (!token?.label) continue;
+      const same = tokens.find((t) => t.label === token.label);
+      if (same && same.value === token.value) continue;
+      if (!same) {
+        tokens.push({ label: token.label, value: token.value });
+        continue;
+      }
+      const [label] =
+        typeof app !== 'undefined' && typeof app._uploadTokenLabels === 'function'
+          ? app._uploadTokenLabels([token.value], tokens.map((t) => t.label))
+          : [`[File #${tokens.length + 1}]`];
+      out = out.split(token.label).join(label);
+      tokens.push({ label, value: token.value });
+    }
+    this._composerTokens.set(sessionId, tokens);
+    return out;
+  },
+
+  /** Put uploaded `paths` in the Compose textarea as tokens at the selection. */
+  _insertComposerUploads(textarea, sessionId, paths) {
+    if (!textarea || !paths?.length) return;
+    // Only the tokens still in the draft count for numbering: one deleted a moment
+    // ago must not push the next label to #2.
+    const tokens = this._composerTokenList(sessionId).filter((t) => textarea.value.includes(t.label));
+    const labels =
+      typeof app !== 'undefined' && typeof app._uploadTokenLabels === 'function'
+        ? app._uploadTokenLabels(paths, tokens.map((t) => t.label))
+        : null;
+    if (!labels) {
+      this._insertComposerText(textarea, paths.join(' '));
+      return;
+    }
+    paths.forEach((path, i) => tokens.push({ label: labels[i], value: path }));
+    this._composerTokens.set(sessionId, tokens);
+    this._insertComposerText(textarea, labels.join(' '));
+  },
+
+  /** The edit that turned `before` into `after`: the replaced range of `before`
+   *  and the text inserted there. */
+  _composerEdit(before, after) {
+    let start = 0;
+    const max = Math.min(before.length, after.length);
+    while (start < max && before[start] === after[start]) start++;
+    let tail = 0;
+    while (
+      tail < before.length - start &&
+      tail < after.length - start &&
+      before[before.length - 1 - tail] === after[after.length - 1 - tail]
+    ) {
+      tail++;
+    }
+    return { start, end: before.length - tail, inserted: after.slice(start, after.length - tail) };
+  },
+
+  /** Repair an edit that cut into a token: a deletion that reached into one
+   *  removes it whole; text inserted inside one moves after it. Returns the
+   *  repaired value and caret, or null when the edit left every token whole. */
+  _repairComposerTokens(before, after, tokens) {
+    const ranges = this._composerTokenRanges(before, tokens);
+    if (ranges.length === 0) return null;
+    const edit = this._composerEdit(before, after);
+    if (edit.start === edit.end) {
+      // Pure insertion: harmful only strictly inside a token.
+      const inside = ranges.find((r) => edit.start > r.start && edit.start < r.end);
+      if (!inside) return null;
+      const value = before.slice(0, inside.end) + edit.inserted + before.slice(inside.end);
+      return { value, caret: inside.end + edit.inserted.length };
+    }
+    let start = edit.start;
+    let end = edit.end;
+    let touched = false;
+    for (const r of ranges) {
+      if (r.start < end && r.end > start && (r.start < start || r.end > end)) {
+        start = Math.min(start, r.start);
+        end = Math.max(end, r.end);
+        touched = true;
+      }
+    }
+    if (!touched) return null;
+    return { value: before.slice(0, start) + edit.inserted + before.slice(end), caret: start + edit.inserted.length };
+  },
+
+  /** Make the token labels in `textarea` atomic. `sessionId` names whose tokens
+   *  they are. Returns a function that removes the listeners. */
+  _bindComposerTokens(textarea, sessionId) {
+    let before = textarea.value;
+    let lastCaret = textarea.selectionStart ?? before.length;
+    const tokens = () => this._composerTokens.get(sessionId) || [];
+    const onInput = (event) => {
+      if (event?.isComposing) return;
+      const repaired = this._repairComposerTokens(before, textarea.value, tokens());
+      if (repaired) {
+        textarea.value = repaired.value;
+        textarea.selectionStart = textarea.selectionEnd = repaired.caret;
+      }
+      before = textarea.value;
+      lastCaret = textarea.selectionStart ?? before.length;
+    };
+    // Keep the caret out of a label, and a selection over whole labels only.
+    const onSelection = () => {
+      if (document.activeElement !== textarea) return;
+      const s = textarea.selectionStart;
+      const e = textarea.selectionEnd;
+      if (!Number.isInteger(s) || !Number.isInteger(e)) return;
+      const ranges = this._composerTokenRanges(textarea.value, tokens());
+      if (s === e) {
+        const inside = ranges.find((r) => s > r.start && s < r.end);
+        if (inside) {
+          // Step over the label in the direction the caret was moving.
+          const to = lastCaret <= inside.start ? inside.end : lastCaret >= inside.end ? inside.start : inside.end;
+          textarea.selectionStart = textarea.selectionEnd = to;
+        }
+        lastCaret = textarea.selectionStart;
+        return;
+      }
+      let ns = s;
+      let ne = e;
+      for (const r of ranges) {
+        if (r.start < ne && r.end > ns) {
+          ns = Math.min(ns, r.start);
+          ne = Math.max(ne, r.end);
+        }
+      }
+      if (ns !== s || ne !== e) textarea.setSelectionRange(ns, ne, textarea.selectionDirection || 'none');
+    };
+    textarea.addEventListener('input', onInput);
+    textarea.addEventListener('compositionend', onInput);
+    textarea.addEventListener('keyup', onSelection);
+    textarea.addEventListener('mouseup', onSelection);
+    textarea.addEventListener('touchend', onSelection);
+    document.addEventListener('selectionchange', onSelection);
+    return () => {
+      textarea.removeEventListener('input', onInput);
+      textarea.removeEventListener('compositionend', onInput);
+      textarea.removeEventListener('keyup', onSelection);
+      textarea.removeEventListener('mouseup', onSelection);
+      textarea.removeEventListener('touchend', onSelection);
+      document.removeEventListener('selectionchange', onSelection);
+    };
   },
 
   /** Insert text at the textarea selection, adding one separating space when
@@ -1262,6 +1476,7 @@ const KeyboardAccessoryBar = {
   /** Forget a draft when its target session no longer exists. */
   discardComposerDraft(sessionId) {
     this._composerDrafts.delete(sessionId);
+    this._composerTokens.delete(sessionId);
     this._composerUploads.delete(sessionId);
     this._syncComposerDraftIndicator();
     if (this._composerOverlay?.dataset.sessionId === sessionId) {
@@ -1342,8 +1557,15 @@ const KeyboardAccessoryBar = {
       else this._composerDrafts.delete(sessionId);
       this._syncComposerDraftIndicator();
     };
+    const unbindTokens = this._bindComposerTokens(textarea, sessionId);
     const close = ({ focusTerminal = false, preserveDraft = true, restoreFocus = true } = {}) => {
-      if (preserveDraft) saveDraft();
+      if (preserveDraft) {
+        saveDraft();
+        this._setComposerTokens(sessionId, textarea.value, this._composerTokenList(sessionId));
+      } else {
+        this._composerTokens.delete(sessionId);
+      }
+      unbindTokens();
       focusTrap.deactivate({ restoreFocus });
       overlay.remove();
       if (this._composerOverlay === overlay) this._composerOverlay = null;
@@ -1353,10 +1575,12 @@ const KeyboardAccessoryBar = {
     const send = () => {
       // Whitespace-only counts as empty (it would submit blank lines), but the
       // text goes out untrimmed so deliberate leading or trailing lines survive.
-      const text = textarea.value;
+      // Upload tokens go out as the paths they stand for.
+      const text = this._expandComposerTokens(textarea.value, this._composerTokenList(sessionId));
       if (!text.trim() || !this._sendComposedPrompt(sessionId, text)) return;
       app._echoPassthroughSessions?.delete(sessionId);
       this._composerDrafts.delete(sessionId);
+      this._composerTokens.delete(sessionId);
       this._syncComposerDraftIndicator();
       close({ preserveDraft: false });
     };
@@ -1391,10 +1615,20 @@ const KeyboardAccessoryBar = {
               ? this._composerOverlay
               : null;
           const currentTextarea = currentOverlay?.querySelector('.prompt-composer-textarea');
-          if (currentTextarea) this._insertComposerText(currentTextarea, paths.join(' '));
+          if (currentTextarea) this._insertComposerUploads(currentTextarea, sessionId, paths);
           else if (app.sessions?.has(sessionId)) {
+            // Closed while the upload ran: the tokens go on the end of the parked draft.
             const draft = this._composerDrafts.get(sessionId) || '';
-            this._composerDrafts.set(sessionId, `${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${paths.join(' ')}`);
+            const tokens = this._composerTokenList(sessionId);
+            const labels =
+              typeof app._uploadTokenLabels === 'function'
+                ? app._uploadTokenLabels(paths, tokens.map((t) => t.label))
+                : paths;
+            if (typeof app._uploadTokenLabels === 'function') {
+              paths.forEach((path, i) => tokens.push({ label: labels[i], value: path }));
+              this._composerTokens.set(sessionId, tokens);
+            }
+            this._composerDrafts.set(sessionId, `${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${labels.join(' ')}`);
             this._syncComposerDraftIndicator();
           }
         }
@@ -1440,7 +1674,10 @@ const KeyboardAccessoryBar = {
       // its text reaches the PTY as typed input, where an embedded newline is a
       // key, so a multi-line draft would arrive mangled and instead stays parked
       // as a draft (the dot on the Compose key shows it).
-      const text = textarea.value;
+      const shown = textarea.value;
+      const tokens = this._composerTokenList(sessionId);
+      // The length and newline checks judge what would be SENT.
+      const text = this._expandComposerTokens(shown, tokens);
       if (!text || text.includes('\n')) {
         close({ focusTerminal: true });
         return;
@@ -1470,7 +1707,19 @@ const KeyboardAccessoryBar = {
         // grid is excluded for the same reason _attachFromToolbar is: the main
         // terminal is parked and hidden then, and a tile's Enter cannot flush its
         // overlay, so the text goes to the PTY below instead of stranding there.
-        app._localEchoOverlay.appendText(text);
+        // Upload tokens stay tokens on the prompt when the overlay can hold them.
+        const overlay = app._localEchoOverlay;
+        if (typeof overlay.appendToken === 'function') {
+          let at = 0;
+          for (const r of this._composerTokenRanges(shown, tokens)) {
+            if (r.start > at) overlay.appendText(shown.slice(at, r.start));
+            overlay.appendToken(shown.slice(r.start, r.end), r.value);
+            at = r.end;
+          }
+          if (at < shown.length) overlay.appendText(shown.slice(at));
+        } else {
+          overlay.appendText(text);
+        }
       } else {
         // Write-through echo (codex) or no local echo at all: there is no buffer
         // to park text in, because the prompt the user sees IS the CLI's own

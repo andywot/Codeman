@@ -672,6 +672,137 @@ describe('mobile prompt composer', () => {
   });
 });
 
+// Uploads show in the Compose draft as atomic `[Image #N]` tokens and go out as
+// their paths. The label helpers are the shipped image-input.js ones.
+describe('mobile prompt composer upload tokens', () => {
+  const imageInputProto = new Function(`class CodemanApp {}\n${imageInputSource}\nreturn CodemanApp.prototype;`)() as {
+    _uploadTokenLabels: (paths: string[], existing?: string[]) => string[];
+  };
+  function loadTokenComposer() {
+    const harness = loadComposer();
+    (harness.app as any)._uploadTokenLabels = imageInputProto._uploadTokenLabels.bind(imageInputProto);
+    return harness;
+  }
+  const typeInto = (input: HTMLTextAreaElement, value: string, caret = value.length) => {
+    input.value = value;
+    input.selectionStart = input.selectionEnd = caret;
+    input.dispatchEvent(new input.ownerDocument.defaultView!.Event('input', { bubbles: true }));
+  };
+
+  it('inserts an attached image as [Image #1] and sends its path', async () => {
+    const { app, bar, document } = loadTokenComposer();
+    bar.composePrompt();
+    const input = textarea(document);
+    typeInto(input, 'review');
+    const fileInput = document.querySelector('.paste-file-input') as HTMLInputElement;
+    const image = new document.defaultView!.File(['image'], 'shot.png', { type: 'image/png' });
+    Object.defineProperty(fileInput, 'files', { configurable: true, value: [image] });
+    fileInput.dispatchEvent(new document.defaultView!.Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(input.value).toBe('review [Image #1]'));
+
+    typeInto(input, 'review [Image #1] please');
+    (document.querySelector('.paste-send') as HTMLButtonElement).click();
+    expect(app._sendInputAsync).toHaveBeenNthCalledWith(
+      1,
+      'session-1',
+      '\x1b[200~review /tmp/image-one.png please\x1b[201~'
+    );
+  });
+
+  it('Backspace into a token removes the whole token', () => {
+    const { bar, document } = loadTokenComposer();
+    bar._composerTokens.set('session-1', [{ label: '[Image #1]', value: '/tmp/a.png' }]);
+    bar._composerDrafts.set('session-1', 'see [Image #1]');
+    bar.composePrompt();
+    const input = textarea(document);
+    expect(input.value).toBe('see [Image #1]');
+    // What the browser does for one Backspace at the end: drop the ']'.
+    typeInto(input, 'see [Image #1');
+    expect(input.value).toBe('see ');
+    expect(input.selectionStart).toBe(4);
+  });
+
+  it('a selection deleting part of a token takes the whole token', () => {
+    const { bar, document } = loadTokenComposer();
+    bar._composerTokens.set('session-1', [{ label: '[Image #1]', value: '/tmp/a.png' }]);
+    bar._composerDrafts.set('session-1', 'a [Image #1] b');
+    bar.composePrompt();
+    const input = textarea(document);
+    typeInto(input, 'a [Imag1] b', 7); // "e #" cut out of the middle
+    expect(input.value).toBe('a  b');
+  });
+
+  it('text typed inside a token lands after it instead', () => {
+    const { bar, document } = loadTokenComposer();
+    bar._composerTokens.set('session-1', [{ label: '[Image #1]', value: '/tmp/a.png' }]);
+    bar._composerDrafts.set('session-1', 'x [Image #1] y');
+    bar.composePrompt();
+    const input = textarea(document);
+    typeInto(input, 'x [ImaZge #1] y', 7);
+    expect(input.value).toBe('x [Image #1]Z y');
+    expect(input.selectionStart).toBe(13);
+  });
+
+  it('steps the caret over a token instead of into it', () => {
+    const { bar, document } = loadTokenComposer();
+    bar._composerTokens.set('session-1', [{ label: '[Image #1]', value: '/tmp/a.png' }]);
+    bar._composerDrafts.set('session-1', 'a [Image #1] b');
+    bar.composePrompt();
+    const input = textarea(document);
+    input.focus();
+    // Moving right from just before the token, the caret lands inside it.
+    input.selectionStart = input.selectionEnd = 2;
+    input.dispatchEvent(new document.defaultView!.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    input.selectionStart = input.selectionEnd = 3;
+    input.dispatchEvent(new document.defaultView!.KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    expect(input.selectionStart).toBe(12);
+    // A selection that starts inside a token grows to cover it.
+    input.setSelectionRange(5, 14);
+    input.dispatchEvent(new document.defaultView!.KeyboardEvent('keyup', { key: 'Shift', bubbles: true }));
+    expect([input.selectionStart, input.selectionEnd]).toEqual([2, 14]);
+  });
+
+  it('adopts the terminal prompt tokens on open and hands them back as tokens', () => {
+    const { app, bar, document, localEcho } = loadTokenComposer();
+    const appendToken = vi.fn();
+    Object.assign(localEcho, {
+      pendingText: 'look /tmp/b.png now',
+      pendingDisplayText: 'look [Image #1] now',
+      pendingTokens: [{ label: '[Image #1]', value: '/tmp/b.png' }],
+      appendToken,
+    });
+    bar.composePrompt();
+    const input = textarea(document);
+    expect(input.value).toBe('look [Image #1] now');
+
+    (document.querySelector('.prompt-composer-terminal') as HTMLButtonElement).click();
+    expect(localEcho.appendText).toHaveBeenNthCalledWith(1, 'look ');
+    expect(appendToken).toHaveBeenCalledWith('[Image #1]', '/tmp/b.png');
+    expect(localEcho.appendText).toHaveBeenNthCalledWith(2, ' now');
+    expect(app._sendInputAsync).not.toHaveBeenCalled();
+    expect(bar._composerTokens.has('session-1')).toBe(false);
+  });
+
+  it('renumbers an adopted token whose label the parked draft already uses', () => {
+    const { app, bar, document, localEcho } = loadTokenComposer();
+    bar._composerTokens.set('session-1', [{ label: '[Image #1]', value: '/tmp/draft.png' }]);
+    bar._composerDrafts.set('session-1', 'draft [Image #1]');
+    Object.assign(localEcho, {
+      pendingText: '/tmp/prompt.png',
+      pendingDisplayText: '[Image #1]',
+      pendingTokens: [{ label: '[Image #1]', value: '/tmp/prompt.png' }],
+    });
+    bar.composePrompt();
+    expect(textarea(document).value).toBe('draft [Image #1] [Image #2]');
+    (document.querySelector('.paste-send') as HTMLButtonElement).click();
+    expect(app._sendInputAsync).toHaveBeenNthCalledWith(
+      1,
+      'session-1',
+      '\x1b[200~draft /tmp/draft.png /tmp/prompt.png\x1b[201~'
+    );
+  });
+});
+
 // The shell bar's Paste button (and Compose, which redirects here for a shell
 // session) must deliver a multi-line block the way a real terminal paste does:
 // one bracketed write, so the shell takes the block as one edit instead of
