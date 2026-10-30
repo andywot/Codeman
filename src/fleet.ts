@@ -126,6 +126,21 @@ export const REMOTE_HOOK_EVENTS = [
 export type RemoteHookEvent = (typeof REMOTE_HOOK_EVENTS)[number]['event'];
 /** Status file id for sessions on the machine's own login (outside ID_RE, so no account can clash). */
 const MACHINE_LOGIN_ID = '_machine';
+/** What a `shell` account's command may export for claude (carried to Windows claude via WSLENV). */
+const SHELL_ACCOUNT_VARS = [
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'CLAUDE_CODE_SUBAGENT_MODEL',
+  'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+  'CLAUDE_CODE_AUTO_COMPACT_WINDOW',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+];
 const SETUP_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]*( [A-Za-z0-9_.:[\]=-]+){0,6}$/;
 
 export function fleetPath(configDir: string): string {
@@ -203,7 +218,15 @@ export function buildLaunch(
   if (account?.kind === 'token') {
     env.CLAUDE_CODE_OAUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
   } else if (account?.kind === 'shell' && account.setupCommand && SETUP_RE.test(account.setupCommand)) {
-    setup.push(`${account.setupCommand} >/dev/null`);
+    // A missing or failing command (not defined on this machine) silently left claude on
+    // the machine's own login, so the launch stops where the pane shows why instead.
+    const word = account.setupCommand.split(' ')[0];
+    setup.push(
+      `${account.setupCommand} >/dev/null || { echo "Claude RC: '${word}' failed or is not set up on this machine." >&2; exit 1; }`
+    );
+    // WSLENV carries what the command exported across into the Windows process; without it
+    // Windows claude never saw the gateway and ran on the subscription.
+    if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${SHELL_ACCOUNT_VARS.map((k) => `${k}/u`).join(':')}"`);
   } else if (account?.kind === 'api') {
     env.ANTHROPIC_BASE_URL = `'${account.baseUrl}'`;
     env.ANTHROPIC_AUTH_TOKEN = `$(cat ${secretFile(account.id)})`;

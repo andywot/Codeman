@@ -88,6 +88,33 @@ describe('usage from session statuslines', () => {
     expect(code).toBe(1);
   });
 
+  it('stops a shell-account launch whose command is missing instead of using the machine login', () => {
+    const shell = { ...account, kind: 'shell' as const, setupCommand: 'claude-rc-no-such-command' };
+    const { setup } = buildLaunch({ system: 'linux' }, shell, undefined);
+    let code = 0;
+    try {
+      execFileSync('sh', ['-c', `${setup} echo ran`], { stdio: 'pipe' });
+    } catch (err) {
+      code = (err as { status: number }).status;
+    }
+    expect(code).toBe(1);
+    expect(
+      execFileSync('sh', [
+        '-c',
+        `${buildLaunch({ system: 'linux' }, { ...shell, setupCommand: 'true' }, undefined).setup} echo ran`,
+      ]).toString()
+    ).toBe('ran\n');
+  });
+
+  it("carries a shell account's variables across to Windows claude", () => {
+    const { setup } = buildLaunch(
+      { system: 'windows' },
+      { ...account, kind: 'shell', setupCommand: 'use-glm' },
+      undefined
+    );
+    expect(setup).toMatch(/export WSLENV="[^"]*ANTHROPIC_BASE_URL\/u:ANTHROPIC_API_KEY\/u/);
+  });
+
   it('reads no usage from a statusline without rate limits or from broken JSON', () => {
     expect(parseStatuslineUsage(JSON.stringify({ model: {} }), 'now')).toBeNull();
     expect(parseStatuslineUsage('{"rate_limits":', 'now')).toBeNull();
