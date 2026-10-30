@@ -31,6 +31,7 @@
  */
 
 import { stripAnsi } from './utils/regex-patterns.js';
+import { asComposerGlyph, composerGlyphOfRow, isFallbackOptionRow, type ComposerGlyph } from './composer-glyph.js';
 
 /**
  * How long a pane may show NONE of the known chrome (composer glyph, working line,
@@ -84,8 +85,11 @@ export function initialDetectionHealth(): DetectionHealth {
 
 /** What a capture showed, as far as the CLI's declared chrome goes. */
 export interface ScreenChrome {
-  /** The CLI's composer glyph (`capabilities.workDetect.promptGlyph`). */
-  promptGlyph: string;
+  /**
+   * The session's composer glyph: the CLI's `capabilities.workDetect.promptGlyph`, or the
+   * per-session resolution (`Session.composerGlyph()`, which adds native Windows' `>`).
+   */
+  promptGlyph: string | ComposerGlyph;
   /** Its working-line pattern matched the capture. */
   working: boolean;
   /** Its awaited-workers row is the newest row above the composer. */
@@ -105,13 +109,17 @@ export interface ScreenChrome {
  */
 export function isScreenRecognized(paneText: string, chrome: ScreenChrome): boolean {
   if (chrome.working || chrome.awaitingWorkers || chrome.blocked || chrome.trustDialog) return true;
-  if (!chrome.promptGlyph) return false;
+  const glyph = asComposerGlyph(chrome.promptGlyph);
+  if (!glyph.glyph && !glyph.ruledGlyph) return false;
   const rows = stripAnsi(paneText)
     .split('\n')
     .map((row) => row.trimEnd())
     .filter((row) => row !== '')
     .slice(-COMPOSER_SEARCH_ROWS);
-  return rows.some((row) => row.replace(/^[\s│]+/, '').startsWith(chrome.promptGlyph));
+  const strip = (row: string) => row.replace(/^[\s│]+/, '');
+  // Native Windows' `>` counts only as the composer (under its top rule) or as a dialog's
+  // numbered, selected option; a transcript quote or prompt echo alone never does.
+  return rows.some((row, i) => composerGlyphOfRow(rows, i, glyph, strip) !== null || isFallbackOptionRow(row, glyph));
 }
 
 /**

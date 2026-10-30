@@ -1,0 +1,15 @@
+ ▐▛███▛█   Claude Code v2.1.314
+▝▜██████▀  Opus 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   ~\tutoring\alex-sehs3314
+
+> Summarize the notes in this folder, quoting the first line of each.
+
+● Read 3 files (ctrl+o to expand)
+
+● The folder holds three notes:
+
+  > Week 1: fractions and ratios
+  > Week 2: linear equations
+  > Week 3: graphing lines
+
+> Week 4: slope-intercept form

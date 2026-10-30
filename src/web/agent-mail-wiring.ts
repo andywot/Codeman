@@ -35,7 +35,6 @@ import {
   type DiscoveryRun,
 } from '../claude-discovery.js';
 import { composerIsEmpty } from '../session-submit-verifier.js';
-import { getCli } from '../config/cli-registry/registry.js';
 import type { RemoteHost } from '../types.js';
 import type { Session } from '../session.js';
 import { AgentMailRelay, type AgentMailSnapshot } from './agent-mail-relay.js';
@@ -198,8 +197,8 @@ export function createAgentMailRelay(deps: AgentMailDeps): AgentMailRelay {
       let composerEmpty: boolean | null = null;
       if (idle) {
         const text = deps.capturePane(session);
-        const glyph = getCli(session.mode)?.capabilities.workDetect?.promptGlyph ?? '';
-        composerEmpty = text ? (composerIsEmpty(text, glyph) ?? null) : null;
+        // The session's own glyph: native Windows claude draws its composer as `>`.
+        composerEmpty = text ? (composerIsEmpty(text, session.composerGlyph()) ?? null) : null;
       }
       return { idle, composerEmpty, lastHumanInputAt: session.lastHumanInputAt };
     },

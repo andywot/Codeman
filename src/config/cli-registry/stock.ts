@@ -249,6 +249,16 @@ const CLAUDE: CliEntry = {
     // footer, because tmux repaints partially and only one of the two may land in a chunk.
     workDetect: {
       promptGlyph: '❯',
+      // Native Windows claude (a remote session whose `system` is `windows`) takes its glyphs
+      // from the `figures` package, whose Windows fallback set (used when its
+      // `isUnicodeSupported()` says no: over ssh, with no `WT_SESSION`) draws `pointer`, the
+      // composer glyph, as an ASCII `>`. Read from the 2.1.314 bundle and a live Windows pane
+      // on 2026-10-30 (test/fixtures/claude-screens/windows/). Nothing else these patterns
+      // read changes there: the working line's `…` and `esc to interrupt` are literals, not
+      // `figures` glyphs, the spinner glyphs (`· ✢ * ✶ ✻ ✽` off macOS) are not part of the
+      // pattern, and the awaited-workers row's `✻` is a literal too. See composer-glyph.ts
+      // for why `>` only counts directly under the composer's top rule.
+      windowsPromptGlyph: '>',
       workingLine: String.raw`…\s*\((?:\d+h\s+)?(?:\d+m\s+)?\d+s\b|esc to interrupt`,
       // Claude prints what it started in the background on the footer row beneath its
       // composer, as `⏵⏵ bypass permissions on · 1 monitor · ← for agents`. The labels are

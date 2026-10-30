@@ -402,7 +402,7 @@ export class WebServer extends EventEmitter {
       if (!text) return { composerEmpty: null, limitShown: false };
       const limit = detectUsageLimitPause(plainFrame(text));
       return {
-        composerEmpty: composerIsEmpty(text, getCli(session.mode)?.capabilities.workDetect?.promptGlyph ?? '') ?? null,
+        composerEmpty: composerIsEmpty(text, session.composerGlyph()) ?? null,
         limitShown: limit !== null && limit.resetAt > Date.now(),
       };
     },

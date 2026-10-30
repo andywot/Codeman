@@ -338,6 +338,7 @@ const capabilitiesSchema = z
     workDetect: z
       .object({
         promptGlyph: z.string().min(1).max(8),
+        windowsPromptGlyph: z.string().min(1).max(8).optional(),
         // Config-supplied regex, so it goes through the same guard as `version.regex`:
         // ~/.codeman/clis.json can set this, and the compiled pattern runs on the PTY
         // hot path, where a nested quantifier would be a ReDoS against the event loop.

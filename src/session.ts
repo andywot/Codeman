@@ -88,6 +88,7 @@ import {
   TRUST_DIALOG_MAX_ATTEMPTS,
   TRUST_DIALOG_SCAN_BYTES,
 } from './session-trust-dialog.js';
+import { chunkMayShowComposer, resolveComposerGlyph, type ComposerGlyph } from './composer-glyph.js';
 import {
   trackActivityStreak,
   isSustainedActivity,
@@ -1329,6 +1330,20 @@ export class Session extends EventEmitter {
   /** Remote-SSH metadata when this session runs on a remote host, else undefined. */
   get remote(): SessionRemote | undefined {
     return this._remote;
+  }
+
+  /**
+   * The composer glyph(s) THIS session's pane draws: its CLI's `workDetect.promptGlyph`,
+   * plus `workDetect.windowsPromptGlyph` (Claude's ASCII `>`) when the session runs on
+   * native Windows. The ONE place a consumer resolves it (idle arm, detection health,
+   * awaited-workers row, submit verifier, keep-warm and agent-mail composer reads, trust
+   * dialog). Resolved at call time: the registry can change under a running session.
+   *
+   * @param fallback the glyph assumed for a CLI that declares none: `'❯'` where the idle
+   *   arm has always assumed Claude's, `''` where a reader must say nothing instead
+   */
+  composerGlyph(fallback: string = ''): ComposerGlyph {
+    return resolveComposerGlyph(getCli(this.mode)?.capabilities.workDetect, this._remote?.system, fallback);
   }
 
   /** Fork: the adopted local tmux session this one attaches to, else undefined. */
@@ -3540,7 +3555,9 @@ export class Session extends EventEmitter {
 
     // Null means the frame does not say which option is highlighted. Waiting for
     // the next repaint is the safe move; pressing Enter blind is the bug.
-    const key = trustDialogNextKey(screen);
+    // Native Windows claude draws the dialog's selection pointer as `>` (composer-glyph.ts).
+    const { ruledGlyph } = this.composerGlyph();
+    const key = trustDialogNextKey(screen, ruledGlyph ? [ruledGlyph] : []);
     if (key === null) return;
 
     this._trustDialogAttempts++;
@@ -3589,8 +3606,10 @@ export class Session extends EventEmitter {
     // about once a second all the way through a turn, which is exactly how a working
     // session used to flip to idle two seconds in. _confirmIdle() waits for the pane to
     // actually go quiet before believing it. A CLI that declares no glyph keeps Claude's,
-    // which is the glyph every such session has been armed by until now.
-    if (data.includes(workDetect?.promptGlyph ?? '❯')) {
+    // which is the glyph every such session has been armed by until now. A native Windows
+    // claude session also arms on its ASCII `>` (composer-glyph.ts): without it nothing
+    // ever armed the check and the session stayed busy for good.
+    if (chunkMayShowComposer(data, this.composerGlyph('❯'))) {
       // Only start a new timeout if we're not already awaiting idle confirmation.
       // This prevents status bar redraws (which include the prompt) from resetting it.
       if (!this._awaitingIdleConfirmation) {
@@ -3652,7 +3671,7 @@ export class Session extends EventEmitter {
       return;
     }
     const recognized = isScreenRecognized(text, {
-      promptGlyph: workDetect.promptGlyph,
+      promptGlyph: this.composerGlyph(),
       working,
       blocked,
       trustDialog,
@@ -3965,8 +3984,7 @@ export class Session extends EventEmitter {
       this._awaitingLineRe = src ? compileVersionRegex(src) : null;
     }
     if (!this._awaitingLineRe) return false;
-    const glyph = getCli(this.mode)?.capabilities.workDetect?.promptGlyph ?? '❯';
-    return isAwaitingWorkers(paneText, this._awaitingLineRe, glyph);
+    return isAwaitingWorkers(paneText, this._awaitingLineRe, this.composerGlyph('❯'));
   }
 
   /**
@@ -5521,7 +5539,7 @@ export class Session extends EventEmitter {
       // promptStillInComposer() returns undefined for an empty glyph, so this makes the
       // verifier inert for every CLI that does not declare one, which is what the Claude
       // Code 2.1.277 defect it exists for actually calls for.
-      glyph: () => getCli(this.mode)?.capabilities.workDetect?.promptGlyph ?? '',
+      glyph: () => this.composerGlyph(),
       log: (m) => console.log(`[Session ${this.id.slice(0, 8)}] ${m}`),
     });
     this._submitVerifier.arm(text);

@@ -108,12 +108,14 @@ export function isTrustDialogScreen(text: string): boolean {
  * where every repaint since launch is still present — there the freshest frame
  * is the one at the end, and an older one must not out-vote it.
  */
-function selectedTrustOption(compact: string): { at: number; option: 'yes' | 'no' } | null {
+function selectedTrustOption(compact: string, marks: readonly string[]): { at: number; option: 'yes' | 'no' } | null {
   let selected: { at: number; option: 'yes' | 'no' } | null = null;
-  for (let at = compact.indexOf(SELECTION_MARK); at >= 0; at = compact.indexOf(SELECTION_MARK, at + 1)) {
-    const after = compact.slice(at + SELECTION_MARK.length).replace(OPTION_NUMBER_PREFIX, '');
-    if (after.startsWith(YES_OPTION)) selected = { at, option: 'yes' };
-    else if (after.startsWith(NO_OPTION)) selected = { at, option: 'no' };
+  for (const mark of marks) {
+    for (let at = compact.indexOf(mark); at >= 0; at = compact.indexOf(mark, at + 1)) {
+      const after = compact.slice(at + mark.length).replace(OPTION_NUMBER_PREFIX, '');
+      const option = after.startsWith(YES_OPTION) ? 'yes' : after.startsWith(NO_OPTION) ? 'no' : null;
+      if (option && (!selected || at > selected.at)) selected = { at, option };
+    }
   }
   return selected;
 }
@@ -131,11 +133,16 @@ function selectedTrustOption(compact: string): { at: number; option: 'yes' | 'no
  * Returning null is the safe answer, not a failure: an unreadable frame means
  * wait for the next repaint, and a layout whose options this cannot name means
  * leave the dialog to the human. The caller's startup window bounds the waiting.
+ *
+ * @param extraMarks selection markers this session's pane may draw besides `❯`:
+ *   native Windows claude draws Ink's selection pointer as `>` (its `figures`
+ *   fallback, see composer-glyph.ts). A mark counts only directly before a trust
+ *   option's own text, so a stray `>` elsewhere on screen selects nothing.
  */
-export function trustDialogNextKey(text: string): string | null {
+export function trustDialogNextKey(text: string, extraMarks: readonly string[] = []): string | null {
   const compact = compactScreenText(text);
   if (!compact.includes(YES_OPTION)) return null; // no trust option to steer onto
-  const selected = selectedTrustOption(compact);
+  const selected = selectedTrustOption(compact, [SELECTION_MARK, ...extraMarks]);
   if (!selected) return null; // marker missing, or not on an option we recognize
   if (selected.option === 'yes') return TRUST_KEY_CONFIRM;
   // On "No, exit". Which way the trust option lies is read from THIS frame — it

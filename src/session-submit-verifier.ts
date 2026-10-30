@@ -25,6 +25,7 @@
  * every stop condition are unit-tested with fake timers (test/session-submit-verifier.test.ts).
  */
 import { stripAnsi } from './utils/index.js';
+import { asComposerGlyph, lastComposerRow, type ComposerGlyph } from './composer-glyph.js';
 
 /**
  * When to look, counted from the write: 2 s catches the common case (taken) with one
@@ -52,14 +53,21 @@ const compact = (s: string): string => s.replace(/\s+/g, '');
  * long prompt onto indented continuation lines and Claude Code draws a no-break space
  * after the glyph; `\s` covers that one in JavaScript.
  */
-export function promptStillInComposer(screen: string, prompt: string, glyph: string): boolean | undefined {
-  if (!glyph) return undefined;
-  const composerLines = stripAnsi(screen)
+export function promptStillInComposer(
+  screen: string,
+  prompt: string,
+  glyph: string | ComposerGlyph
+): boolean | undefined {
+  const g = asComposerGlyph(glyph);
+  if (!g.glyph && !g.ruledGlyph) return undefined;
+  // The primary glyph is read anywhere on a trimmed row, as it always was; native Windows'
+  // `>` only on the composer row itself (see composer-glyph.ts).
+  const rows = stripAnsi(screen)
     .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith(glyph));
-  if (composerLines.length === 0) return undefined;
-  const composer = compact(composerLines[composerLines.length - 1].slice(glyph.length));
+    .map((l) => l.trimEnd());
+  const last = lastComposerRow(rows, g, (l) => l.trim());
+  if (!last) return undefined;
+  const composer = compact(rows[last.index].trim().slice(last.glyph.length));
   if (!composer) return false;
   const head = compact(prompt).slice(0, PROMPT_HEAD_CHARS);
   return head.length > 0 && composer.startsWith(head);
@@ -129,19 +137,21 @@ function withoutSuggestion(screen: string): string {
  * The paste replaces a suggestion rather than joining it (measured on 2.1.300). A plain frame
  * still parses, but reads a suggestion as a draft.
  */
-export function composerIsEmpty(screen: string, glyph: string): boolean | undefined {
-  if (!glyph) return undefined;
+export function composerIsEmpty(screen: string, glyph: string | ComposerGlyph): boolean | undefined {
+  const g = asComposerGlyph(glyph);
+  if (!g.glyph && !g.ruledGlyph) return undefined;
   // The structure is read at column 0, before any trimming: Claude Code draws the glyph line and
   // both rules there and indents every continuation line, so a draft line that holds the glyph or
-  // starts with a rule (`  ❯`, `  ───`) can never pass for the composer's own edges.
+  // starts with a rule (`  ❯`, `  ───`) can never pass for the composer's own edges. Native
+  // Windows' `>` must also sit directly under the top rule (composer-glyph.ts).
   const lines = plainFrame(screen).split('\n');
-  let at = lines.length - 1;
-  while (at >= 0 && !lines[at].startsWith(glyph)) at--;
-  if (at < 0) return undefined;
+  const last = lastComposerRow(lines, g);
+  if (!last) return undefined;
+  const at = last.index;
   const end = lines.findIndex((l, i) => i > at && l.startsWith('\u2500'));
   if (end < 0) return undefined;
   const typed = plainFrame(withoutSuggestion(screen)).split('\n');
-  return compact(typed[at].slice(glyph.length) + typed.slice(at + 1, end).join('')).length === 0;
+  return compact(typed[at].slice(last.glyph.length) + typed.slice(at + 1, end).join('')).length === 0;
 }
 
 export interface SubmitVerifierDeps {
@@ -149,8 +159,8 @@ export interface SubmitVerifierDeps {
   capture: () => string | null | undefined;
   /** Press Enter once. Failures are swallowed; the next check decides again. */
   sendEnter: () => Promise<unknown> | unknown;
-  /** The CLI's composer glyph, resolved at check time (the registry can change). */
-  glyph: () => string;
+  /** The session's composer glyph, resolved at check time (the registry can change). */
+  glyph: () => string | ComposerGlyph;
   log?: (message: string) => void;
   /** Test seam; production uses SUBMIT_VERIFY_DELAYS_MS. */
   delaysMs?: readonly number[];

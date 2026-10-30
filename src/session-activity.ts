@@ -22,6 +22,7 @@
  */
 
 import { stripAnsi } from './utils/regex-patterns.js';
+import { asComposerGlyph, lastComposerRow, type ComposerGlyph } from './composer-glyph.js';
 
 /**
  * A gap longer than this ends a run of continuous output. Claude repaints at
@@ -259,22 +260,22 @@ const COMPOSER_FRAME_ROW = /^[─-╿]/;
  * and tests the first row that starts in column 0. A follow-up turn always puts rows of
  * its own there, so the stale copy is never the one tested.
  *
- * @param promptGlyph the CLI's composer glyph (`capabilities.workDetect.promptGlyph`)
+ * @param promptGlyph the session's composer glyph: the CLI's `capabilities.workDetect.promptGlyph`,
+ *   or the per-session resolution (`Session.composerGlyph()`, which adds native Windows' `>`)
  * @returns false when the screen shows no composer, which is no evidence either way
  */
-export function isAwaitingWorkers(paneText: string | null | undefined, pattern: RegExp, promptGlyph: string): boolean {
+export function isAwaitingWorkers(
+  paneText: string | null | undefined,
+  pattern: RegExp,
+  promptGlyph: string | ComposerGlyph
+): boolean {
   if (!paneText) return false;
   const rows = stripAnsi(paneText)
     .split('\n')
     .map((row) => row.trimEnd());
-  let composer = -1;
-  for (let i = rows.length - 1; i >= 0; i--) {
-    // Claude has drawn its composer both bare (`❯ …` between rules) and boxed (`│ ❯ … │`).
-    if (rows[i].replace(/^[\s│]+/, '').startsWith(promptGlyph)) {
-      composer = i;
-      break;
-    }
-  }
+  // Claude has drawn its composer both bare (`❯ …` between rules) and boxed (`│ ❯ … │`).
+  const composer =
+    lastComposerRow(rows, asComposerGlyph(promptGlyph), (row) => row.replace(/^[\s│]+/, ''))?.index ?? -1;
   if (composer < 0) return false;
   for (let i = composer - 1; i >= Math.max(0, composer - AWAITING_SEARCH_ROWS); i--) {
     const row = rows[i];

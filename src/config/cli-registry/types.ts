@@ -373,6 +373,15 @@ export interface CliCapabilities {
   workDetect?: {
     /** The glyph this CLI draws on its composer row, e.g. Claude's `❯`, Codex's `›`. */
     promptGlyph: string;
+    /**
+     * The glyph this CLI draws on its composer row instead when it runs on NATIVE Windows
+     * and its terminal reports no unicode support (Claude Code's `figures` fallback draws
+     * `❯` as `>`). Applies only to a session whose `remote.system` is `windows`, alongside
+     * `promptGlyph`, and only on a column-0 row directly under a column-0 horizontal rule,
+     * because such an ASCII glyph also opens transcript quotes and prompt echoes. Resolved
+     * per session in ONE place: `resolveComposerGlyph()` (`composer-glyph.ts`).
+     */
+    windowsPromptGlyph?: string;
     /** Source of a regex matching the status line this CLI draws while a turn runs. */
     workingLine: string;
     /**
