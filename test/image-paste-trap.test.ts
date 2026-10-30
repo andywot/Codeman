@@ -392,15 +392,47 @@ describe('image upload insertion policy', () => {
     expect(app._sendInputAsync).not.toHaveBeenCalled();
   });
 
-  it('preserves terminal insertion by default', async () => {
+  it('without a local-echo overlay, sends the paths to the PTY as one bracketed paste', async () => {
     const app = loadImageInputApp();
 
-    const paths = await app._uploadAndInsertImages([{ path: '/tmp/legacy.png' }]);
+    const paths = await app._uploadAndInsertImages([{ path: '/tmp/legacy.png' }, { path: '/tmp/two.png' }]);
 
-    expect(Array.from(paths)).toEqual(['/tmp/legacy.png']);
-    // The same delivery sendInput() uses (durable queue, useMux for the POST
-    // fallback), but addressed to the session the batch was uploaded to.
+    expect(Array.from(paths)).toEqual(['/tmp/legacy.png', '/tmp/two.png']);
+    // One paste frame holding only the paths: Claude Code turns exactly that into
+    // its own atomic [Image #N]. No useMux: the POST fallback must not wrap the
+    // hand-built frame in a second pair of markers.
+    expect(app._sendInputAsync).toHaveBeenCalledTimes(1);
+    expect(app._sendInputAsync).toHaveBeenCalledWith('session-1', '\x1b[200~/tmp/legacy.png /tmp/two.png\x1b[201~');
+  });
+
+  it('a shell session gets the plain path text, as before', async () => {
+    const app = loadImageInputApp();
+    app.sessions = new Map([['session-1', { mode: 'shell' }]]);
+
+    await app._uploadAndInsertImages([{ path: '/tmp/legacy.png' }]);
+
     expect(app._sendInputAsync).toHaveBeenCalledWith('session-1', '/tmp/legacy.png', { useMux: true });
+  });
+
+  it('with the overlay holding the prompt, appends [Image #N] tokens that send the paths', async () => {
+    const app = loadImageInputApp();
+    const appended: Array<[string, string?]> = [];
+    app._localEchoEnabled = true;
+    app._localEchoOverlay = {
+      pendingText: 'describe',
+      pendingDisplayText: 'describe',
+      pendingTokens: [{ label: '[Image #1]', value: '/tmp/earlier.png' }],
+      getFlushed: () => ({ count: 0, text: '' }),
+      detectBufferText: vi.fn(),
+      appendText: (t: string) => appended.push([t]),
+      appendToken: (label: string, value: string) => appended.push([label, value]),
+    };
+
+    await app._uploadAndInsertImages([{ path: '/tmp/a.png' }, { path: '/tmp/b.pdf' }]);
+
+    // Numbered on from the highest label already on the prompt; a document is a File.
+    expect(appended).toEqual([[' '], ['[Image #2]', '/tmp/a.png'], [' '], ['[File #3]', '/tmp/b.pdf'], [' ']]);
+    expect(app._sendInputAsync).not.toHaveBeenCalled();
   });
 
   it('inserts into the session the upload started in, even after a tab switch mid-upload', async () => {
@@ -415,7 +447,7 @@ describe('image upload insertion policy', () => {
     await app._uploadAndInsertImages([{ path: '/tmp/shot.png' }]);
 
     expect(app._uploadPasteImage).toHaveBeenCalledWith('session-1', { path: '/tmp/shot.png' });
-    expect(app._sendInputAsync).toHaveBeenCalledWith('session-1', '/tmp/shot.png', { useMux: true });
+    expect(app._sendInputAsync).toHaveBeenCalledWith('session-1', '\x1b[200~/tmp/shot.png\x1b[201~');
     expect(app.sendInput).not.toHaveBeenCalled();
   });
 
@@ -425,7 +457,7 @@ describe('image upload insertion policy', () => {
     await app._uploadAndInsertImages([{ path: '/tmp/pane-b.png' }], { sessionId: 'session-b' });
 
     expect(app._uploadPasteImage).toHaveBeenCalledWith('session-b', { path: '/tmp/pane-b.png' });
-    expect(app._sendInputAsync).toHaveBeenCalledWith('session-b', '/tmp/pane-b.png', { useMux: true });
+    expect(app._sendInputAsync).toHaveBeenCalledWith('session-b', '\x1b[200~/tmp/pane-b.png\x1b[201~');
   });
 
   it('shows the server reason in the toast when an upload fails', async () => {

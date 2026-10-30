@@ -6,10 +6,20 @@ import type {
   PromptPosition,
   PromptFinder,
   FontStyle,
+  ComposerLayout,
 } from './types.js';
 import { getCellDimensions } from './cell-dimensions.js';
 import { findPrompt, readTextAfterPrompt, promptRowInViewport } from './prompt-finder.js';
 import { renderOverlay, charCellWidth } from './overlay-renderer.js';
+import { layoutLines } from './layout.js';
+
+/** An atomic run of pending text: drawn as its label, sent as its value. */
+interface PendingToken {
+  /** UTF-16 offsets of the label in the drawn pending text. */
+  start: number;
+  end: number;
+  value: string;
+}
 
 const DEFAULT_PROMPT: PromptFinder = { type: 'character', char: '>', offset: 2 };
 const DEFAULT_Z_INDEX = 7;
@@ -63,7 +73,12 @@ export class ZerolagInputAddon implements XtermAddon {
     ZerolagInputOptions;
 
   // Text state
+  // Pending text AS DRAWN: a token (appendToken) is in here as its label.
   private _pendingText = '';
+  // Tokens in _pendingText, in order. Text is only ever appended or removed
+  // from the end, so a token is either whole or gone.
+  private _tokens: PendingToken[] = [];
+  private _layout: ComposerLayout = {};
   private _flushedOffset = 0;
   private _flushedText = '';
   private _bufferDetectDone = false;
@@ -102,6 +117,7 @@ export class ZerolagInputAddon implements XtermAddon {
       foregroundColor: options?.foregroundColor,
       cursorColor: options?.cursorColor,
     };
+    this._layout = { ...(options?.layout ?? {}) };
   }
 
   // ─── Lifecycle ────────────────────────────────────────────────────
@@ -196,6 +212,26 @@ export class ZerolagInputAddon implements XtermAddon {
   }
 
   /**
+   * Append an atomic token: drawn as `label`, sent as `value`.
+   *
+   * For text that is long or unreadable on the prompt but has to reach the PTY
+   * whole, e.g. an uploaded image drawn as `[Image #1]` and sent as its path.
+   * `pendingText` returns the value in its place, so whatever the consumer sends
+   * on Enter (or on any flush) carries the value. `removeChar()` removes the
+   * whole token, and nothing can be typed inside one: typing only appends.
+   *
+   * An empty label is ignored. A value may be empty (the token then sends nothing).
+   */
+  appendToken(label: string, value: string): void {
+    if (!label) return;
+    if (!this._pendingText && !this._flushedOffset) this._detectBufferText();
+    const start = this._pendingText.length;
+    this._pendingText += label;
+    this._tokens.push({ start, end: this._pendingText.length, value: String(value ?? '') });
+    this._render();
+  }
+
+  /**
    * Remove the last character from the overlay.
    *
    * Cascade order:
@@ -219,7 +255,18 @@ export class ZerolagInputAddon implements XtermAddon {
     const droppedComposition = this._composition.length > 0;
     this._composition = '';
     if (this._pendingText.length > 0) {
-      this._pendingText = this._pendingText.slice(0, -1);
+      const lastToken = this._tokens[this._tokens.length - 1];
+      if (lastToken && lastToken.end === this._pendingText.length) {
+        // A token goes as a whole.
+        this._pendingText = this._pendingText.slice(0, lastToken.start);
+        this._tokens.pop();
+      } else {
+        // One code point, so an emoji or other astral character is not split
+        // into a lone surrogate.
+        const last = this._pendingText.codePointAt(this._pendingText.length - 2);
+        const astral = this._pendingText.length >= 2 && last !== undefined && last > 0xffff;
+        this._pendingText = this._pendingText.slice(0, astral ? -2 : -1);
+      }
       if (this._pendingText.length > 0 || this._flushedOffset > 0) {
         this._render();
       } else {
@@ -265,6 +312,7 @@ export class ZerolagInputAddon implements XtermAddon {
    */
   clear(): void {
     this._pendingText = '';
+    this._tokens = [];
     this._composition = '';
     this._flushedOffset = 0;
     this._flushedText = '';
@@ -348,6 +396,22 @@ export class ZerolagInputAddon implements XtermAddon {
     if (next === this._rowLimit) return;
     this._rowLimit = next;
     this.rerender();
+  }
+
+  /**
+   * Describe how the CLI lays out its composer (see `ComposerLayout`) and
+   * re-render. Replaces the whole layout: fields left out return to their
+   * defaults.
+   */
+  setLayout(layout: ComposerLayout | null | undefined): void {
+    this._layout = { ...(layout ?? {}) };
+    this._lastRenderKey = '';
+    if (this._hasContent()) this._render();
+  }
+
+  /** The current composer layout (a copy). */
+  get layout(): ComposerLayout {
+    return { ...this._layout };
   }
 
   /**
@@ -493,9 +557,32 @@ export class ZerolagInputAddon implements XtermAddon {
 
   // ─── Public state ─────────────────────────────────────────────────
 
-  /** Current pending (unacknowledged) text. */
+  /**
+   * Current pending (unacknowledged) text, as it must be SENT: every token
+   * (see `appendToken`) is replaced by its value.
+   */
   get pendingText(): string {
+    if (this._tokens.length === 0) return this._pendingText;
+    let out = '';
+    let at = 0;
+    for (const token of this._tokens) {
+      out += this._pendingText.slice(at, token.start) + token.value;
+      at = token.end;
+    }
+    return out + this._pendingText.slice(at);
+  }
+
+  /** Current pending text as DRAWN: tokens appear as their labels. */
+  get pendingDisplayText(): string {
     return this._pendingText;
+  }
+
+  /**
+   * The tokens in the pending text, in order: each one's label (as it appears in
+   * `pendingDisplayText`) and the value it is sent as.
+   */
+  get pendingTokens(): Array<{ label: string; value: string }> {
+    return this._tokens.map((t) => ({ label: this._pendingText.slice(t.start, t.end), value: t.value }));
   }
 
   /**
@@ -512,7 +599,8 @@ export class ZerolagInputAddon implements XtermAddon {
   /** Read-only state snapshot. */
   get state(): ZerolagInputState {
     return {
-      pendingText: this._pendingText,
+      pendingText: this.pendingText,
+      pendingDisplayText: this._pendingText,
       flushedLength: this._flushedOffset,
       flushedText: this._flushedText,
       visible: this._overlay !== null && this._overlay.style.display !== 'none',
@@ -586,6 +674,40 @@ export class ZerolagInputAddon implements XtermAddon {
     this._overlay.style.display = 'none';
   }
 
+  /**
+   * The CLI's cursor, viewport-relative, when it sits inside the composer past
+   * the prompt's text column: on the prompt row to the right of `startCol`, or
+   * on a continuation row below it. Every row from the one after the prompt
+   * down to the cursor's must be blank in the hanging indent (a continuation
+   * row), so a cursor parked below the composer (past its border, in a footer)
+   * is not taken for the caret. Null otherwise.
+   */
+  private _cursorAnchor(promptRow: number, startCol: number, indentCol: number): { row: number; col: number } | null {
+    const terminal = this._terminal;
+    if (!terminal) return null;
+    const buf = terminal.buffer.active;
+    if (typeof buf.cursorX !== 'number' || typeof buf.cursorY !== 'number') return null;
+    const row = buf.baseY + buf.cursorY - buf.viewportY;
+    const col = buf.cursorX;
+    if (row < promptRow || row >= terminal.rows || col < 0 || col >= terminal.cols) return null;
+    if (row === promptRow) return col > startCol ? { row, col } : null;
+    if (col < indentCol) return null;
+    for (let r = promptRow + 1; r <= row; r++) {
+      const line = buf.getLine(buf.viewportY + r);
+      if (!line) return null;
+      if (indentCol > 0 && line.translateToString(false).slice(0, indentCol).trim() !== '') return null;
+    }
+    return { row, col };
+  }
+
+  /** Hide the overlay but keep the anchoring state, unlike _hide(). */
+  private _hideKeepingState(): void {
+    if (!this._overlay) return;
+    this._lastRenderKey = '';
+    this._overlay.innerHTML = '';
+    this._overlay.style.display = 'none';
+  }
+
   private _render(): void {
     if (!this._terminal || !this._overlay) return;
     if (!this._hasContent()) {
@@ -628,10 +750,25 @@ export class ZerolagInputAddon implements XtermAddon {
       const totalCols = this._terminal.cols;
       const offset = this._getPromptOffset();
       const startCol = activePrompt.col + offset;
+      const layout = this._layout;
+      const indentCol =
+        layout.continuationIndent === 'prompt' ? startCol : Math.max(0, Math.trunc(layout.continuationIndent ?? 0));
+      const rightCol = totalCols - Math.max(0, Math.trunc(layout.rightMargin ?? 0));
 
-      // Build display text: flushed chars + pending chars
+      // Where the typed text starts. Normally at the prompt's text column; but
+      // when the CLI's cursor already sits past it, the composer holds text the
+      // overlay never saw (a paste, an upload path, text flushed on a tab switch
+      // or by Shift+Enter), the CLI is drawing all of it, and what the user types
+      // now lands at that cursor. Drawing from the prompt instead painted the new
+      // text over the composer's first row and left the CLI's cursor showing as a
+      // second one at the real end of the text.
+      const anchor = layout.followCursor ? this._cursorAnchor(activePrompt.row, startCol, indentCol) : null;
+
+      // Build display text: flushed chars + pending chars. When following the
+      // cursor, the flushed text is already on screen (the CLI drew it, which is
+      // why the cursor moved), so only the pending text is drawn, after it.
       let displayText = this._pendingText;
-      if (this._flushedOffset > 0) {
+      if (this._flushedOffset > 0 && !anchor) {
         if (this._flushedText && this._flushedText.length === this._flushedOffset) {
           displayText = this._flushedText + this._pendingText;
         } else {
@@ -650,6 +787,15 @@ export class ZerolagInputAddon implements XtermAddon {
       const compositionStart = [...displayText].length;
       displayText += this._composition;
 
+      if (anchor && !displayText) {
+        // Only already-drawn (flushed) text: the CLI shows it, and its own cursor.
+        this._hideKeepingState();
+        return;
+      }
+
+      const anchorRow = anchor ? anchor.row : activePrompt.row;
+      const firstCol = anchor ? anchor.col : startCol;
+
       // Skip redundant re-renders — include text content to detect
       // same-length changes (e.g., setFlushed with different text)
       // `rows` is part of the key: the layout is clamped to the visible rows
@@ -657,54 +803,33 @@ export class ZerolagInputAddon implements XtermAddon {
       // row limit without changing the text, must not be skipped as a
       // redundant render.
       const totalRows = this._layoutRows();
-      const renderKey = `${displayText}:${compositionStart}:${startCol}:${activePrompt.row}:${activePrompt.col}:${totalCols}:${totalRows}:${this._flushedOffset}`;
+      const renderKey = `${displayText}:${compositionStart}:${startCol}:${activePrompt.row}:${activePrompt.col}:${totalCols}:${totalRows}:${this._flushedOffset}:${anchorRow}:${firstCol}:${indentCol}:${rightCol}:${layout.wordWrap ? 1 : 0}`;
       if (renderKey === this._lastRenderKey && this._overlay.style.display !== 'none') return;
       this._lastRenderKey = renderKey;
 
       // Split into visual lines by column width (CJK wide chars = 2 cols)
-      const firstLineCols = Math.max(1, totalCols - startCol);
-      const chars = [...displayText]; // proper Unicode iteration
-      const lines: string[] = [];
-      let ci = 0;
-      // First line: remaining columns after prompt
-      {
-        let lineStr = '';
-        let lineCols = 0;
-        while (ci < chars.length) {
-          const cw = charCellWidth(this._terminal, chars[ci]);
-          if (lineCols + cw > firstLineCols) break;
-          lineStr += chars[ci];
-          lineCols += cw;
-          ci++;
-        }
-        lines.push(lineStr);
-      }
-      // Subsequent lines: full terminal width
-      while (ci < chars.length) {
-        let lineStr = '';
-        let lineCols = 0;
-        while (ci < chars.length) {
-          const cw = charCellWidth(this._terminal, chars[ci]);
-          if (lineCols + cw > totalCols) break;
-          lineStr += chars[ci];
-          lineCols += cw;
-          ci++;
-        }
-        lines.push(lineStr);
-      }
+      const terminal = this._terminal;
+      const placed = layoutLines(displayText, {
+        firstCol,
+        indentCol,
+        rightCol,
+        wordWrap: !!layout.wordWrap,
+        cellWidth: (ch) => charCellWidth(terminal, ch),
+      });
 
       const cursorColor = this._options.cursorColor ?? this._terminal.options.theme?.cursor ?? DEFAULT_CURSOR;
 
       renderOverlay(this._overlay, {
-        lines,
+        lines: placed.map((l) => l.text),
+        layout: placed,
         compositionStart: this._composition ? compositionStart : undefined,
-        startCol,
+        startCol: firstCol,
         totalCols,
         cellW,
         cellH,
         charTop,
         charHeight,
-        promptRow: activePrompt.row,
+        promptRow: anchorRow,
         totalRows,
         font: this._font,
         showCursor: this._options.showCursor,

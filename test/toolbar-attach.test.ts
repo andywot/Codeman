@@ -137,6 +137,29 @@ describe('phone toolbar Attach button', () => {
     expect(app._sendInputAsync).not.toHaveBeenCalled();
   });
 
+  it('puts the uploads in an overlay that holds tokens as [Image #N] tokens carrying the paths', async () => {
+    const { app, window, select } = loadToolbar();
+    const calls: string[][] = [];
+    app._localEchoOverlay.appendText = vi.fn((t: string) => calls.push([t]));
+    app._localEchoOverlay.appendToken = vi.fn((label: string, value: string) => calls.push([label, value]));
+    app._localEchoOverlay.pendingDisplayText = 'describe';
+    app._localEchoOverlay.pendingText = 'describe';
+    app._localEchoOverlay.pendingTokens = [];
+    select([
+      new window.File(['a'], 'a.png', { type: 'image/png' }),
+      new window.File(['b'], 'b.jpg', { type: 'image/jpeg' }),
+    ]);
+    await vi.waitFor(() => expect(app._localEchoOverlay.appendToken).toHaveBeenCalledTimes(2));
+    expect(calls).toEqual([
+      [' '],
+      ['[Image #1]', '/case/.codeman-uploads/paste-1-a.png'],
+      [' '],
+      ['[Image #2]', '/case/.codeman-uploads/paste-2-b.jpg'],
+      [' '],
+    ]);
+    expect(app._sendInputAsync).not.toHaveBeenCalled();
+  });
+
   it('falls back to the session-bound PTY write when there is no overlay to buffer into', async () => {
     const { app, window, select } = loadToolbar('session-1', false);
     select([new window.File(['a'], 'a.png', { type: 'image/png' })]);

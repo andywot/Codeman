@@ -91,7 +91,7 @@ TUIs render properly and everything the CLI supports works, slash commands inclu
 | `Enter`                      | Send.                                          |
 | `Shift+Enter` / `Ctrl+Enter` | Newline without sending.                       |
 | `Ctrl+C`                     | Copy if text is selected, otherwise interrupt. |
-| `Ctrl+Shift+V`               | Voice input.                                   |
+| `Ctrl+V` / `Ctrl+Shift+V`    | Paste (text, or an image as `[Image #1]`).     |
 
 You can also paste or drag an image straight into the session, and register external files
 as attachments. See [Working With Files](Working-With-Files) and

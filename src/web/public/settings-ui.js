@@ -5542,13 +5542,13 @@ Object.assign(CodemanApp.prototype, {
     // Chords the keydown handlers claim before (or outside) the registry: they are fixed, so a
     // rebind onto one of them would be dead or would hijack it. Alt+1-9 switch tabs by index
     // (the document handler does not exclude Cmd); Ctrl/Shift+Enter insert a newline and
-    // Ctrl/Cmd+V pastes, and the user-bound gate sits above those branches in the xterm handler.
+    // Ctrl/Cmd+V and Ctrl/Cmd+Shift+V paste, and the user-bound gate sits above those branches in the xterm handler.
     if (e.altKey && !e.ctrlKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code || '')) {
       return 'Switch to Tab N';
     }
     // (Alt+Shift+Enter is the tile grid's Zoom chord, a registry entry, so Alt stays free.)
     if (e.key === 'Enter' && !e.altKey && (e.ctrlKey || e.shiftKey)) return 'Insert Newline';
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'v') return 'Paste';
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 'v') return 'Paste';
     if (typeof this.getShortcutRegistry !== 'function' || typeof this.matchesShortcutEvent !== 'function') return '';
     const other = this.getShortcutRegistry().find(
       (shortcut) =>

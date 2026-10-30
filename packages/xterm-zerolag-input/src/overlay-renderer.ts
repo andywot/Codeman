@@ -118,6 +118,7 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
     showCursor,
     cursorColor,
     terminal,
+    layout,
   } = params;
 
   // ── Keep what is being typed ON SCREEN ────────────────────────────
@@ -144,9 +145,11 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
   const lineLengths: number[] = [];
   {
     let offset = 0;
-    for (const line of lines) {
-      const length = [...line].length;
-      lineOffsets.push(offset);
+    for (let i = 0; i < lines.length; i++) {
+      const length = [...lines[i]].length;
+      // A layout knows each line's real offset: wrapping can drop a space and
+      // a line break is no character of any line.
+      lineOffsets.push(layout?.[i] ? layout[i].offset : offset);
       lineLengths.push(length);
       offset += length;
     }
@@ -196,9 +199,15 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
   const fullWidthPx = totalCols * cellW;
 
   for (let i = 0; i < visibleLines.length; i++) {
+    const placed = layout?.[firstVisible + i];
     const indents = i === 0 && keepsPromptLine;
-    const leftPx = indents ? startCol * cellW : 0;
-    const widthPx = indents ? fullWidthPx - leftPx : fullWidthPx;
+    // Text column and background column; without a layout, only the line at
+    // the prompt marker is indented and its background starts with its text.
+    const textCol = placed ? placed.col : indents ? startCol : 0;
+    const bgCol = placed ? Math.min(placed.bgCol, textCol) : textCol;
+    const padCols = textCol - bgCol;
+    const leftPx = bgCol * cellW;
+    const widthPx = fullWidthPx - leftPx;
     const topPx = i * cellH;
     // Clamped to the line, so a line the composition does not reach keeps
     // the same key (and its element) while the composition moves along.
@@ -208,7 +217,7 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
       if (from < lineLengths[firstVisible + i]) lineCompositionFrom = Math.max(0, from);
     }
     // Text goes last, so no character in it can make two different lines collide.
-    const key = `${leftPx}|${topPx}|${widthPx}|${lineCompositionFrom ?? ''}|${visibleLines[i]}`;
+    const key = `${leftPx}|${padCols}|${topPx}|${widthPx}|${lineCompositionFrom ?? ''}|${visibleLines[i]}`;
     if (state.lineKeys[i] === key) continue;
     const lineEl = makeLine(
       visibleLines[i],
@@ -221,7 +230,8 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
       charHeight,
       font,
       terminal,
-      lineCompositionFrom
+      lineCompositionFrom,
+      padCols
     );
     const previous = state.lines[i];
     if (previous) container.replaceChild(lineEl, previous);
@@ -236,7 +246,8 @@ export function renderOverlay(container: HTMLDivElement, params: RenderParams): 
   // Block cursor at end of last line (use visual width for CJK support)
   if (showCursor) {
     const lastLine = visibleLines[visibleLines.length - 1];
-    const lastLineLeft = visibleLines.length === 1 && keepsPromptLine ? startCol : 0;
+    const lastPlaced = layout?.[firstVisible + visibleLines.length - 1];
+    const lastLineLeft = lastPlaced ? lastPlaced.col : visibleLines.length === 1 && keepsPromptLine ? startCol : 0;
     const cursorCol = lastLineLeft + stringCellWidth(terminal, lastLine);
     if (cursorCol < totalCols) {
       const cursor = document.createElement('span');
@@ -281,7 +292,8 @@ function makeLine(
   _charHeight: number,
   font: FontStyle,
   terminal?: XtermTerminal | null,
-  compositionFrom?: number
+  compositionFrom?: number,
+  padCols = 0
 ): HTMLDivElement {
   const el = document.createElement('div');
   // No ligatures: the canvas renders each glyph independently.
@@ -306,8 +318,15 @@ function makeLine(
   // Each span runs from the previous snapped edge to its own, so the spans
   // land on the grid by visual column (CJK wide chars span 2 cells).
   const spanHeight = ';height:' + cellH + 'px';
-  let col = 0;
-  let edge = 0;
+  // A continuation line's background starts at column 0 and its text at the
+  // hanging indent: an empty spacer covers the indent.
+  let col = padCols;
+  let edge = cellEdge(padCols, cellW);
+  if (padCols > 0) {
+    const spacer = document.createElement('span');
+    spacer.style.cssText = 'flex:none;width:' + edge + 'px' + spanHeight;
+    el.appendChild(spacer);
+  }
   let index = 0;
   for (const ch of text) {
     col += charCellWidth(terminal, ch);

@@ -138,37 +138,25 @@ Object.assign(CodemanApp.prototype, {
         ? openComposer.querySelector('.prompt-composer-textarea')
         : null;
     if (composerTextarea) {
-      KeyboardAccessoryBar._insertComposerText(composerTextarea, text);
+      if (typeof KeyboardAccessoryBar._insertComposerUploads === 'function') {
+        KeyboardAccessoryBar._insertComposerUploads(composerTextarea, sessionId, paths);
+      } else {
+        KeyboardAccessoryBar._insertComposerText(composerTextarea, text);
+      }
       return;
     }
 
     const stillActive = this.activeSessionId === sessionId;
-    // The overlay holds the prompt only while local echo actually owns it. A
-    // session handed back to plain PTY echo by a composer nav key (echo
-    // passthrough) skips the whole overlay branch in onData, Enter included, so
-    // text buffered there would sit on screen and never be submitted. Nor while
-    // the tile grid owns the terminal area: the main terminal is parked and
-    // hidden then, and a tile's Enter never reaches its overlay, so the path
-    // goes to the PTY like any other background write.
-    const overlayOwnsPrompt =
-      stillActive &&
-      !this._tilesOwnTerminal?.() &&
-      this._localEchoEnabled &&
-      this._localEchoOverlay &&
-      !this._echoPassthroughSessions?.has(sessionId);
-    if (overlayOwnsPrompt) {
-      // Prompt text the overlay has not adopted yet (a tab completion, a restored
-      // tab) only lands in its flushed half once detection runs, and appendText
-      // runs it AFTER we would have measured. Detect first, or the separator is
-      // computed against an empty string and the path fuses onto a real word.
-      if (!this._localEchoOverlay.pendingText && !this._localEchoOverlay.getFlushed().count) {
-        this._localEchoOverlay.detectBufferText();
-      }
-      const flushed = this._localEchoOverlay.getFlushed().text || '';
-      const prompt = flushed + (this._localEchoOverlay.pendingText || '');
-      const gap = prompt && !/\s$/.test(prompt) ? ' ' : '';
-      this._localEchoOverlay.appendText(gap + text + ' ');
+    // The overlay holds the prompt only while local echo actually owns it (see
+    // _overlayOwnsPromptFor); otherwise the path goes to the PTY like any other
+    // background write.
+    if (this._overlayOwnsPromptFor(sessionId)) {
+      this._appendUploadsToOverlay(paths);
     } else {
+      // Plain text here, not a paste frame (unlike _insertUploadedPaths): a
+      // background session's write is tracked in the flushed maps below by its
+      // character count, which a later Compose open erases with backspaces, and
+      // the label Claude would turn a frame into has a different length.
       // No buffer to measure, so lead with a separator unconditionally rather than
       // risk fusing onto whatever the CLI's own composer already holds.
       const out = ` ${text} `;
@@ -186,6 +174,113 @@ Object.assign(CodemanApp.prototype, {
         this._flushedOffsets.set(sessionId, (this._flushedOffsets.get(sessionId) || 0) + out.length);
       }
     }
+  },
+
+  /** Whether the main terminal's local-echo overlay holds `sessionId`'s prompt:
+   *  the session is active, local echo owns its keystrokes, and nothing has handed
+   *  it back to plain PTY echo. A session handed to plain PTY echo by a composer
+   *  nav key (echo passthrough) skips the whole overlay branch in onData, Enter
+   *  included, so text buffered there would sit on screen and never be submitted.
+   *  Nor while the tile grid owns the terminal area: the main terminal is parked
+   *  and hidden then, and a tile's Enter never reaches its overlay. */
+  _overlayOwnsPromptFor(sessionId) {
+    return !!(
+      sessionId &&
+      this.activeSessionId === sessionId &&
+      !this._tilesOwnTerminal?.() &&
+      this._localEchoEnabled &&
+      this._localEchoOverlay &&
+      !this._echoPassthroughSessions?.has(sessionId)
+    );
+  },
+
+  /** What a token calls an upload, from the extension the server kept on its path. */
+  _uploadTokenKind(path) {
+    const ext = (String(path).match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'heif'].includes(ext)) return 'Image';
+    if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'Video';
+    return 'File';
+  },
+
+  /** Token labels (`[Image #1]`, `[File #2]`) for `paths`, numbered on from the
+   *  highest number among `existingLabels`, so a prompt never shows the same
+   *  label twice even after a token in the middle was deleted. */
+  _uploadTokenLabels(paths, existingLabels = []) {
+    let n = 0;
+    for (const label of existingLabels) {
+      const m = /#(\d+)\]$/.exec(String(label));
+      if (m) n = Math.max(n, Number(m[1]));
+    }
+    return paths.map((path) => `[${this._uploadTokenKind(path)} #${++n}]`);
+  },
+
+  /** Put uploaded paths on the prompt the overlay holds, each as an atomic token
+   *  (`[Image #1]`) that draws short, deletes whole on Backspace and is sent as
+   *  its full path: the overlay's pendingText, which is what every flush path
+   *  sends (Enter, Tab, Shift+Enter, a nav key, a paste, a tab switch, Compose),
+   *  carries the path in its place. Spaced off the text around it.
+   *
+   *  The label lives ONLY in the browser. Once the text reaches the PTY it is the
+   *  plain path, because a typed path is what every CLI reads. (Claude Code turns
+   *  a bracketed paste of nothing but an image path into its own `[Image #N]`, but
+   *  it reads the file asynchronously and inserts the label when that finishes,
+   *  so with typed text around it the label lands out of order. Measured on
+   *  2.1.314: `abc <paste> def` in one write became `abc  def[Image #3]`.) */
+  _appendUploadsToOverlay(paths) {
+    const overlay = this._localEchoOverlay;
+    if (!overlay || !paths?.length) return;
+    // Prompt text the overlay has not adopted yet (a tab completion, a restored
+    // tab) only lands in its flushed half once detection runs, and appendText
+    // runs it AFTER we would have measured. Detect first, or the separator is
+    // computed against an empty string and the path fuses onto a real word.
+    if (!overlay.pendingText && !overlay.getFlushed().count) {
+      overlay.detectBufferText();
+    }
+    const flushed = overlay.getFlushed().text || '';
+    const prompt = flushed + (overlay.pendingDisplayText ?? overlay.pendingText ?? '');
+    const gap = prompt && !/\s$/.test(prompt) ? ' ' : '';
+    if (typeof overlay.appendToken !== 'function') {
+      // An overlay without tokens (an older bundle): the paths as plain text.
+      overlay.appendText(gap + paths.join(' ') + ' ');
+      return;
+    }
+    const labels = this._uploadTokenLabels(
+      paths,
+      (overlay.pendingTokens || []).map((t) => t.label)
+    );
+    if (gap) overlay.appendText(gap);
+    paths.forEach((path, i) => {
+      if (i > 0) overlay.appendText(' ');
+      overlay.appendToken(labels[i], path);
+    });
+    overlay.appendText(' ');
+  },
+
+  /** Put the paths of a finished paste or drop upload on `sessionId`'s prompt.
+   *
+   *  - The overlay holds the prompt (local echo, the default for remote sessions
+   *    and on phones): atomic `[Image #N]` tokens there, see _appendUploadsToOverlay.
+   *  - Otherwise the CLI's own composer is the prompt (local echo off, a tile or
+   *    the split's Pane B, a background session): the paths go to the PTY as ONE
+   *    bracketed paste and nothing else in that write, which is what Claude Code
+   *    turns into its own atomic `[Image #N]` (an image file it can read). Other
+   *    CLIs get the path text, as a paste. The frame is sent without useMux, like
+   *    every hand-built paste frame, so the POST fallback cannot wrap it twice.
+   *  - A shell session gets the plain path text, as before: it has no use for a
+   *    paste frame. */
+  _insertUploadedPaths(sessionId, paths) {
+    if (!sessionId || !paths?.length) return;
+    if (this._overlayOwnsPromptFor(sessionId)) {
+      this._appendUploadsToOverlay(paths);
+      return;
+    }
+    const text = paths.join(' ');
+    if (this.sessions?.get(sessionId)?.mode === 'shell') {
+      this._sendInputAsync(sessionId, text, { useMux: true });
+      return;
+    }
+    this._predictiveEcho?.clearPredictions?.();
+    this._sendInputAsync(sessionId, `\x1b[200~${text}\x1b[201~`);
   },
 
   // Called from customKeyEventHandler in terminal-ui.js on Ctrl+V keydown.
@@ -377,12 +472,12 @@ Object.assign(CodemanApp.prototype, {
 
     const paths = results.filter(Boolean);
     if (paths.length > 0 && options.insert !== false) {
-      // Insert all paths in one shot, space-separated, in selection order, into
-      // the session the batch was uploaded TO. Not sendInput(): it re-reads
-      // activeSessionId, and after the awaits above that is whatever tab the
-      // user switched to mid-upload, so the paths landed in the wrong session.
-      // Same delivery sendInput() uses (durable queue, useMux for the POST path).
-      this._sendInputAsync(sessionId, paths.join(' '), { useMux: true });
+      // Insert all paths, in selection order, into the session the batch was
+      // uploaded TO. Not sendInput(): it re-reads activeSessionId, and after the
+      // awaits above that is whatever tab the user switched to mid-upload, so the
+      // paths landed in the wrong session. Into the local-echo overlay when it
+      // holds that prompt (as atomic [Image #N] tokens), else to the PTY.
+      this._insertUploadedPaths(sessionId, paths);
     }
 
     // Final status: successes, plus any failures / cap so nothing is silent.
