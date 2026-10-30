@@ -223,7 +223,7 @@ Object.assign(CodemanApp.prototype, {
       return;
     }
     const selected = this._historyMachineSelected();
-    const options = [['', this._localMachineLabel?.() || 'This server'], ...targets.map((t) => [t.id, t.name])];
+    const options = [['', this._serverContainerLabel?.() || 'This server'], ...targets.map((t) => [t.id, t.name])];
     const sig = JSON.stringify(options);
     if (select.dataset.sig !== sig) {
       select.replaceChildren(
@@ -463,7 +463,7 @@ Object.assign(CodemanApp.prototype, {
       b.textContent = label;
       row.appendChild(b);
     };
-    chip('', this._localMachineLabel?.() || 'This server');
+    chip('', this._serverContainerLabel?.() || 'This server');
     for (const t of targets) chip(t.id, t.name);
     return row;
   },

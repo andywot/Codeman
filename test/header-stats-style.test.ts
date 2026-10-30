@@ -121,7 +121,9 @@ describe('applyHeaderStatsStyle', () => {
       expect(document.documentElement.dataset.headerStats).toBe(style);
       expect(statsChildren()[0]).toBe('connectionIndicator');
       const right = rightSide();
-      expect(right[right.indexOf('headerSystemStats') + 1]).toBe('planUsageChip');
+      // stats, then the machine entries (machine-status-ui.js), then the plan chip.
+      expect(right[right.indexOf('headerSystemStats') + 1]).toBe('headerMachines');
+      expect(right[right.indexOf('headerMachines') + 1]).toBe('planUsageChip');
       expect(right).not.toContain('connectionIndicator');
     }
   });

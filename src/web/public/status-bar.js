@@ -6,8 +6,8 @@
  * dialog). Left to right: the connection to the server, how many sessions need
  * you (click jumps to the first), how many are working, then one entry per
  * Claude account with its 5-hour and 7-day usage when the server reports them
- * (GET /api/fleet; absent until accounts are configured). Before the accounts,
- * one entry per remote machine with its state and CPU/MEM (machine-status-ui.js).
+ * (GET /api/fleet; absent until accounts are configured). The machines' state and
+ * CPU/MEM moved to the top bar (machine-status-ui.js `renderHeaderMachines`).
  *
  * Focus mode enlarges the active session: the explorer, header and status bar
  * hide and the browser goes full screen. Esc (leaving full screen) or the
@@ -39,8 +39,6 @@ Object.assign(CodemanApp.prototype, {
         if (first) this.selectSession(first.id);
       } else if (target.dataset.rcAction === 'accounts') {
         this.openFleetManager?.();
-      } else if (target.dataset.rcAction === 'machine') {
-        this._onStatusBarMachine?.(target.dataset.machine);
       }
     });
     footer.prepend(el);
@@ -93,7 +91,6 @@ Object.assign(CodemanApp.prototype, {
     const spacer = document.createElement('span');
     spacer.className = 'rc-status-spacer';
     parts.push(spacer);
-    parts.push(...(this._statusBarMachineItems?.() ?? []));
 
     for (const account of this._statusBarAccounts || []) {
       const item = this._statusBarItem(account.label, { cls: 'rc-account', action: 'accounts' });

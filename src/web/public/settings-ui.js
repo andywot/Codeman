@@ -4575,7 +4575,9 @@ Object.assign(CodemanApp.prototype, {
       anchors.conn.after(conn);
     }
     if (clustered) {
-      if (stats.nextElementSibling !== plan) stats.after(plan);
+      // After the machine entries when there are any: stats, machines, plan.
+      const lead = document.getElementById('headerMachines') || stats;
+      if (lead.nextElementSibling !== plan) lead.after(plan);
     } else if (anchors.plan.nextSibling !== plan) {
       anchors.plan.after(plan);
     }
@@ -4618,12 +4620,16 @@ Object.assign(CodemanApp.prototype, {
     if (tokenCountEl) {
       tokenCountEl.style.display = showTokenCount ? '' : 'none';
     }
+    // Machine entries sit in the desktop top bar only; phones and solo windows have none.
+    document.documentElement.dataset.headerMachines = compactHeader || this.isSoloWindow ? 'off' : 'on';
     // After the System Stats visibility above: whether WS joins the stats pill
     // depends on the pill being shown.
     this.applyHeaderStatsStyle({
       style: compactHeader || this.isSoloWindow ? 'classic' : this.resolveHeaderStatsStyle(settings),
       showSystemStats,
     });
+    // The server's own machine is that pill's name while the pill shows (machine-status-ui.js).
+    this.renderHeaderMachines?.();
 
     // Hide lifecycle log button when setting is disabled
     // Default OFF: the lifecycle-log document icon is opt-in; the default header
