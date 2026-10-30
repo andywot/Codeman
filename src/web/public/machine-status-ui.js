@@ -9,9 +9,9 @@
  *   entry per machine, a state dot, the name and two rings, CPU then MEM, with
  *   the hint in the tooltip; clicking an asleep machine offers Wake, any other
  *   opens Machines & accounts. The machine the dashboard server runs on
- *   (`isServerHost`, set per machine or found by machine-status.ts) is not a
- *   second entry: the server's own live CPU/MEM pill (`#headerSystemStats`)
- *   carries its name, a `server` tag and the machine's state dot instead;
+ *   (`isServerHost`, set per machine or found by machine-status.ts) is the
+ *   first entry, with a `server` tag, drawn like the others; the server's own
+ *   CPU/MEM pill (`#headerSystemStats`) folds away so it is not shown twice;
  * - the New session dialog's machine chips (new-session.js): the same dot,
  *   CPU/MEM as the chip detail, and the selected machine's hint with a Wake
  *   button under the chips (phones see it here).
@@ -255,9 +255,12 @@ Object.assign(CodemanApp.prototype, {
   },
 
   /**
-   * Fill the top bar: `#headerMachines` (every machine but the server's own) and the name in
-   * front of the server's CPU/MEM pill (`#statHost`). Desktop only; the phone layouts keep
-   * their own surfaces (`data-header-machines="off"`).
+   * Fill the top bar: `#headerMachines`, one entry per machine drawn the same way. The machine
+   * the server runs on is one of them (first, with a `server` tag) and the server's own CPU/MEM
+   * pill folds away (`header-system-stats--folded`) so it is not drawn twice in a different
+   * style. With no machine flagged as the server, the pill stays and is named "This server"
+   * (`#statHost`). Desktop only; the phone layouts keep their own surfaces
+   * (`data-header-machines="off"`).
    */
   renderHeaderMachines() {
     const box = document.getElementById('headerMachines');
@@ -267,39 +270,30 @@ Object.assign(CodemanApp.prototype, {
     const stats = document.getElementById('headerSystemStats');
     const statsShown = Boolean(stats) && stats.style.display !== 'none';
     const server = machines.find((m) => m.isServerHost) || null;
-    const items = this._headerMachineItems({ skipServerHost: statsShown });
+    const items = this._headerMachineItems({ skipServerHost: false });
+    if (server) {
+      const at = items.findIndex((item) => item.dataset.machine === server.name);
+      if (at > 0) items.unshift(...items.splice(at, 1));
+    }
     box.replaceChildren(...items);
     box.hidden = items.length === 0;
+    stats?.classList.toggle('header-system-stats--folded', Boolean(server));
 
     if (host) {
-      // A name in front of the pill only helps once there is a second entry to tell it from.
-      const named = machines.length > 0 && statsShown;
+      // A name in front of the pill only helps once there is a machine entry to tell it from.
+      const named = machines.length > 0 && statsShown && !server;
       host.hidden = !named;
+      delete host.dataset.mstate;
+      delete host.dataset.machine;
+      host.replaceChildren();
       if (named) {
-        // No dot for "This server": it has no machine state to show.
-        if (server) {
-          host.dataset.mstate = this._machineWaking?.has(server.name) ? 'waking' : machineDotKind(server);
-          host.dataset.machine = server.name;
-        } else {
-          delete host.dataset.mstate;
-          delete host.dataset.machine;
-        }
-        host.replaceChildren();
         const name = document.createElement('span');
         name.className = 'hm-name';
-        name.textContent = server ? server.name : 'This server';
+        name.textContent = 'This server';
         host.append(name);
-        if (server) {
-          const tag = document.createElement('span');
-          tag.className = 'hm-tag';
-          tag.textContent = 'server';
-          host.append(tag);
-        }
-        const title = server
-          ? `${this._machineTitle(server)}\nThe figures beside it are this dashboard server's own, live.`
-          : "This dashboard server's own load (it is not one of the machines listed here).";
+        const title = "This dashboard server's own load (it is not one of the machines listed here).";
         host.title = title;
-        host.setAttribute('aria-label', title.replace(/\n/g, '. '));
+        host.setAttribute('aria-label', title);
       }
     }
   },

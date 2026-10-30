@@ -26366,9 +26366,9 @@ html .toolbar .btn-git-status.git-status--conflict {
 
 /* ── Fork: machines in the top bar (machine-status-ui.js renderHeaderMachines) ──
    One pill holds one entry per machine: state dot, name, CPU ring + %, MEM ring + %.
-   The machine the dashboard server runs on is not an entry here: its name (with a
-   `server` tag and the machine's state dot) leads the server's own CPU/MEM pill,
-   whose figures are live. The pill is drawn the same in every header stats style, and
+   The machine the dashboard server runs on is the first entry, with a `server` tag;
+   the server's own CPU/MEM pill folds away (`header-system-stats--folded`) so arr is
+   not drawn twice in two styles. The pill is drawn the same in every header stats style, and
    is a desktop thing: phones keep the New session chips and the Overview. */
 .header-machines,
 .stat-host {
@@ -26393,6 +26393,15 @@ html .toolbar .btn-git-status.git-status--conflict {
 .header-machines[hidden],
 .stat-host[hidden] {
   display: none;
+}
+/* When one of the machines is the server, its entry above carries the figures, so the
+   server pill drops its own CPU/MEM (drawn in a different style) and disappears when
+   no opt-in host reading (GPU, VRAM, clocks) is left in it. */
+.header-system-stats--folded > .stat-item:not(.stat-item--host) {
+  display: none !important;
+}
+.header-system-stats--folded:not(:has(> .stat-item--host:not([hidden]))) {
+  display: none !important;
 }
 .hm-item,
 .stat-host {

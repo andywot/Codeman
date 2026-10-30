@@ -136,22 +136,23 @@ describe("Overview: the server's sessions sit with the machine it runs on", () =
 });
 
 describe('top bar', () => {
-  it("draws one entry per machine and names the server's own pill after its machine", () => {
+  it('draws every machine alike, the server first with a tag, and folds the server pill away', () => {
     const { app, window } = load();
     app._machineStatus = [
-      machine('arr', { isServerHost: true, serverHostSource: 'setting' }),
       machine('Laptop', { load: { cpu: 83, memPercent: 62, memUsedMB: 1, memTotalMB: 2 } }),
+      machine('arr', { isServerHost: true, serverHostSource: 'setting' }),
       machine('Desktop', { state: 'asleep', reason: 'no-reply', wakeHostId: 'desk-wsl', load: null, hint: 'Asleep' }),
     ];
     app.renderHeaderMachines();
     const box = window.document.getElementById('headerMachines')!;
     const names = [...box.querySelectorAll('.hm-name')].map((n) => n.textContent);
-    // arr is the pill's name, not a second entry; every other machine has one.
-    expect(names).toEqual(['Laptop', 'Desktop']);
-    const host = window.document.getElementById('statHost')!;
-    expect(host.hidden).toBe(false);
-    expect(host.textContent).toBe('arrserver');
-    expect(host.dataset.mstate).toBe('ok');
+    expect(names).toEqual(['arr', 'Laptop', 'Desktop']);
+    const arr = box.querySelector('[data-machine="arr"]')!;
+    expect(arr.querySelector('.hm-tag')?.textContent).toBe('server');
+    expect(arr.querySelectorAll('.rc-ring')).toHaveLength(2);
+    const stats = window.document.getElementById('headerSystemStats')!;
+    expect(stats.classList.contains('header-system-stats--folded')).toBe(true);
+    expect(window.document.getElementById('statHost')!.hidden).toBe(true);
     const laptop = box.querySelector('[data-machine="Laptop"]')!;
     expect(laptop.textContent).toContain('83%');
     expect(laptop.textContent).toContain('62%');
@@ -180,6 +181,9 @@ describe('top bar', () => {
     expect(host.hidden).toBe(false);
     expect(host.textContent).toBe('This server');
     expect(host.dataset.mstate).toBeUndefined();
+    expect(window.document.getElementById('headerSystemStats')!.classList.contains('header-system-stats--folded')).toBe(
+      false
+    );
   });
 
   it('draws nothing without machines', () => {
