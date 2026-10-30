@@ -243,7 +243,115 @@ Object.assign(CodemanApp.prototype, {
       el('p', 'fm-muted', 'Skills, memory, agents, commands and settings keys, copied to the machines you pick.')
     );
 
-    body.replaceChildren(machines, accounts, shared, key);
+    // ── Agent mail (agent-mail-relay.ts) ──
+    const mail = el('section', 'fm-section fm-mail');
+    mail.append(el('h3', 'fm-h', 'Agent mail'), el('p', 'fm-muted', 'Loading…'));
+    void this._renderAgentMail(mail, el, button);
+
+    body.replaceChildren(machines, accounts, shared, mail, key);
+  },
+
+  /**
+   * Fork: the rc-mail relay's view (GET /api/agent-mail): which machines it reaches, the address
+   * book with waiting counts and each dashboard session's wake-up switch, and recent traffic.
+   * Subjects come from agents: textContent only (the `el` helper).
+   */
+  async _renderAgentMail(section, el, button) {
+    let data;
+    try {
+      data = await this._fetchJson('/api/agent-mail');
+    } catch (err) {
+      section.replaceChildren(el('h3', 'fm-h', 'Agent mail'), el('p', 'fm-muted', `Could not load: ${err.message}`));
+      return;
+    }
+    const head = el('div', 'fm-section-head');
+    head.append(
+      el('h3', 'fm-h', 'Agent mail'),
+      button('Refresh', () => this._renderAgentMail(section, el, button))
+    );
+    const parts = [head];
+    parts.push(
+      el(
+        'p',
+        'fm-muted',
+        data.enabled
+          ? 'Agents message each other with rc-mail (~/.config/claude-rc/bin/rc-mail and the rc-mail skill, installed on each machine the server reaches). Idle dashboard sessions get a one-line nudge when mail arrives.'
+          : 'Off. Turn it on in App Settings → Agent mail.'
+      )
+    );
+    if (data.machines.length) {
+      const list = el('div', 'fm-systems');
+      for (const m of data.machines) {
+        const row = el('div', 'fm-system');
+        const state = m.aliasOf
+          ? `same mailbox as ${m.aliasOf}`
+          : m.state === 'ok'
+            ? m.installed
+              ? 'reached · rc-mail installed'
+              : 'reached'
+            : m.state === 'failing'
+              ? m.error || 'not reachable'
+              : 'not reached yet';
+        const status = el('span', 'fm-status', state);
+        status.dataset.kind = m.state === 'ok' ? 'ok' : m.state === 'failing' ? 'warn' : '';
+        row.append(el('span', 'fm-system-name', m.machine), status);
+        list.append(row);
+      }
+      parts.push(list);
+    }
+    const agents = el('div', 'fm-systems');
+    if (!data.agents.length) agents.append(el('p', 'fm-muted', 'No addresses yet.'));
+    for (const a of data.agents) {
+      const row = el('div', 'fm-system');
+      const counts = a.pending ? `${a.pending} waiting${a.unseen ? ` (${a.unseen} new)` : ''}` : '';
+      const where = a.kind === 'outside' ? `outside · ${a.cwd || ''}` : 'dashboard';
+      row.append(
+        el('span', 'fm-system-name', a.address),
+        el('span', 'fm-status', [where, counts].filter(Boolean).join(' · '))
+      );
+      if (a.kind === 'dashboard' && a.sid && a.nudge !== null) {
+        const label = el('label', 'fm-mail-nudge');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = a.nudge;
+        box.addEventListener('change', async () => {
+          box.disabled = true;
+          try {
+            await this._fetchJson(`/api/agent-mail/nudge/${encodeURIComponent(a.sid)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ enabled: box.checked }),
+            });
+          } catch (err) {
+            box.checked = !box.checked;
+            this.showToast?.(err.message, 'error');
+          }
+          box.disabled = false;
+        });
+        label.append(box, el('span', '', 'wake'));
+        label.title = 'Type a one-line notice into this session when mail arrives and it is idle';
+        row.append(label);
+      }
+      agents.append(row);
+    }
+    parts.push(el('h4', 'fm-h fm-mail-sub', 'Addresses'), agents);
+    if (data.recent.length || data.queued) {
+      const recent = el('div', 'fm-systems');
+      for (const r of data.recent.slice(0, 12)) {
+        const row = el('div', 'fm-system');
+        const when = new Date(r.at).toLocaleTimeString();
+        row.append(
+          el('span', 'fm-system-name', `${r.from} → ${r.to}`),
+          el('span', 'fm-status', `${r.state}${r.detail ? ` (${r.detail})` : ''} · ${when} · ${r.subject || ''}`)
+        );
+        recent.append(row);
+      }
+      parts.push(
+        el('h4', 'fm-h fm-mail-sub', data.queued ? `Recent · ${data.queued} waiting for an offline machine` : 'Recent'),
+        recent
+      );
+    }
+    section.replaceChildren(...parts);
   },
 
   _fleetMachineForm(dialog, machine, fleet) {

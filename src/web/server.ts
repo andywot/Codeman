@@ -153,6 +153,7 @@ import {
 } from './respawn-event-wiring.js';
 
 import { reconcileUpdateOnBoot } from './self-update.js';
+import { createAgentMailRelay } from './agent-mail-wiring.js';
 
 // Load version from package.json
 const require = createRequire(import.meta.url);
@@ -234,6 +235,7 @@ import {
   registerFleetRoutes,
   registerProjectRoutes,
   registerSharedConfigRoutes,
+  registerAgentMailRoutes,
   registerChatRoutes,
   registerWorktreeRoutes,
   registerSessionRoutes,
@@ -485,6 +487,30 @@ export class WebServer extends EventEmitter {
     markSeen: (view) => {
       const session = this.sessions.get(view.id);
       if (session === view && session.markRemoteSignalsSeen()) this.broadcastSessionStateDebounced(session.id);
+    },
+    log: (message) => console.log(message),
+  });
+  // Fork: agent mail (agent-mail.ts): carries `rc-mail` messages between the fleet's machines over the
+  // pooled shells and wakes idle dashboard recipients. A field initializer like the services above; it
+  // polls only once `start()` runs (after the routes are registered, never in test mode).
+  private readonly agentMail = createAgentMailRelay({
+    sessions: () => this.sessions.values(),
+    getSession: (id) => this.sessions.get(id),
+    browserConnected: () => this.sse.clientCount > 0,
+    capturePane: (session) => {
+      const muxName = session.muxName;
+      return muxName ? (this.mux.capturePaneText?.(muxName, undefined, { styles: true }) ?? null) : null;
+    },
+    busy: (id) => {
+      const session = this.sessions.get(id);
+      if (!session) return true;
+      return (
+        approvalInbox.listPending().some((item) => item.sessionId === id && item.kind !== 'idle') ||
+        (this.respawnControllers.get(id)?.isRunning ?? false) ||
+        session.ralphTracker.loopState.active ||
+        session.currentTaskId !== null ||
+        session.isLimitPaused
+      );
     },
     log: (message) => console.log(message),
   });
@@ -1406,6 +1432,8 @@ export class WebServer extends EventEmitter {
     registerFleetRoutes(this.app, ctx);
     registerProjectRoutes(this.app);
     registerSharedConfigRoutes(this.app);
+    registerAgentMailRoutes(this.app, this.agentMail);
+    if (!this.testMode) this.agentMail.start();
     registerChatRoutes(this.app, ctx);
     registerWorktreeRoutes(this.app, ctx);
     // The registry's lifetime is the server's: it drops per-session wake state on every
@@ -1664,6 +1692,7 @@ export class WebServer extends EventEmitter {
     this.keepWarmService.remove(sessionId);
     this.remoteTelemetry.remove(sessionId);
     this.remoteSignals?.remove(sessionId);
+    this.agentMail?.remove(sessionId);
     this.statuslineApplier?.forget(sessionId);
     // A closed session takes its place in the fetch schedule with it: otherwise a detached-and-forgotten id
     // would still count as tracked, and its next run would land on a session that no longer exists.
@@ -4461,6 +4490,7 @@ export class WebServer extends EventEmitter {
     this.gitFetchScheduler.stop();
     this.remoteTelemetry.stop();
     this.remoteSignals.stop();
+    this.agentMail.stop();
     // A post within the debounce window before shutdown would otherwise not reach disk.
     // Flushed again after `app.close()` below, for a post that lands in between.
     agentInboxPersistence.flush();
