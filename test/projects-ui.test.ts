@@ -16,6 +16,7 @@ const P = new Function('window', 'document', 'CodemanApp', `${src}\nreturn Codem
   subtitle(p: Record<string, unknown>): string;
   toPick(p: Record<string, unknown>): Record<string, unknown>;
   fromPick(pick: Record<string, unknown>, o: Record<string, unknown>): Record<string, unknown>;
+  hereLaunch(s: Record<string, unknown> | undefined, mode: string): Record<string, any> | null;
 };
 
 describe('CodemanProjects', () => {
@@ -58,5 +59,34 @@ describe('CodemanProjects.moveId', () => {
     expect(M.moveId(['a', 'b', 'c'], 'a', 'a', true)).toBeNull();
     expect(M.moveId(['a', 'b', 'c'], 'a', 'b', false)).toBeNull();
     expect(M.moveId(['a', 'b'], 'x', 'b', false)).toBeNull();
+  });
+
+  describe('hereLaunch ("New terminal here")', () => {
+    it('local: same folder, target local, shell named "<folder> shell"', () => {
+      expect(P.hereLaunch({ workingDir: '/home/a/api' }, 'shell')).toEqual({
+        kind: 'pick',
+        pick: { target: 'local', path: '/home/a/api', mode: 'shell', sessionName: 'api shell' },
+      });
+      expect(P.hereLaunch({ workingDir: '/home/a/api' }, 'claude')?.pick.sessionName).toBe('api');
+    });
+
+    it('remote: the session host (one system) and its remote folder, not the local pane dir', () => {
+      const r = P.hereLaunch(
+        { workingDir: '/tmp/local-pane', remote: { hostId: 'pc-win', remotePath: '/mnt/c/Users/x/proj' } },
+        'shell'
+      );
+      expect(r).toEqual({
+        kind: 'pick',
+        pick: { target: 'pc-win', path: '/mnt/c/Users/x/proj', mode: 'shell', sessionName: 'proj shell' },
+      });
+    });
+
+    it('docker goes through its case; unknown session is null', () => {
+      expect(P.hereLaunch({ workingDir: '/w/app', docker: { hostId: 'h', containerName: 'c' } }, 'shell')?.kind).toBe(
+        'case'
+      );
+      expect(P.hereLaunch(undefined, 'shell')).toBeNull();
+      expect(P.hereLaunch({ remote: { hostId: '', remotePath: '/x' } }, 'shell')).toBeNull();
+    });
   });
 });

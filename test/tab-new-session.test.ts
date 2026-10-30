@@ -734,6 +734,8 @@ describe('"New session here…" in the row menu', () => {
       'Move down',
       'Move to "Core"',
       'Move to new group',
+      'New terminal here',
+      'New Claude session here',
       'Close session',
     ]);
     app.closeTabRailActionMenu();
@@ -747,6 +749,8 @@ describe('"New session here…" in the row menu', () => {
       'Move down',
       'Move to "Core"',
       'Move to new group',
+      'New terminal here',
+      'New Claude session here',
       'Close session',
     ]);
     [...document.querySelectorAll<HTMLElement>('.tab-rail-action-menu button')]
@@ -775,6 +779,8 @@ describe('"New session here…" in the row menu', () => {
       'Move down',
       'Move to "Core"',
       'Move to new group',
+      'New terminal here',
+      'New Claude session here',
       'Close session',
     ]);
   });

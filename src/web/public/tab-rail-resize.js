@@ -345,6 +345,9 @@ Object.assign(CodemanApp.prototype, {
             this.detachedSessions?.has(sessionId)
           ? [{ label: 'Open in a new window', run: () => this.detachSession(sessionId) }]
           : []),
+      // Same machine and folder as this session (projects.js startSessionHere).
+      { label: 'New terminal here', run: () => this.startSessionHere?.(sessionId, 'shell') },
+      { label: 'New Claude session here', run: () => this.startSessionHere?.(sessionId, 'claude') },
       { label: 'Close session', className: 'danger', run: () => this.requestCloseSession(sessionId) },
     ];
     for (const action of actions) {

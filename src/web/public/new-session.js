@@ -626,12 +626,13 @@ Object.assign(CodemanApp.prototype, {
   async _startPick(pick, accountLabel) {
     if (!pick.path.startsWith('/')) throw new Error('Pick the folder from the list so its full path is known.');
     const folder = pick.path.split('/').filter(Boolean).pop() || pick.path;
-    const sessionName = pick.mode === 'claude' && accountLabel ? `${folder} · ${accountLabel}` : folder;
+    const sessionName =
+      pick.sessionName || (pick.mode === 'claude' && accountLabel ? `${folder} · ${accountLabel}` : folder);
     const id =
       pick.target === NEW_SESSION_LOCAL
         ? await this._startLocalSession(pick, sessionName)
         : await this._startRemoteSession(pick, pick.target, sessionName);
-    this._rememberNewSession({ ...pick, at: Date.now() });
+    this._rememberNewSession({ ...pick, sessionName: undefined, at: Date.now() });
     return id;
   },
 

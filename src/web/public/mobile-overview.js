@@ -410,7 +410,16 @@ Object.assign(CodemanApp.prototype, {
       const target = event.target && event.target.closest && event.target.closest('[data-mo-action]');
       if (!target) return;
       const action = target.dataset.moAction;
-      if (action === 'session') {
+      if (action === 'session-menu') {
+        // The row's ⋯: the shared session action menu ("New terminal here", ...).
+        event.preventDefault();
+        event.stopPropagation();
+        this._closeMobileOverviewRunMenu();
+        this.openTabRailActionMenu?.(
+          { preventDefault() {}, stopPropagation() {}, currentTarget: target },
+          target.dataset.moSession
+        );
+      } else if (action === 'session') {
         this._closeMobileOverviewRunMenu();
         void this.selectSession(target.dataset.moSession);
       } else if (action === 'resume') {
@@ -454,6 +463,15 @@ Object.assign(CodemanApp.prototype, {
         this._closeMobileOverviewRunMenu();
         this.showWebviewModal();
       }
+    });
+
+    // The row's ⋯ is a span (the row is a <button>): Enter / Space activate it.
+    el.addEventListener('keydown', (event) => {
+      const target = event.target && event.target.closest && event.target.closest('[data-mo-action="session-menu"]');
+      if (!target || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      target.click();
     });
 
     if (window.matchMedia) {
@@ -872,6 +890,18 @@ Object.assign(CodemanApp.prototype, {
     item.appendChild(pill);
 
     if (row.watching) item.appendChild(this._buildWatchingBadge(row.watching, 'mobile-overview-pill'));
+
+    // A span, not a button: the row itself is a <button> and cannot hold one.
+    const more = document.createElement('span');
+    more.className = 'mobile-overview-more';
+    more.setAttribute('role', 'button');
+    more.setAttribute('tabindex', '0');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-label', 'Session actions');
+    more.dataset.moAction = 'session-menu';
+    more.dataset.moSession = row.id;
+    more.textContent = '\u22EF';
+    item.appendChild(more);
 
     const chevron = document.createElement('span');
     chevron.className = 'mobile-overview-chevron';

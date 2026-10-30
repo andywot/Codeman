@@ -305,7 +305,14 @@ describe('adding and removing', () => {
     const puts = installFetch();
     const app = makeApp(flat());
     app.openTabRailActionMenu({ preventDefault() {}, stopPropagation() {}, currentTarget: row('s2') }, 's2');
-    expect(menuLabels()).toEqual(['Session options', 'Remove from Focus', 'Move to new group', 'Close session']);
+    expect(menuLabels()).toEqual([
+      'Session options',
+      'Remove from Focus',
+      'Move to new group',
+      'New terminal here',
+      'New Claude session here',
+      'Close session',
+    ]);
     clickMenu('Remove from Focus');
     await flush();
     expect(focusedIn(puts[0].layout)).toEqual([]);
@@ -315,7 +322,7 @@ describe('adding and removing', () => {
   it('the strip menu (horizontal) has no Focus entry', () => {
     const app = makeApp(grouped(), 'horizontal');
     app.openTabRailActionMenu({ preventDefault() {}, stopPropagation() {}, currentTarget: row('s1') }, 's1');
-    expect(menuLabels()).toEqual(['Session options', 'Close session']);
+    expect(menuLabels()).toEqual(['Session options', 'New terminal here', 'New Claude session here', 'Close session']);
   });
 
   it('a web tab: right-click in the rail opens its menu with the Focus entry; elsewhere the native menu stays', async () => {

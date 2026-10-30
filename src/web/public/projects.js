@@ -53,6 +53,35 @@ const CodemanProjects = {
     return rest.every((id, i) => id === ids[i]) ? null : rest;
   },
 
+  /**
+   * "New terminal here" / "New Claude session here": where a session runs, as what to start
+   * beside it. Local -> `{kind:'pick', pick}` (target 'local', its folder); remote ssh (a
+   * system is one host) -> a pick on that host and remote folder; docker -> `{kind:'case'}`
+   * (launched through the tab "+" path, the container's case). Null when unknowable.
+   * The tab is named `<folder> shell` for a terminal and `<folder>` for Claude.
+   */
+  hereLaunch(session, mode) {
+    if (!session) return null;
+    const base = (p) =>
+      String(p || '')
+        .split('/')
+        .filter(Boolean)
+        .pop() || '';
+    const dir = session.remote ? session.remote.remotePath : session.workingDir;
+    const folder = base(dir) || base(session.workingDir) || 'session';
+    const sessionName = mode === 'shell' ? `${folder} shell` : folder;
+    if (session.docker) return { kind: 'case', mode, sessionName };
+    if (session.remote) {
+      if (!session.remote.hostId || !session.remote.remotePath) return null;
+      return {
+        kind: 'pick',
+        pick: { target: session.remote.hostId, path: session.remote.remotePath, mode, sessionName },
+      };
+    }
+    if (!session.workingDir) return null;
+    return { kind: 'pick', pick: { target: 'local', path: session.workingDir, mode, sessionName } };
+  },
+
   /** What `_startPick` takes. */
   toPick(project) {
     return {
@@ -258,6 +287,35 @@ Object.assign(CodemanApp.prototype, {
         delete row.dataset.busy;
         row.classList.remove('is-busy');
       }
+    }
+  },
+
+  /** Row menu: start a plain terminal / a Claude session on the same machine and folder as `sessionId`. */
+  async startSessionHere(sessionId, mode) {
+    const session = this.sessions.get(sessionId);
+    const plan = CodemanProjects.hereLaunch(session, mode);
+    if (!plan) {
+      this.showToast?.('Cannot tell where this session runs.', 'info');
+      return;
+    }
+    if (this._hereInFlight) return;
+    this._hereInFlight = true;
+    try {
+      if (plan.kind === 'case') {
+        const caseEntry = this._tabCaseOf?.(session);
+        if (!caseEntry) {
+          this.showToast?.("This session's container is not a case, so nothing can start beside it.", 'info');
+          return;
+        }
+        await this._launchOnce(mode, { caseName: caseEntry.name });
+        return;
+      }
+      const id = await this._startPick(plan.pick, null);
+      await this._selectWhenPresent(id);
+    } catch (err) {
+      this.showToast?.(`Could not start the session: ${err.message}`, 'error');
+    } finally {
+      this._hereInFlight = false;
     }
   },
 

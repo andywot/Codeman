@@ -571,20 +571,42 @@ describe("a tile's ⋯ menu", () => {
 
   it('with Detach Tiles on: "Open in a new window" pops the tile out, placed over it', () => {
     const { app, labels, click } = menuFor('s-b');
-    expect(labels).toEqual(['Session options', 'Open in a new window', 'Close session']);
+    expect(labels).toEqual([
+      'Session options',
+      'Open in a new window',
+      'New terminal here',
+      'New Claude session here',
+      'Close session',
+    ]);
     click('Open in a new window');
     expect(app.detachTile).toHaveBeenCalledWith('s-b');
     expect(app.detachSession).not.toHaveBeenCalled();
   });
 
   it('with it off: the menu is what it was (the tab pop-out setting still adds its own entry)', () => {
-    expect(menuFor('s-b', { detach: false }).labels).toEqual(['Session options', 'Close session']);
+    expect(menuFor('s-b', { detach: false }).labels).toEqual([
+      'Session options',
+      'New terminal here',
+      'New Claude session here',
+      'Close session',
+    ]);
     const tabbed = menuFor('s-b', { detach: false, tabPopOut: true });
-    expect(tabbed.labels).toEqual(['Session options', 'Open in a new window', 'Close session']);
+    expect(tabbed.labels).toEqual([
+      'Session options',
+      'Open in a new window',
+      'New terminal here',
+      'New Claude session here',
+      'Close session',
+    ]);
     tabbed.click('Open in a new window');
     expect(tabbed.app.detachSession).toHaveBeenCalledWith('s-b');
     // A tab (not a tile) with Detach Tiles on: only the tab setting decides.
-    expect(menuFor('s-x', { tiled: false }).labels).toEqual(['Session options', 'Close session']);
+    expect(menuFor('s-x', { tiled: false }).labels).toEqual([
+      'Session options',
+      'New terminal here',
+      'New Claude session here',
+      'Close session',
+    ]);
   });
 });
 
