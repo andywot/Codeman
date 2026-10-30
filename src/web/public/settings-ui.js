@@ -5433,7 +5433,9 @@ Object.assign(CodemanApp.prototype, {
       .map((shortcut) => {
         const bindingLabel = shortcut.displayBindings
           ? shortcut.displayBindings.join(' / ')
-          : (shortcut.bindings || []).map((b) => [...(b.modifiers || []), b.key || b.code || ''].join('+')).join(' / ');
+          : shortcut.prefix && typeof this.paneBindingLabel === 'function'
+            ? (shortcut.bindings || []).map((b) => this.paneBindingLabel(b)).join(' / ')
+            : (shortcut.bindings || []).map((b) => [...(b.modifiers || []), b.key || b.code || ''].join('+')).join(' / ');
         // Only registry entries dispatched through matchesShortcutEvent() are
         // configurable; fixed keys (Escape, tab arrows, …) render read-only.
         const configurable = !!shortcut.action && Array.isArray(shortcut.bindings);
@@ -5506,6 +5508,13 @@ Object.assign(CodemanApp.prototype, {
       this.renderShortcutSettingsList();
       return;
     }
+    // A key after the pane prefix (tile-grid.js): a bare key is the point (tmux's
+    // `%`, `x`), since it only counts once the prefix is pressed.
+    const target = this.getShortcutRegistry?.().find((s) => s.id === shortcutId);
+    if (target?.prefix) {
+      this._capturePaneBinding(e, shortcutId);
+      return;
+    }
     // Require a real chord: the dispatcher has no focus-target guard, so a
     // bare-key binding would fire while typing in any input.
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -5537,8 +5546,47 @@ Object.assign(CodemanApp.prototype, {
     this.renderShortcutSettingsList();
   },
 
+  /**
+   * Stores a key after the pane prefix: the produced character for a printable
+   * key (Shift is part of it: `%`, `"`), else the key with its modifiers. Only
+   * another prefixed key can conflict with it.
+   */
+  _capturePaneBinding(e, shortcutId) {
+    const taken = this.findShortcutConflict(e, shortcutId);
+    if (taken) {
+      this.renderShortcutSettingsList();
+      this.showToast?.(`${this.describeShortcutEvent(e)} is already used by ${taken}`, 'error');
+      return;
+    }
+    const printable = typeof e.key === 'string' && [...e.key].length === 1;
+    const modifiers = [];
+    if (e.ctrlKey) modifiers.push('ctrl');
+    if (e.metaKey) modifiers.push('meta');
+    if (e.shiftKey && (!printable || e.ctrlKey || e.altKey || e.metaKey)) modifiers.push('shift');
+    if (e.altKey) modifiers.push('alt');
+    const settings = this.loadAppSettingsFromStorage();
+    const shortcutOverrides = { ...(settings.shortcutOverrides || {}) };
+    shortcutOverrides[shortcutId] = {
+      ...(shortcutOverrides[shortcutId] || {}),
+      bindings: [{ modifiers, key: e.key }],
+    };
+    settings.shortcutOverrides = shortcutOverrides;
+    this.saveAppSettingsToStorage(settings);
+    this.renderShortcutSettingsList();
+  },
+
   /** Label of the action that already owns the chord in `e`, or '' when it is free. */
   findShortcutConflict(e, shortcutId) {
+    // A key after the pane prefix lives in its own table: it conflicts only with
+    // another prefixed key, matched the way the pane keys match (tile-grid.js).
+    const registry = typeof this.getShortcutRegistry === 'function' ? this.getShortcutRegistry() : [];
+    if (registry.find((s) => s.id === shortcutId)?.prefix) {
+      const match = typeof this.matchesPaneBinding === 'function' ? (b) => this.matchesPaneBinding(e, b) : () => false;
+      const other = registry.find(
+        (s) => s.prefix && s.id !== shortcutId && !s.disabled && Array.isArray(s.bindings) && s.bindings.some(match)
+      );
+      return other ? other.label : '';
+    }
     // Chords the keydown handlers claim before (or outside) the registry: they are fixed, so a
     // rebind onto one of them would be dead or would hijack it. Alt+1-9 switch tabs by index
     // (the document handler does not exclude Cmd); Ctrl/Shift+Enter insert a newline and
@@ -5552,7 +5600,11 @@ Object.assign(CodemanApp.prototype, {
     if (typeof this.getShortcutRegistry !== 'function' || typeof this.matchesShortcutEvent !== 'function') return '';
     const other = this.getShortcutRegistry().find(
       (shortcut) =>
-        shortcut.id !== shortcutId && !shortcut.disabled && Array.isArray(shortcut.bindings) && this.matchesShortcutEvent(e, shortcut)
+        shortcut.id !== shortcutId &&
+        !shortcut.prefix &&
+        !shortcut.disabled &&
+        Array.isArray(shortcut.bindings) &&
+        this.matchesShortcutEvent(e, shortcut)
     );
     return other ? other.label : '';
   },

@@ -3267,6 +3267,7 @@ function sanitizeTileGridState(raw, liveSessions, detachedIds) {
     Number.isInteger(value.count) && value.count >= 1 && value.count <= TILE_GRID_MAX
       ? value.count
       : Math.min(named.length, TILE_GRID_MAX);
+  const tree = value.tree === undefined ? null : sanitizePaneTree(value.tree);
   return {
     v: 1,
     open: value.open === true && ids.length > 0,
@@ -3278,6 +3279,11 @@ function sanitizeTileGridState(raw, liveSessions, detachedIds) {
     zoomed: ids.includes(value.zoomed) ? value.zoomed : null,
     colFr: fractions(value.colFr),
     rowFr: fractions(value.rowFr),
+    // A tmux-style layout (tile-grid.js tree layout): its leaves are the cells,
+    // so a tree whose leaf count does not match them is dropped and the grid
+    // comes back as a count grid. Present only when stored, so a grid without
+    // one reads exactly as before.
+    ...(tree && paneTreeLeafCount(tree) === cells.length ? { tree } : {}),
   };
 }
 
@@ -3710,6 +3716,356 @@ function cycleTile(ids, focusedId, delta) {
   return ids[(i + delta + ids.length) % ids.length];
 }
 
+// ── tmux-style pane tree (tile-grid.js tree layout) ─────────────────────────
+//
+// The tile grid's second layout: a binary split tree, built by the pane keys
+// (prefix % and ", tile-grid.js) the way tmux splits a window. A node is a
+// leaf `{ s: 'p' }` or a split `{ s: 'h' | 'v', f, a, b }`: `h` puts `a` left
+// of `b` (tmux `split-window -h`, prefix %), `v` puts `a` above `b` (prefix "),
+// `f` is the share of the room `a` takes. Leaves carry NO session: the grid's
+// `cells` hold the sessions, the k-th cell in the k-th leaf (depth first, `a`
+// before `b`), so every move, swap and replacement the grid already does on
+// its cells works unchanged. Pure: no DOM, tested in test/tile-pane-tree.test.ts.
+
+// The smallest pane the tree lays out without zooming (about 25 columns and
+// 6 rows at the tile font): far below a count-grid tile (TILE_MIN_W/H), since
+// a tmux layout is the user's own choice of sizes.
+const PANE_MIN_W = 200;
+const PANE_MIN_H = 120;
+// How deep a stored tree may nest before it is refused (TILE_LAYOUT_MAX leaves
+// need far less; this only bounds a tampered value).
+const PANE_TREE_MAX_DEPTH = 8;
+// The smallest share either side of a split keeps when nothing else bounds it.
+const PANE_FRACTION_MIN = 0.05;
+
+function paneLeaf() {
+  return { s: 'p' };
+}
+
+/** How many panes (leaves) a tree has; 0 for none. */
+function paneTreeLeafCount(node) {
+  if (!node) return 0;
+  return node.s === 'p' ? 1 : paneTreeLeafCount(node.a) + paneTreeLeafCount(node.b);
+}
+
+/**
+ * A stored tree made safe to lay out: only leaves and `h`/`v` splits, at most
+ * PANE_TREE_MAX_DEPTH deep and TILE_LAYOUT_MAX leaves, fractions clamped into
+ * [PANE_FRACTION_MIN, 1 - PANE_FRACTION_MIN] (a missing one is 0.5). Anything
+ * else gives null.
+ */
+function sanitizePaneTree(raw) {
+  const walk = (node, depth) => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return null;
+    if (node.s === 'p') return paneLeaf();
+    if ((node.s !== 'h' && node.s !== 'v') || depth >= PANE_TREE_MAX_DEPTH) return null;
+    const a = walk(node.a, depth + 1);
+    const b = a && walk(node.b, depth + 1);
+    if (!a || !b) return null;
+    const f =
+      typeof node.f === 'number' && Number.isFinite(node.f)
+        ? Math.min(1 - PANE_FRACTION_MIN, Math.max(PANE_FRACTION_MIN, node.f))
+        : 0.5;
+    return { s: node.s, f, a, b };
+  };
+  const tree = walk(raw, 0);
+  return tree && paneTreeLeafCount(tree) <= TILE_LAYOUT_MAX ? tree : null;
+}
+
+/**
+ * A copy of `tree` with leaf `index` replaced by `fn(leaf)`. The tree itself
+ * is never changed.
+ */
+function mapPaneLeaf(tree, index, fn) {
+  let k = 0;
+  const walk = (node) => {
+    if (node.s === 'p') return k++ === index ? fn(node) : node;
+    const a = walk(node.a);
+    const b = walk(node.b);
+    return a === node.a && b === node.b ? node : { ...node, a, b };
+  };
+  return tree ? walk(tree) : tree;
+}
+
+/**
+ * Splits pane `index` in two along `dir` (`h`: side by side, `v`: one above
+ * the other), halves each, like tmux's split-window. The new pane is leaf
+ * `index + 1`, right of or below the old one. Null for no tree.
+ */
+function splitPaneTree(tree, index, dir) {
+  if (!tree || (dir !== 'h' && dir !== 'v')) return tree || null;
+  return mapPaneLeaf(tree, index, () => ({ s: dir, f: 0.5, a: paneLeaf(), b: paneLeaf() }));
+}
+
+/**
+ * The tree without pane `index`: its sibling takes the whole of their split,
+ * as tmux gives a closed pane's room to its neighbour. Null when the last pane
+ * goes.
+ */
+function removePaneLeaf(tree, index) {
+  if (!tree) return null;
+  if (tree.s === 'p') return index === 0 ? null : tree;
+  let k = 0;
+  const walk = (node) => {
+    if (node.s === 'p') {
+      k++;
+      return node;
+    }
+    if (node.a.s === 'p' && k === index) {
+      k++;
+      return node.b;
+    }
+    const a = walk(node.a);
+    if (a !== node.a) return { ...node, a };
+    if (node.b.s === 'p' && k === index) {
+      k++;
+      return a;
+    }
+    const b = walk(node.b);
+    return b === node.b ? node : { ...node, b };
+  };
+  return walk(tree);
+}
+
+/**
+ * `n` panes as a tree: one row of side-by-side panes, equal widths (what a
+ * stored tree that no longer matches its cells falls back to).
+ */
+function paneTreeRow(n) {
+  return paneTreeChain(new Array(Math.max(1, n)).fill(null).map(paneLeaf), null, 'h');
+}
+
+/** `items` chained along `dir`, each taking its share of `weights` (equal when absent). */
+function paneTreeChain(items, weights, dir) {
+  if (items.length === 0) return null;
+  if (items.length === 1) return items[0];
+  const w = items.map((_, i) => (weights && weights[i] > 0 ? weights[i] : 1));
+  const total = w.reduce((s, x) => s + x, 0);
+  return { s: dir, f: w[0] / total, a: items[0], b: paneTreeChain(items.slice(1), w.slice(1), dir) };
+}
+
+/**
+ * A count-grid's cells (row-major, `cols` per row, `null` holes) as a tree that
+ * looks the same: its rows stacked top to bottom (`v`, sized by `rowFr`), each
+ * row's tiles side by side (`h`, sized by `colFr`); holes and empty rows are
+ * dropped. Its leaves are the cells' tiles in reading order, so the grid's
+ * packed `ids` become the tree's cells unchanged.
+ */
+function paneTreeFromGrid(cells, cols, colFr, rowFr) {
+  const c = Math.max(1, Math.floor(cols) || 1);
+  const rows = [];
+  const rowWeights = [];
+  for (let r = 0; r * c < cells.length; r++) {
+    const panes = [];
+    const weights = [];
+    for (let k = 0; k < c; k++) {
+      if (!cells[r * c + k]) continue;
+      panes.push(paneLeaf());
+      weights.push(colFr?.[k]);
+    }
+    if (panes.length === 0) continue;
+    rows.push(paneTreeChain(panes, weights, 'h'));
+    rowWeights.push(rowFr?.[r]);
+  }
+  return paneTreeChain(rows, rowWeights, 'v');
+}
+
+/** The smallest a subtree can be along an axis (`h`: width, `v`: height), dividers included. */
+function paneTreeMinSize(node, axis, gap, minW = PANE_MIN_W, minH = PANE_MIN_H) {
+  if (!node) return 0;
+  if (node.s === 'p') return axis === 'h' ? minW : minH;
+  const a = paneTreeMinSize(node.a, axis, gap, minW, minH);
+  const b = paneTreeMinSize(node.b, axis, gap, minW, minH);
+  return node.s === axis ? a + gap + b : Math.max(a, b);
+}
+
+/**
+ * Where every pane and divider goes in a `box` (`{x, y, w, h}`, px) with
+ * `gap` px dividers between split halves. `panes` are in leaf order; `splits`
+ * name each split by its path from the root (`a`/`b` steps, '' for the root),
+ * with the split's own box and its divider's rect.
+ */
+function paneTreeRects(tree, box, gap) {
+  const panes = [];
+  const splits = [];
+  const walk = (node, b, path) => {
+    if (!node) return;
+    if (node.s === 'p') {
+      panes.push({ x: b.x, y: b.y, w: Math.max(0, b.w), h: Math.max(0, b.h) });
+      return;
+    }
+    if (node.s === 'h') {
+      const room = Math.max(0, b.w - gap);
+      const wa = Math.round(room * node.f);
+      splits.push({ path, s: 'h', box: b, divider: { x: b.x + wa, y: b.y, w: gap, h: b.h } });
+      walk(node.a, { x: b.x, y: b.y, w: wa, h: b.h }, `${path}a`);
+      walk(node.b, { x: b.x + wa + gap, y: b.y, w: room - wa, h: b.h }, `${path}b`);
+    } else {
+      const room = Math.max(0, b.h - gap);
+      const ha = Math.round(room * node.f);
+      splits.push({ path, s: 'v', box: b, divider: { x: b.x, y: b.y + ha, w: b.w, h: gap } });
+      walk(node.a, { x: b.x, y: b.y, w: b.w, h: ha }, `${path}a`);
+      walk(node.b, { x: b.x, y: b.y + ha + gap, w: b.w, h: room - ha }, `${path}b`);
+    }
+  };
+  walk(tree, box, '');
+  return { panes, splits };
+}
+
+/**
+ * Whether every pane is at least the minimum size, give or take the pixel a
+ * split's rounding takes (paneTreeRects rounds each first half), so a divider
+ * clamped right at a minimum never reads as too small and zooms.
+ */
+function paneTreeFits(panes, minW = PANE_MIN_W, minH = PANE_MIN_H) {
+  return panes.every((p) => p.w >= minW - 2 && p.h >= minH - 2);
+}
+
+/** The node at `path` ('' for the root, then `a`/`b` steps), or null. */
+function paneTreeAt(tree, path) {
+  let node = tree;
+  for (const step of String(path || '')) {
+    if (!node || node.s === 'p') return null;
+    node = step === 'a' ? node.a : step === 'b' ? node.b : null;
+  }
+  return node || null;
+}
+
+/** A copy of `tree` whose split at `path` takes share `f` (clamped). */
+function setPaneFraction(tree, path, f) {
+  const walk = (node, rest) => {
+    if (!node || node.s === 'p') return node;
+    if (rest === '') {
+      const v = Math.min(1 - PANE_FRACTION_MIN, Math.max(PANE_FRACTION_MIN, f));
+      return v === node.f ? node : { ...node, f: v };
+    }
+    const step = rest[0];
+    if (step === 'a') {
+      const a = walk(node.a, rest.slice(1));
+      return a === node.a ? node : { ...node, a };
+    }
+    const b = walk(node.b, rest.slice(1));
+    return b === node.b ? node : { ...node, b };
+  };
+  return walk(tree, String(path || ''));
+}
+
+/** The path to leaf `index` ('' for a one-pane tree), or null. */
+function paneLeafPath(tree, index) {
+  let k = 0;
+  let found = null;
+  const walk = (node, path) => {
+    if (found !== null || !node) return;
+    if (node.s === 'p') {
+      if (k++ === index) found = path;
+      return;
+    }
+    walk(node.a, `${path}a`);
+    walk(node.b, `${path}b`);
+  };
+  walk(tree, '');
+  return found;
+}
+
+/** Leaf indices `[first, last]` under the node at `path`. */
+function paneLeafRange(tree, path) {
+  let first = 0;
+  let node = tree;
+  for (const step of String(path || '')) {
+    if (!node || node.s === 'p') break;
+    if (step === 'b') {
+      first += paneTreeLeafCount(node.a);
+      node = node.b;
+    } else {
+      node = node.a;
+    }
+  }
+  return [first, first + Math.max(1, paneTreeLeafCount(node)) - 1];
+}
+
+/**
+ * The share a split may take so each side keeps its subtree's minimum size
+ * (paneTreeMinSize). `room` is the split's size along its axis minus the
+ * divider. When the room cannot hold both minimums, `f` is returned as it was.
+ */
+function clampPaneFraction(node, f, room, gap, minW = PANE_MIN_W, minH = PANE_MIN_H) {
+  if (!node || node.s === 'p' || !(room > 0)) return f;
+  const lo = paneTreeMinSize(node.a, node.s, gap, minW, minH) / room;
+  const hi = 1 - paneTreeMinSize(node.b, node.s, gap, minW, minH) / room;
+  if (lo > hi) return node.f;
+  return Math.min(hi, Math.max(lo, f));
+}
+
+/**
+ * tmux's resize-pane -L/-R/-U/-D for pane `index`: the nearest split above
+ * it on that axis (`h` for left/right, `v` for up/down) moves its divider by
+ * `deltaPx` in that direction, kept within each side's minimum. Returns the
+ * new tree and the split's path, or null when no split on that axis holds the
+ * pane (nothing to resize).
+ */
+function resizePaneTree(tree, index, direction, deltaPx, box, gap, minW = PANE_MIN_W, minH = PANE_MIN_H) {
+  const axis = direction === 'left' || direction === 'right' ? 'h' : direction === 'up' || direction === 'down' ? 'v' : null;
+  const leaf = paneLeafPath(tree, index);
+  if (!axis || leaf === null) return null;
+  const { splits } = paneTreeRects(tree, box, gap);
+  for (let len = leaf.length - 1; len >= 0; len--) {
+    const path = leaf.slice(0, len);
+    const node = paneTreeAt(tree, path);
+    if (!node || node.s !== axis) continue;
+    const split = splits.find((s) => s.path === path);
+    const room = (axis === 'h' ? split.box.w : split.box.h) - gap;
+    if (!(room > 0)) return null;
+    const sign = direction === 'left' || direction === 'up' ? -1 : 1;
+    const f = clampPaneFraction(node, node.f + (sign * deltaPx) / room, room, gap, minW, minH);
+    return { tree: setPaneFraction(tree, path, f), path };
+  }
+  return null;
+}
+
+/**
+ * The pane a focus move lands on, by geometry (tmux select-pane -L/-R/-U/-D):
+ * among the panes on that side whose edge faces this one and overlaps it, the
+ * nearest, then the one overlapping most. -1 when none (no wrap).
+ *
+ * @param {{x: number, y: number, w: number, h: number}[]} panes
+ * @param {number} index
+ * @param {'left'|'right'|'up'|'down'} direction
+ * @returns {number}
+ */
+function paneInDirection(panes, index, direction) {
+  const r = panes[index];
+  if (!r) return -1;
+  let best = -1;
+  let bestDist = Infinity;
+  let bestOverlap = -Infinity;
+  panes.forEach((p, k) => {
+    if (k === index) return;
+    let dist;
+    let overlap;
+    if (direction === 'left' || direction === 'right') {
+      dist = direction === 'left' ? r.x - (p.x + p.w) : p.x - (r.x + r.w);
+      overlap = Math.min(r.y + r.h, p.y + p.h) - Math.max(r.y, p.y);
+    } else if (direction === 'up' || direction === 'down') {
+      dist = direction === 'up' ? r.y - (p.y + p.h) : p.y - (r.y + r.h);
+      overlap = Math.min(r.x + r.w, p.x + p.w) - Math.max(r.x, p.x);
+    } else {
+      return;
+    }
+    if (dist < -1 || overlap <= 0) return;
+    if (dist < bestDist - 1 || (Math.abs(dist - bestDist) <= 1 && overlap > bestOverlap)) {
+      best = k;
+      bestDist = dist;
+      bestOverlap = overlap;
+    }
+  });
+  return best;
+}
+
+/** Which way to split a pane `w` x `h` px when nobody said: across its longer side, in terminal cells. */
+function paneSplitDirectionFor(rect) {
+  return rect && rect.w >= rect.h * 1.6 ? 'h' : 'v';
+}
+
 // ── Renderer liveness ──────────────────────────────────────────────────────
 //
 // iOS DISCARDS scheduled requestAnimationFrame callbacks when a PWA goes to
@@ -4108,6 +4464,28 @@ if (typeof window !== 'undefined') {
     TILE_SCROLLBACK,
     TILE_FONT_SIZE_DEFAULT,
     TILE_GRID_SSE_FILTER,
+  };
+  window.CodemanPaneTree = {
+    paneLeaf,
+    paneTreeLeafCount,
+    sanitizePaneTree,
+    splitPaneTree,
+    removePaneLeaf,
+    paneTreeRow,
+    paneTreeFromGrid,
+    paneTreeMinSize,
+    paneTreeRects,
+    paneTreeFits,
+    paneTreeAt,
+    setPaneFraction,
+    paneLeafPath,
+    paneLeafRange,
+    clampPaneFraction,
+    resizePaneTree,
+    paneInDirection,
+    paneSplitDirectionFor,
+    PANE_MIN_W,
+    PANE_MIN_H,
   };
   window.CodemanRenderLiveness = { shouldKickRenderer, RENDER_STALL_MS, RENDER_LIVENESS_POLL_MS };
   window.CodemanFetchDeadline = {

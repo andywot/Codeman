@@ -192,6 +192,17 @@ class TileGridModel {
     this.dividers = new Map();
     this.cols = 0;
     this.rows = 0;
+    // The tmux-style layout (window.CodemanPaneTree, constants.js), or null for
+    // the count grid. Its leaves carry no session: the k-th cell shows in the
+    // k-th leaf, so `cells` stays the one source of truth for who is where
+    // (and has no holes while a tree is set). `paneRects` / `paneSplits` are
+    // the last layout's pane and divider geometry (px, in the section's
+    // content box), what focus moves, resizes and divider drags measure.
+    this.tree = null;
+    this.paneRects = [];
+    this.paneSplits = [];
+    // The tile focused before the current one (tmux `last-pane`, prefix ;).
+    this.lastFocusedId = null;
     this.queue = null;
     this.resizeObserver = null;
     this.refitTimer = null;
@@ -366,7 +377,7 @@ Object.assign(CodemanApp.prototype, {
    *
    * @returns {boolean} whether the grid is open afterwards
    */
-  openTileGrid(ids, { focusedId = null, auto = true, mergeSplit = true } = {}) {
+  openTileGrid(ids, { focusedId = null, auto = true, mergeSplit = true, tree = null, treeCells = null } = {}) {
     if (!this.canOpenTileGrid()) return false;
     const grid = (this._tileGrid ||= new TileGridModel());
     const max = window.CodemanTileGrid.TILE_GRID_MAX;
@@ -424,6 +435,27 @@ Object.assign(CodemanApp.prototype, {
     wanted.forEach((id, k) => this._mountTile(id, { enterIndex: k }));
     // Packed from the first cell (_applyTileLayout pads the shape with empty cells).
     grid.cells = wanted.filter((id) => grid.tiles.has(id));
+    // A tmux-style layout (the pane keys, a stored tree): its leaves take the
+    // cells in order. `treeCells` (a stored tree) are its cells as stored, a
+    // session gone since `null` there, which the layout then closes
+    // (_applyTilePaneLayout); a tree that does not match them is dropped and
+    // the grid opens as a count grid.
+    grid.tree = null;
+    grid.lastFocusedId = null;
+    if (tree) {
+      const cells = Array.isArray(treeCells)
+        ? treeCells.map((id) => (id && grid.tiles.has(id) ? id : null))
+        : grid.cells.slice();
+      const placed = cells.filter(Boolean);
+      if (
+        window.CodemanPaneTree.paneTreeLeafCount(tree) === cells.length &&
+        placed.length === grid.tiles.size &&
+        new Set(placed).size === placed.length
+      ) {
+        grid.tree = tree;
+        grid.cells = cells;
+      }
+    }
     // What the user opened is the grid they want (_openStoredTileGrid keeps a
     // stored count instead).
     grid.count = grid.ids.length;
@@ -501,14 +533,19 @@ Object.assign(CodemanApp.prototype, {
     grid.cols = 0;
     grid.rows = 0;
     grid.focusedId = null;
+    grid.lastFocusedId = null;
     grid.zoomedId = null;
     grid.autoZoom = false;
+    grid.tree = null;
+    grid.paneRects = [];
+    grid.paneSplits = [];
+    this._hidePaneNumbers?.();
     document.querySelector('.main')?.classList.remove('tiles-active');
     const section = document.getElementById('tileGrid');
     if (section) {
       section.style.gridTemplateColumns = '';
       section.style.gridTemplateRows = '';
-      section.classList.remove('tile-grid--zoomed');
+      section.classList.remove('tile-grid--zoomed', 'tile-grid--tree');
     }
     // As _redock does: the tiles sized these PTYs, so the main terminal's
     // record of the last size it sent no longer describes them.
@@ -834,6 +871,11 @@ Object.assign(CodemanApp.prototype, {
   _tileGridLimit() {
     const T = window.CodemanTileGrid;
     const max = T.TILE_GRID_MAX;
+    // A tmux-style layout is sized by the user, pane by pane: only the cap
+    // binds (a split that has no room says so itself, splitFocusedPane).
+    if (this._tileGrid?.open && this._tileGrid.tree) {
+      return { capacity: max, full: `At most ${max} panes` };
+    }
     const el = this._tilesOwnTerminal() ? this._tileGridSection() : document.querySelector('.terminal-wrap');
     const rect = el?.getBoundingClientRect?.() || { width: 0, height: 0 };
     const fits = T.tileGridCapacity({
@@ -1051,6 +1093,8 @@ Object.assign(CodemanApp.prototype, {
       return;
     }
     const T = window.CodemanTileGrid;
+    // A count is a count grid's: a tmux-style layout goes back to cells first.
+    this._leavePaneTree();
     const n = Math.min(T.sanitizeTileCount(count), this._tileGridLimit().capacity);
     // The tiles that join are the ranking's best (_tileGridRanking).
     this._reformTileGrid(T.tileGridSetForCount(grid.ids, this._tileGridRanking(), n, grid.focusedId));
@@ -1295,6 +1339,11 @@ Object.assign(CodemanApp.prototype, {
   focusTileInDirection(direction) {
     const grid = this._tileGrid;
     if (!grid?.open) return;
+    if (grid.tree) {
+      const k = window.CodemanPaneTree.paneInDirection(grid.paneRects, grid.cells.indexOf(grid.focusedId), direction);
+      if (k !== -1 && grid.cells[k]) this.selectSession(grid.cells[k]);
+      return;
+    }
     // Over the cells: focus skips an empty one, never lands on it.
     const id = window.CodemanTileGrid.tileInDirection(grid.cells, grid.focusedId, direction, grid.cols);
     if (id) this.selectSession(id);
@@ -1353,12 +1402,14 @@ Object.assign(CodemanApp.prototype, {
    * (_placeTile). It enters as the `enterIndex`-th of a staggered group
    * (_mountTile). Returns whether it was added.
    */
-  addTile(sessionId, { cell = -1, enterIndex = 0 } = {}) {
+  addTile(sessionId, { cell = -1, enterIndex = 0, split = null } = {}) {
     const grid = this._tileGrid;
     if (!grid?.open || grid.tiles.has(sessionId)) return false;
     if (grid.ids.length >= window.CodemanTileGrid.TILE_GRID_MAX) return false;
     if (!this._mountTile(sessionId, { enterIndex })) return false;
-    this._placeTile(sessionId, cell);
+    // In a tmux-style layout the tile splits the focused pane (`split` names
+    // the direction, else across the pane's longer side: _placePane).
+    this._placeTile(sessionId, cell, split);
     grid.count = grid.ids.length;
     // A tile added while one is zoomed by hand is meant to be seen.
     if (grid.zoomedId && !grid.autoZoom) grid.zoomedId = null;
@@ -1375,8 +1426,12 @@ Object.assign(CodemanApp.prototype, {
    * keeps each tile where it is), then `cell` if it is empty there, else the
    * first empty cell in reading order.
    */
-  _placeTile(sessionId, cell = -1) {
+  _placeTile(sessionId, cell = -1, split = null) {
     const grid = this._tileGrid;
+    if (grid.tree) {
+      this._placePane(sessionId, split);
+      return;
+    }
     const { cols, rows } = this._tileShapeFor(grid.ids.length + 1);
     grid.cells = window.CodemanTileGrid.fitTileCells(grid.cells, grid.cols, cols, rows);
     grid.cols = cols;
@@ -1418,6 +1473,18 @@ Object.assign(CodemanApp.prototype, {
     if (!entry) return false;
     if (grid.ids.length === 1) {
       this.closeTileGrid({ keepStored: true, reselect: refocus });
+      return true;
+    }
+    // A tmux-style layout down to one pane is the single view again (tmux:
+    // one pane left fills the window): the other session takes the main
+    // terminal, its full quality and its full width. The layout is forgotten;
+    // the next split builds a new one from that session.
+    if (grid.tree && grid.ids.length === 2) {
+      grid.focusedId = grid.ids.find((id) => id !== sessionId) ?? null;
+      // A session that went away by itself still hands the screen to the one
+      // left (nothing else would show it: the deleted-session handler only
+      // looks after the session it deleted).
+      this.closeTileGrid({ keepStored: false, reselect: refocus || gone });
       return true;
     }
     const wasFocused = grid.focusedId === sessionId;
@@ -1651,7 +1718,10 @@ Object.assign(CodemanApp.prototype, {
     if (cells.every((id, k) => (id || null) === grid.cells[k])) return true;
     // A divider drag in progress measured the tiles at their old places.
     this._tileDividerDragTeardown?.();
-    const cell = (k) => `${grid.colFr[k % grid.cols]}x${grid.rowFr[Math.floor(k / grid.cols)]}`;
+    const rects = grid.paneRects;
+    const cell = grid.tree
+      ? (k) => `${rects[k]?.w}x${rects[k]?.h}`
+      : (k) => `${grid.colFr[k % grid.cols]}x${grid.rowFr[Math.floor(k / grid.cols)]}`;
     const before = new Map();
     grid.cells.forEach((id, k) => id && before.set(id, cell(k)));
     grid.cells = cells.map((id) => id || null);
@@ -1696,6 +1766,13 @@ Object.assign(CodemanApp.prototype, {
   moveTileInDirection(direction) {
     const grid = this._tileGrid;
     if (!grid?.open || grid.zoomedId || !grid.focusedId) return;
+    // A tmux-style layout has no empty cell: the pane trades places with its
+    // neighbour that way (the one focus would move to).
+    if (grid.tree) {
+      const k = window.CodemanPaneTree.paneInDirection(grid.paneRects, grid.cells.indexOf(grid.focusedId), direction);
+      if (k !== -1 && grid.cells[k]) this._swapTiles(grid.focusedId, grid.cells[k]);
+      return;
+    }
     const from = grid.cells.indexOf(grid.focusedId);
     const to = window.CodemanTileGrid.tileCellInDirection(from, direction, grid.cols, grid.cells.length);
     if (to === -1) return;
@@ -2361,7 +2438,14 @@ Object.assign(CodemanApp.prototype, {
    */
   _applyTileLayout() {
     const grid = this._tileGrid;
+    // A tmux-style layout lays itself out (_applyTilePaneLayout).
+    if (grid.tree) {
+      this._applyTilePaneLayout();
+      return;
+    }
     const section = this._tileGridSection();
+    // Back from a tree: the tiles leave its absolute placement for the cells.
+    if (section.classList.contains('tile-grid--tree')) this._clearPaneGeometry();
     const { cols, rows, fits } = this._tileShapeFor(grid.ids.length);
     grid.cells = window.CodemanTileGrid.fitTileCells(grid.cells, grid.cols, cols, rows);
     if (grid.colFr.length !== cols) grid.colFr = new Array(cols).fill(1);
@@ -2652,6 +2736,7 @@ Object.assign(CodemanApp.prototype, {
     const selectGen = ++this._selectGeneration;
     this._hideWebviewLayer?.();
     this.activeSessionId = sessionId;
+    if (grid.focusedId && grid.focusedId !== sessionId) grid.lastFocusedId = grid.focusedId;
     grid.focusedId = sessionId;
     // Moving focus off a zoomed tile restores the grid, as selecting another
     // pane does in tmux. An automatic zoom (the window cannot fit the tiles)
@@ -2733,6 +2818,8 @@ Object.assign(CodemanApp.prototype, {
       colFr: grid.colFr.slice(),
       rowFr: grid.rowFr.slice(),
     };
+    // The tmux-style layout, only when there is one (its leaves are `ids`).
+    if (grid.tree) state.tree = grid.tree;
     try {
       localStorage.setItem(TILE_GRID_STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -2797,16 +2884,44 @@ Object.assign(CodemanApp.prototype, {
     if (!set?.ids?.length) return false;
     const T = window.CodemanTileGrid;
     const focus = focusedId || set.focusedId;
+    // A stored tmux-style layout comes back as it was when its leaves still
+    // match the cells to put back (no session added past them): a cell whose
+    // session is gone since and that the ranking did not fill closes its pane.
+    const treeCells = Array.isArray(set.cells) ? set.cells : null;
+    const tree =
+      stored.tree &&
+      treeCells &&
+      window.CodemanPaneTree.paneTreeLeafCount(stored.tree) === treeCells.length &&
+      set.ids.length === treeCells.filter(Boolean).length &&
+      set.ids.every((id) => treeCells.includes(id))
+        ? stored.tree
+        : null;
     // An open split closes without joining it (decision 8, case a).
     this._tilePersistHold = true;
     let opened = false;
     try {
-      opened = this.openTileGrid(set.ids, { focusedId: focus, auto, mergeSplit: false });
+      opened = this.openTileGrid(tree ? treeCells.filter(Boolean) : set.ids, {
+        focusedId: focus,
+        auto,
+        mergeSplit: false,
+        tree,
+        treeCells,
+      });
     } finally {
       this._tilePersistHold = false;
     }
     if (!opened) return false;
     const grid = this._tileGrid;
+    if (grid.tree) {
+      grid.count = grid.ids.length;
+      if (stored.zoomed && stored.zoomed === grid.focusedId && grid.tiles.has(stored.zoomed)) {
+        grid.zoomedId = stored.zoomed;
+        grid.autoZoom = false;
+      }
+      this._applyTileLayout();
+      this._scheduleTileGridRefit();
+      return true;
+    }
     // openTileGrid packed the tiles from the first cell. They go back to their
     // cells (a session gone since leaves its cell empty, unless the ranking
     // filled it).
@@ -3311,3 +3426,775 @@ CodemanApp.prototype._renderSessionTabsImmediate = function (...args) {
   this._renderTileChrome?.();
   return result;
 };
+
+// ── tmux-style panes (the grid's tree layout and the pane keys) ─────────────
+//
+// The tile grid's second layout: a binary split tree (window.CodemanPaneTree,
+// constants.js) that the pane keys build the way tmux splits a window. A
+// prefix (default Ctrl+B, the registry's `pane-prefix`) then one key: % splits
+// the focused pane left/right, " top/bottom, arrows move focus, Ctrl/Alt+arrows
+// resize, x closes the pane (the session keeps running), z zooms, o and ; walk
+// the panes, { and } swap, q shows the pane numbers (a digit then picks one),
+// s chooses the session the pane shows. The prefix twice sends it to the
+// terminal, through tmux's send-keys, never through the attach client, so it
+// can never arm the tmux prefix table behind a browser tab.
+//
+// It is the SAME grid: the same TerminalTile per pane, the same parked main
+// terminal, focus-follows-activeSessionId, load queue, persistence
+// (`codeman:tile-grid`, with the tree beside the cells) and Tiles toggle. Only
+// the placement differs: absolute, from the tree, with one divider per split.
+// A count picked in the Tiles menu turns the tree back into a count grid; a
+// split of a count grid turns it into a tree that looks the same.
+
+// Commands after the prefix, by registry id (DEFAULT_SHORTCUTS, app.js, the
+// entries with `prefix: true`). `repeat`: within PANE_REPEAT_MS of running,
+// the same keys run again without the prefix (tmux's `bind -r`).
+const PANE_COMMANDS = {
+  'pane-split-horizontal': { run: (app) => app.splitFocusedPane('h') },
+  'pane-split-vertical': { run: (app) => app.splitFocusedPane('v') },
+  'pane-focus-left': { run: (app) => app.focusTileInDirection('left') },
+  'pane-focus-right': { run: (app) => app.focusTileInDirection('right') },
+  'pane-focus-up': { run: (app) => app.focusTileInDirection('up') },
+  'pane-focus-down': { run: (app) => app.focusTileInDirection('down') },
+  'pane-resize-left': { run: (app, e) => app.resizeFocusedPane('left', !!e?.altKey), repeat: true },
+  'pane-resize-right': { run: (app, e) => app.resizeFocusedPane('right', !!e?.altKey), repeat: true },
+  'pane-resize-up': { run: (app, e) => app.resizeFocusedPane('up', !!e?.altKey), repeat: true },
+  'pane-resize-down': { run: (app, e) => app.resizeFocusedPane('down', !!e?.altKey), repeat: true },
+  'pane-close': { run: (app) => app.removeFocusedTile() },
+  'pane-zoom': { run: (app) => app._tileGrid?.open && app.zoomTile(app._tileGrid.focusedId) },
+  'pane-next': { run: (app) => app._cycleTileFocus(1) },
+  'pane-last': { run: (app) => app.selectLastPane() },
+  'pane-swap-prev': { run: (app) => app.swapFocusedPane(-1) },
+  'pane-swap-next': { run: (app) => app.swapFocusedPane(1) },
+  'pane-show-numbers': { run: (app) => app.showPaneNumbers() },
+  'pane-choose-session': { run: (app) => app.openCommandPalette?.() },
+};
+// tmux's repeat-time: how long a repeatable command keeps its keys live.
+const PANE_REPEAT_MS = 500;
+// tmux's display-panes-time: how long the pane numbers stay up for a digit.
+const PANE_NUMBERS_MS = 1500;
+const PANE_MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'OS', 'Hyper', 'Super']);
+
+/** The key name a binding reads as, for the overlay and Settings (`%`, `Ctrl+Left`). */
+function paneBindingLabel(binding) {
+  const key = String(binding?.key || binding?.code || '');
+  const mods = (binding?.modifiers || []).map((m) => m.charAt(0).toUpperCase() + m.slice(1));
+  // A letter in a chord reads in capitals (Ctrl+B); a bare one stays as typed,
+  // since after the prefix `x` and `X` are two keys, as in tmux.
+  const letter = mods.length && /^[a-z]$/.test(key) ? key.toUpperCase() : key;
+  const named = letter.startsWith('Arrow') ? letter.slice(5) : letter === ' ' ? 'Space' : letter;
+  return [...mods, named].join('+');
+}
+
+/**
+ * Whether `e` is the key a prefixed binding names. A printable key without
+ * Ctrl/Alt/Meta matches its produced character exactly (Shift is part of the
+ * character: `%`, `"`, `{`), so a binding never depends on the layout's Shift
+ * row; any other key matches its modifiers exactly, Shift included.
+ */
+function matchesPaneBinding(e, binding) {
+  if (!e || !binding) return false;
+  const mods = binding.modifiers || [];
+  const key = typeof e.key === 'string' ? e.key : '';
+  const printable = typeof binding.key === 'string' && [...binding.key].length === 1;
+  if (mods.includes('ctrl') !== !!e.ctrlKey) return false;
+  if (mods.includes('alt') !== !!e.altKey) return false;
+  if (mods.includes('meta') !== !!e.metaKey) return false;
+  if (printable && !e.ctrlKey && !e.altKey && !e.metaKey) return key === binding.key;
+  if (mods.includes('shift') !== !!e.shiftKey) return false;
+  if (binding.code && e.code === binding.code) return true;
+  return !!binding.key && key.toLowerCase() === binding.key.toLowerCase();
+}
+
+/**
+ * How the prefix chord reaches a pane's program when pressed twice (tmux's
+ * send-prefix): the tmux key name `send-keys` takes (`C-b`, `M-x`) and the
+ * byte(s) it stands for. Null for a chord that has no such byte.
+ */
+function panePrefixLiteral(binding) {
+  const mods = binding?.modifiers || [];
+  const fromCode = /^Key([A-Z])$/.exec(binding?.code || '')?.[1];
+  const ch = String(fromCode || binding?.key || '').toLowerCase();
+  const ctrl = mods.includes('ctrl') || mods.includes('meta');
+  const alt = mods.includes('alt');
+  if (ctrl && !alt && /^[a-z]$/.test(ch)) {
+    return { name: `C-${ch}`, bytes: String.fromCharCode(ch.charCodeAt(0) - 96) };
+  }
+  if (alt && !ctrl && /^[a-z0-9]$/.test(ch)) return { name: `M-${ch}`, bytes: `\x1b${ch}` };
+  return null;
+}
+
+Object.assign(CodemanApp.prototype, {
+  // ── Layout ──
+
+  /** The section's content box (px), where panes and dividers are placed. */
+  _paneBox() {
+    const section = this._tileGridSection();
+    const rect = section.getBoundingClientRect?.() || { width: 0, height: 0 };
+    const w = (rect.width || window.innerWidth) - 2 * TILE_GRID_PADDING_PX;
+    const h = (rect.height || window.innerHeight) - 2 * TILE_GRID_PADDING_PX;
+    return { x: 0, y: 0, w: Math.max(0, w), h: Math.max(0, h) };
+  },
+
+  /**
+   * _applyTileLayout for a tree: every pane whose cell is empty (a tile
+   * removed, a session gone) closes first, its sibling taking the room; then
+   * each tile is placed at its pane, absolutely, with one divider per split. A
+   * window too small for the panes shows the focused one alone (the count
+   * grid's automatic zoom), until it fits again.
+   */
+  _applyTilePaneLayout() {
+    const grid = this._tileGrid;
+    const P = window.CodemanPaneTree;
+    const section = this._tileGridSection();
+    for (let k = grid.cells.length - 1; k >= 0; k--) {
+      const id = grid.cells[k];
+      if (id && grid.tiles.has(id)) continue;
+      grid.tree = P.removePaneLeaf(grid.tree, k);
+      grid.cells.splice(k, 1);
+    }
+    if (grid.cells.length === 0) {
+      grid.tree = null;
+      return;
+    }
+    if (!grid.tree || P.paneTreeLeafCount(grid.tree) !== grid.cells.length) {
+      grid.tree = P.paneTreeRow(grid.cells.length);
+    }
+    grid.cols = grid.cells.length;
+    grid.rows = 1;
+    section.classList.add('tile-grid--tree');
+    section.style.gridTemplateColumns = '';
+    section.style.gridTemplateRows = '';
+    const { panes } = P.paneTreeRects(grid.tree, this._paneBox(), TILE_DIVIDER_PX);
+    const fits = P.paneTreeFits(panes);
+    if (!fits && !grid.zoomedId && grid.focusedId) {
+      grid.zoomedId = grid.focusedId;
+      grid.autoZoom = true;
+      this.showToast?.(`The window is too small for ${grid.ids.length} panes: showing the focused one`, 'info');
+    } else if (fits && grid.autoZoom) {
+      grid.zoomedId = null;
+      grid.autoZoom = false;
+    }
+    const zoomed = grid.zoomedId && grid.tiles.has(grid.zoomedId) ? grid.zoomedId : null;
+    section.classList.toggle('tile-grid--zoomed', !!zoomed);
+    this._syncTileZoom(zoomed);
+    for (const entry of grid.tiles.values()) this._paintTileHandle(entry);
+    this._placePaneTiles(zoomed);
+    this._syncTileSlots([], 1);
+    this._persistTileGrid();
+  },
+
+  /**
+   * Puts every tile at its pane (or the zoomed one over the whole section) and
+   * the dividers between them. Layout only: what fits afterwards is the
+   * caller's (a drag reflows locally per frame, everything else refits once).
+   */
+  _placePaneTiles(zoomed = this._tileGrid?.zoomedId) {
+    const grid = this._tileGrid;
+    const box = this._paneBox();
+    const { panes, splits } = window.CodemanPaneTree.paneTreeRects(grid.tree, box, TILE_DIVIDER_PX);
+    grid.paneRects = panes;
+    grid.paneSplits = splits;
+    grid.cells.forEach((id, k) => {
+      const el = grid.tiles.get(id)?.el;
+      if (el) this._placePaneEl(el, id === zoomed ? box : panes[k]);
+    });
+    this._syncTilePaneDividers(zoomed ? [] : splits);
+  },
+
+  // Absolute, in the section's padding box: inline, so a still copy of the
+  // grid (_ghostTileGrid clones the tiles) lands where they were.
+  _placePaneEl(el, r) {
+    if (!el || !r) return;
+    el.style.position = 'absolute';
+    el.style.gridColumn = '';
+    el.style.gridRow = '';
+    el.style.left = `${TILE_GRID_PADDING_PX + r.x}px`;
+    el.style.top = `${TILE_GRID_PADDING_PX + r.y}px`;
+    el.style.width = `${r.w}px`;
+    el.style.height = `${r.h}px`;
+  },
+
+  /** Back to the count grid's placement: the tree's absolute geometry comes off. */
+  _clearPaneGeometry() {
+    const grid = this._tileGrid;
+    this._tileGridSection().classList.remove('tile-grid--tree');
+    for (const { el } of grid?.tiles.values() || []) {
+      for (const k of ['position', 'left', 'top', 'width', 'height']) el.style[k] = '';
+    }
+    if (grid) {
+      grid.paneRects = [];
+      grid.paneSplits = [];
+    }
+  },
+
+  // One divider per split, keyed by the split's path (never rebuilt while it
+  // stays, so a drag in progress keeps its element). The count grid's column
+  // and row dividers go (and _syncTileDividers drops these in turn).
+  _syncTilePaneDividers(splits) {
+    const grid = this._tileGrid;
+    const section = this._tileGridSection();
+    const wanted = new Map(splits.map((sp) => [`pane-${sp.path}`, sp]));
+    for (const [key, el] of grid.dividers) {
+      if (wanted.has(key)) continue;
+      if (this._tileDividerDrag?.key === key) this._tileDividerDragTeardown?.();
+      el.remove();
+      grid.dividers.delete(key);
+    }
+    for (const [key, sp] of wanted) {
+      const axis = sp.s === 'h' ? 'col' : 'row';
+      let el = grid.dividers.get(key);
+      if (el && !el.classList.contains(`tile-divider--${axis}`)) {
+        el.remove();
+        grid.dividers.delete(key);
+        el = null;
+      }
+      if (!el) {
+        const path = sp.path;
+        el = document.createElement('div');
+        el.className = `tile-divider tile-divider--${axis} tile-divider--pane`;
+        el.setAttribute('role', 'separator');
+        el.setAttribute('aria-orientation', axis === 'col' ? 'vertical' : 'horizontal');
+        el.setAttribute(
+          'aria-label',
+          axis === 'col' ? 'Resize the panes either side' : 'Resize the panes above and below'
+        );
+        const divider = el;
+        el.addEventListener('pointerdown', (e) => this._startTilePaneDividerDrag(e, path, divider, key));
+        section.appendChild(el);
+        grid.dividers.set(key, el);
+      }
+      this._placePaneEl(el, sp.divider);
+    }
+  },
+
+  /**
+   * Drags a split's divider: its two sides trade size, each kept at its
+   * subtree's minimum (clampPaneFraction). The panes under the split reflow
+   * locally once per animation frame; their PTYs hear ONE resize each, at
+   * pointer-up (each is a tmux resize and a SIGWINCH), as the count grid's
+   * divider drag does.
+   */
+  _startTilePaneDividerDrag(e, path, divider, key) {
+    if (e.button !== undefined && e.button !== 0) return;
+    const grid = this._tileGrid;
+    if (!grid?.open || !grid.tree) return;
+    const P = window.CodemanPaneTree;
+    const node = P.paneTreeAt(grid.tree, path);
+    const split = grid.paneSplits.find((sp) => sp.path === path);
+    if (!node || node.s === 'p' || !split) return;
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    this._tileDividerDragTeardown?.();
+    const isCol = node.s === 'h';
+    const axis = isCol ? 'col' : 'row';
+    const room = (isCol ? split.box.w : split.box.h) - TILE_DIVIDER_PX;
+    const startF = node.f;
+    const start = isCol ? e.clientX : e.clientY;
+    const [first, last] = P.paneLeafRange(grid.tree, path);
+    const affected = grid.cells
+      .slice(first, last + 1)
+      .map((id) => grid.tiles.get(id)?.tile)
+      .filter(Boolean);
+    let raf = null;
+    let pending = start;
+    let capturedPointerId = null;
+    const apply = (pos) => {
+      if (!grid.open || !grid.tree || !(room > 0)) return;
+      const current = P.paneTreeAt(grid.tree, path);
+      if (!current || current.s === 'p') return;
+      const f = P.clampPaneFraction(current, startF + (pos - start) / room, room, TILE_DIVIDER_PX);
+      grid.tree = P.setPaneFraction(grid.tree, path, f);
+      this._placePaneTiles();
+      for (const tile of affected) tile.localFit();
+    };
+    const onMove = (ev) => {
+      pending = isCol ? ev.clientX : ev.clientY;
+      if (raf !== null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        apply(pending);
+      });
+    };
+    const endDrag = () => {
+      divider.classList.remove('dragging');
+      document.body.classList.remove('tile-grid-resizing', `tile-grid-resizing--${axis}`);
+      if (capturedPointerId !== null) {
+        try {
+          divider.releasePointerCapture?.(capturedPointerId);
+        } catch {
+          /* Already released. */
+        }
+        capturedPointerId = null;
+      }
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('pointerup', onUp);
+      divider.removeEventListener('pointercancel', onUp);
+      if (raf !== null) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+      if (this._tileDividerDragTeardown === endDrag) {
+        this._tileDividerDragTeardown = null;
+        this._tileDividerDrag = null;
+      }
+    };
+    const onUp = () => {
+      // The last queued frame carries the final pointer position.
+      const queued = raf !== null;
+      endDrag();
+      if (queued) apply(pending);
+      for (const tile of affected) {
+        if (!tile._destroyed) tile.fit();
+      }
+      this._persistTileGrid();
+    };
+    divider.classList.add('dragging');
+    document.body.classList.add('tile-grid-resizing', `tile-grid-resizing--${axis}`);
+    try {
+      divider.setPointerCapture?.(e.pointerId);
+      capturedPointerId = e.pointerId ?? null;
+    } catch {
+      /* The drag still works through the listeners below. */
+    }
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('pointerup', onUp);
+    divider.addEventListener('pointercancel', onUp);
+    this._tileDividerDragTeardown = endDrag;
+    this._tileDividerDrag = { key };
+  },
+
+  /**
+   * A tile just mounted joins a tree (addTile): it splits the focused pane
+   * (else the last), `split` naming the direction or, absent, across the
+   * pane's longer side, and takes the new pane, right of or below it.
+   */
+  _placePane(sessionId, split = null) {
+    const grid = this._tileGrid;
+    const P = window.CodemanPaneTree;
+    let k = grid.cells.indexOf(grid.focusedId);
+    if (k === -1) k = grid.cells.length - 1;
+    if (k < 0) {
+      grid.tree = P.paneLeaf();
+      grid.cells = [sessionId];
+      return;
+    }
+    const dir = split === 'h' || split === 'v' ? split : P.paneSplitDirectionFor(grid.paneRects[k]);
+    grid.tree = P.splitPaneTree(grid.tree, k, dir);
+    grid.cells.splice(k + 1, 0, sessionId);
+  },
+
+  /** An open count grid becomes a tree that looks the same (its rows, then each row's tiles). */
+  _enterPaneTree() {
+    const grid = this._tileGrid;
+    if (!grid?.open || grid.tree) return;
+    this._tileDividerDragTeardown?.();
+    const ids = grid.ids;
+    grid.tree = window.CodemanPaneTree.paneTreeFromGrid(grid.cells, grid.cols, grid.colFr, grid.rowFr);
+    grid.cells = ids;
+    this._applyTileLayout();
+  },
+
+  /** An open tree goes back to a count grid of its tiles, in their order. */
+  _leavePaneTree() {
+    const grid = this._tileGrid;
+    if (!grid?.open || !grid.tree) return;
+    this._tileDividerDragTeardown?.();
+    const ids = grid.ids;
+    const { cols, rows } = this._tileShapeFor(ids.length);
+    grid.tree = null;
+    grid.cells = [...ids, ...new Array(Math.max(0, cols * rows - ids.length)).fill(null)];
+    grid.cols = cols;
+    grid.rows = rows;
+    grid.colFr = new Array(cols).fill(1);
+    grid.rowFr = new Array(rows).fill(1);
+    this._applyTileLayout();
+    this._scheduleTileGridRefit();
+  },
+
+  // ── Commands ──
+
+  /** The session a new pane shows: the ranking's best that no pane shows yet. */
+  _nextPaneSession() {
+    const grid = this._tileGrid;
+    const shown = (id) => (grid?.open && grid.tiles.has(id)) || id === this.activeSessionId;
+    return this._tileGridRanking().find((id) => !shown(id)) ?? null;
+  },
+
+  /**
+   * Prefix % (`h`, left/right) and " (`v`, top/bottom): the focused pane
+   * splits in two and the new half shows the next session (the ranking's best
+   * not on screen: working, then needing input, then the most recent), which
+   * takes focus, as tmux focuses a new pane. From the single view it opens a
+   * two-pane layout, the session shown and that one; a count grid becomes a
+   * tree first; an open split (terminal-split.js) becomes the tree's two
+   * panes. Refused, with a hint, at the pane cap, when the half would be
+   * smaller than a pane may be, or with no other session to show.
+   *
+   * @returns {boolean} whether a pane was added
+   */
+  splitFocusedPane(dir) {
+    if (!this.canOpenTileGrid() || (dir !== 'h' && dir !== 'v')) return false;
+    const P = window.CodemanPaneTree;
+    let grid = this._tileGrid;
+    if (!grid?.open) {
+      const active = this.activeSessionId;
+      if (!active || !this.sessions.has(active) || this.detachedSessions?.has(active)) {
+        this.showToast?.('Open a session to split', 'info');
+        return false;
+      }
+      const splitId = this._splitPane ? this._splitSessionId : null;
+      if (splitId && splitId !== active && this.sessions.has(splitId)) {
+        // The split's two panes, as they were, then the split asked for.
+        const opened = this.openTileGrid([active, splitId], {
+          focusedId: active,
+          auto: false,
+          mergeSplit: false,
+          tree: P.splitPaneTree(P.paneLeaf(), 0, 'h'),
+        });
+        return opened && this._tileGrid?.tree ? this.splitFocusedPane(dir) : false;
+      }
+      const next = this._nextPaneSession();
+      if (!next) {
+        this.showToast?.('No other open session to show in a new pane', 'info');
+        return false;
+      }
+      return this.openTileGrid([active, next], {
+        focusedId: next,
+        auto: false,
+        mergeSplit: false,
+        tree: P.splitPaneTree(P.paneLeaf(), 0, dir),
+      });
+    }
+    if (!grid.tree) this._enterPaneTree();
+    grid = this._tileGrid;
+    const max = window.CodemanTileGrid.TILE_GRID_MAX;
+    if (grid.ids.length >= max) {
+      this.showToast?.(`At most ${max} panes`, 'info');
+      return false;
+    }
+    let k = grid.cells.indexOf(grid.focusedId);
+    if (k === -1) k = 0;
+    const rect = grid.paneRects[k];
+    if (rect) {
+      const half = ((dir === 'h' ? rect.w : rect.h) - TILE_DIVIDER_PX) / 2;
+      if (half < (dir === 'h' ? P.PANE_MIN_W : P.PANE_MIN_H)) {
+        this.showToast?.('No room to split this pane', 'info');
+        return false;
+      }
+    }
+    const next = this._nextPaneSession();
+    if (!next) {
+      this.showToast?.('No other open session to show in a new pane', 'info');
+      return false;
+    }
+    if (!this.addTile(next, { split: dir })) return false;
+    this.selectSession(next);
+    return true;
+  },
+
+  /**
+   * Prefix Ctrl+arrow (one cell) and Alt+arrow (five), tmux's resize-pane: the
+   * nearest split on that axis above the focused pane moves its divider that
+   * way (resizePaneTree). A count grid becomes a tree first. The PTYs refit
+   * once the keys stop (the grid's trailing refit), not per press.
+   */
+  resizeFocusedPane(direction, big = false) {
+    const grid = this._tileGrid;
+    if (!grid?.open || !grid.focusedId) return;
+    if (!grid.tree) this._enterPaneTree();
+    const P = window.CodemanPaneTree;
+    const size = grid.tiles.get(grid.focusedId)?.tile?.fontSize || this._tileGridFontSize();
+    // A cell at the tile font: about 0.6em wide and 1.2em tall (lineHeight 1.2).
+    const horizontal = direction === 'left' || direction === 'right';
+    const delta = (big ? 5 : 1) * size * (horizontal ? 0.6 : 1.2);
+    const out = P.resizePaneTree(
+      grid.tree,
+      grid.cells.indexOf(grid.focusedId),
+      direction,
+      delta,
+      this._paneBox(),
+      TILE_DIVIDER_PX
+    );
+    if (!out) return;
+    grid.tree = out.tree;
+    this._applyTileLayout();
+    this._scheduleTileGridRefit();
+  },
+
+  /** Prefix { and } (tmux swap-pane -U / -D): the focused pane trades places with the previous / next one. */
+  swapFocusedPane(delta) {
+    const grid = this._tileGrid;
+    if (!grid?.open || !grid.focusedId || grid.ids.length < 2) return;
+    const other = window.CodemanTileGrid.cycleTile(grid.ids, grid.focusedId, delta);
+    if (other && other !== grid.focusedId) this._swapTiles(grid.focusedId, other);
+  },
+
+  /** Prefix ; (tmux last-pane): back to the pane focused before this one. */
+  selectLastPane() {
+    const grid = this._tileGrid;
+    const id = grid?.open ? grid.lastFocusedId : null;
+    if (id && grid.tiles.has(id)) this.selectSession(id);
+  },
+
+  /**
+   * Prefix q (tmux display-panes): every pane shows its number for
+   * PANE_NUMBERS_MS; a digit meanwhile focuses that pane (selectPaneNumber,
+   * through handlePaneKeydown).
+   */
+  showPaneNumbers() {
+    const grid = this._tileGrid;
+    if (!grid?.open) return;
+    this._hidePaneNumbers();
+    grid.ids.forEach((id, k) => {
+      const entry = grid.tiles.get(id);
+      if (!entry) return;
+      const badge = document.createElement('div');
+      badge.className = `tile-pane-number${id === grid.focusedId ? ' tile-pane-number--focused' : ''}`;
+      badge.setAttribute('aria-hidden', 'true');
+      badge.setAttribute('data-i18n-skip', '');
+      badge.textContent = String(k);
+      entry.el.appendChild(badge);
+      entry.paneNumber = badge;
+    });
+    this._paneNumbersShown = true;
+    this._paneNumbersTimer = setTimeout(() => this._hidePaneNumbers(), PANE_NUMBERS_MS);
+  },
+
+  _hidePaneNumbers() {
+    clearTimeout(this._paneNumbersTimer);
+    this._paneNumbersTimer = null;
+    this._paneNumbersShown = false;
+    for (const entry of this._tileGrid?.tiles.values() || []) {
+      entry.paneNumber?.remove();
+      entry.paneNumber = null;
+    }
+  },
+
+  /** A digit while the numbers show: that pane takes focus (a human selection). */
+  selectPaneNumber(n) {
+    const grid = this._tileGrid;
+    const id = grid?.open ? grid.ids[n] : null;
+    if (id) this.selectSession(id);
+  },
+
+  /**
+   * A session picked in the rail, the tab strip or the palette while a tree
+   * is open: it takes the FOCUSED pane (the replaced session keeps running),
+   * as tmux shows a chosen window in the current pane; one already in another
+   * pane is focused there instead (selectSession's tile branch, before this).
+   * Returns false when there is no tree or nothing to replace, so the caller
+   * goes on as before.
+   */
+  _showInFocusedPane(sessionId) {
+    const grid = this._tileGrid;
+    if (!grid?.open || !grid.tree || !grid.focusedId || !grid.tiles.has(grid.focusedId)) return false;
+    if (grid.tiles.has(sessionId) || !this.sessions.has(sessionId) || this.detachedSessions?.has(sessionId)) {
+      return false;
+    }
+    this.dropSessionOnTile(sessionId, grid.focusedId);
+    return grid.tiles.has(sessionId);
+  },
+
+  // ── The prefix ──
+
+  /** The `pane-prefix` registry entry when it is enabled and bound, else null. */
+  _panePrefixShortcut() {
+    if (typeof this.getShortcutRegistry !== 'function') return null;
+    const entry = this.getShortcutRegistry().find((s) => s.id === 'pane-prefix');
+    return entry && !entry.disabled && Array.isArray(entry.bindings) && entry.bindings.length ? entry : null;
+  },
+
+  /** The prefixed command `e` names (registry-aware: rebinds and disables apply), or null. */
+  _paneCommandFor(e) {
+    if (typeof this.getShortcutRegistry !== 'function') return null;
+    for (const shortcut of this.getShortcutRegistry()) {
+      if (!shortcut.prefix || shortcut.disabled || !PANE_COMMANDS[shortcut.id]) continue;
+      if ((shortcut.bindings || []).some((b) => matchesPaneBinding(e, b))) return shortcut.id;
+    }
+    return null;
+  },
+
+  /** How the overlay and Settings write a prefixed binding: the prefix, then the key. */
+  paneBindingLabel(binding, { withPrefix = true } = {}) {
+    const key = paneBindingLabel(binding);
+    if (!withPrefix) return key;
+    const prefix = this._panePrefixShortcut()?.bindings?.[0];
+    return prefix ? `${paneBindingLabel(prefix)} ${key}` : key;
+  },
+
+  /** Whether `e` matches a prefixed binding (Settings' conflict check uses the pane keys' own matcher). */
+  matchesPaneBinding(e, binding) {
+    return matchesPaneBinding(e, binding);
+  },
+
+  /**
+   * Whether the pane keys apply where `e` happened: a window wide enough for
+   * panes (the grid's own gate: desktop, never a pop-out or a phone, which
+   * stay one session at a time), and not in a text field (a rename, a
+   * Settings field, the shortcut capture) whose keys they are. A terminal's
+   * own input is not a text field here.
+   */
+  _paneKeysApply(e) {
+    if (this._capturingShortcutId) return false;
+    if (isTextFieldTarget(e?.target)) return false;
+    return this.canOpenTileGrid();
+  },
+
+  /**
+   * The capture-phase keydown handler's first stop (app.js), ahead of every
+   * other chord: the pane prefix and what follows it. A key it takes is
+   * stopped there (preventDefault + stopImmediatePropagation), so neither
+   * xterm nor the browser sees it and nothing reaches a PTY: the prefix never
+   * arms tmux's own prefix table behind the tab. As in tmux, a key with no
+   * binding after the prefix does nothing, Escape cancels, and the prefix
+   * again sends one literal prefix to the focused pane (_sendLiteralPanePrefix).
+   *
+   * @returns {boolean} whether the key was taken
+   */
+  handlePaneKeydown(e) {
+    if (!e || (e.type && e.type !== 'keydown')) return false;
+    const isModifier = PANE_MODIFIER_KEYS.has(e.key);
+    // Pane numbers up: a digit picks that pane; any other key takes them down.
+    if (this._paneNumbersShown && !isModifier) {
+      if (/^[0-9]$/.test(e.key || '') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        this._consumePaneKey(e);
+        this._hidePaneNumbers();
+        this.selectPaneNumber(Number(e.key));
+        return true;
+      }
+      this._hidePaneNumbers();
+    }
+    if (this._panePrefixArmed) {
+      // Shift for `%`, Ctrl for Ctrl+arrow: the key itself is still to come.
+      if (isModifier) return false;
+      // The prefix held down auto-repeats: still the one press, still waiting.
+      const held = this._panePrefixShortcut();
+      if (e.repeat && held && this.matchesShortcutEvent(e, held)) {
+        this._consumePaneKey(e);
+        return true;
+      }
+      this._setPanePrefixArmed(false);
+      this._consumePaneKey(e);
+      if (e.key === 'Escape') return true;
+      const prefix = this._panePrefixShortcut();
+      if (prefix && this.matchesShortcutEvent(e, prefix)) {
+        this._sendLiteralPanePrefix(prefix, e);
+        return true;
+      }
+      const id = this._paneCommandFor(e);
+      if (id) this._runPaneCommand(id, e);
+      return true;
+    }
+    if (this._paneRepeatUntil && !isModifier) {
+      const id = Date.now() <= this._paneRepeatUntil ? this._paneCommandFor(e) : null;
+      if (id && PANE_COMMANDS[id].repeat && this._paneKeysApply(e)) {
+        this._consumePaneKey(e);
+        this._runPaneCommand(id, e);
+        return true;
+      }
+      this._paneRepeatUntil = 0;
+    }
+    if (isModifier) return false;
+    const prefix = this._panePrefixShortcut();
+    if (!prefix || !this.matchesShortcutEvent(e, prefix) || !this._paneKeysApply(e)) return false;
+    this._consumePaneKey(e);
+    this._setPanePrefixArmed(true);
+    return true;
+  },
+
+  _runPaneCommand(id, e) {
+    const command = PANE_COMMANDS[id];
+    if (!command) return;
+    this._paneRepeatUntil = command.repeat ? Date.now() + PANE_REPEAT_MS : 0;
+    try {
+      command.run(this, e);
+    } catch (err) {
+      console.error('[panes] command failed:', id, err);
+    }
+  },
+
+  // Taken: no default action, and no listener after this one (xterm's
+  // textarea included) sees it. Remembered, so an xterm key handler that
+  // still gets it refuses it too (_paneKeyConsumed).
+  _consumePaneKey(e) {
+    e.preventDefault?.();
+    e.stopImmediatePropagation?.();
+    (this._paneConsumedKeys ||= new WeakSet()).add(e);
+  },
+
+  /** Whether the pane keys took this event (every xterm key handler refuses it). */
+  _paneKeyConsumed(e) {
+    return !!e && typeof e === 'object' && !!this._paneConsumedKeys?.has(e);
+  },
+
+  /**
+   * Arms or disarms the prefix, with a small mark in the corner while it waits
+   * (tmux can show it in its status line; a browser tab has no other sign). A
+   * press anywhere or the window losing focus disarms it.
+   */
+  _setPanePrefixArmed(on) {
+    this._panePrefixArmed = !!on;
+    if (on) this._paneRepeatUntil = 0;
+    let mark = document.getElementById('panePrefixIndicator');
+    if (on && !mark) {
+      mark = document.createElement('div');
+      mark.id = 'panePrefixIndicator';
+      mark.className = 'pane-prefix-indicator';
+      mark.setAttribute('role', 'status');
+      mark.setAttribute('data-i18n-skip', '');
+      document.body?.appendChild(mark);
+    }
+    if (mark) {
+      const binding = this._panePrefixShortcut()?.bindings?.[0];
+      mark.textContent = on ? `${binding ? paneBindingLabel(binding) : 'Prefix'} …` : '';
+      mark.hidden = !on;
+    }
+    if (on && !this._panePrefixDisarmInstalled) {
+      this._panePrefixDisarmInstalled = true;
+      const disarm = () => {
+        if (this._panePrefixArmed) this._setPanePrefixArmed(false);
+      };
+      window.addEventListener?.('blur', disarm);
+      document.addEventListener?.('pointerdown', disarm, true);
+    }
+  },
+
+  /**
+   * The prefix pressed twice: ONE prefix reaches the focused pane's program
+   * (tmux send-prefix; Claude Code's "ctrl+b ctrl+b" backgrounds a command).
+   * Sent with tmux `send-keys` (POST send-key), which types into the pane
+   * directly and never passes the tab's tmux attach client, so the byte cannot
+   * arm that client's own prefix (which would swallow the next key). A
+   * session with no tmux pane (the route says "No tmux session") gets the byte
+   * as typed input instead.
+   */
+  _sendLiteralPanePrefix(prefix, e) {
+    const sessionId = this.activeSessionId;
+    if (!sessionId || !this.sessions?.has(sessionId)) return;
+    const binding =
+      (prefix.bindings || []).find((b) => this.matchesShortcutEvent(e, { bindings: [b] })) || prefix.bindings[0];
+    const literal = panePrefixLiteral(binding);
+    if (!literal) return;
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: literal.name }),
+    })
+      .then(async (res) => {
+        const body = await res?.json?.().catch(() => null);
+        // No tmux pane behind the session: nothing to slip past, so it is typed.
+        if (body && body.success === false && /No tmux session/.test(body.error || '')) {
+          this._sendInputAsync?.(sessionId, literal.bytes);
+        }
+      })
+      .catch(() => {
+        /* Offline: a key, not text, so it is not queued. */
+      });
+  },
+});
+
+// For the tests (test/tile-pane-keys.test.ts).
+if (typeof window !== 'undefined') {
+  window.CodemanPaneKeys = { PANE_COMMANDS, matchesPaneBinding, paneBindingLabel, panePrefixLiteral, PANE_REPEAT_MS };
+}

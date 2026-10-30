@@ -642,6 +642,180 @@ const DEFAULT_SHORTCUTS = [
     bindings: [],
     action: 'removeTile',
   },
+  // tmux-style panes (tile-grid.js, the tree layout and handlePaneKeydown): a
+  // prefix, then one key, as in tmux. Desktop only (the grid's width gate);
+  // disabling the prefix turns the pane keys off. The prefix is swallowed in
+  // the capture phase and never reaches a PTY, so it can never arm the tmux
+  // prefix table behind a browser tab; pressed twice it sends ONE literal
+  // prefix to the focused pane through tmux send-keys (tmux's send-prefix).
+  // The `prefix: true` entries are keys AFTER the prefix: dispatched only by
+  // handlePaneKeydown (absent from SHORTCUT_ACTIONS), rebindable to a bare
+  // key, and checked for conflicts among themselves only (settings-ui.js).
+  {
+    id: 'pane-prefix',
+    group: 'Panes',
+    label: 'Pane Prefix (twice: send it to the terminal)',
+    bindings: [{ modifiers: ['ctrl'], key: 'b', code: 'KeyB' }],
+    action: 'panePrefix',
+  },
+  {
+    id: 'pane-split-horizontal',
+    group: 'Panes',
+    label: 'Split Pane Left / Right',
+    prefix: true,
+    bindings: [{ modifiers: [], key: '%' }],
+    action: 'paneSplitHorizontal',
+  },
+  {
+    id: 'pane-split-vertical',
+    group: 'Panes',
+    label: 'Split Pane Top / Bottom',
+    prefix: true,
+    bindings: [{ modifiers: [], key: '"' }],
+    action: 'paneSplitVertical',
+  },
+  {
+    id: 'pane-focus-left',
+    group: 'Panes',
+    label: 'Focus Pane Left',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'ArrowLeft' }],
+    action: 'paneFocusLeft',
+  },
+  {
+    id: 'pane-focus-right',
+    group: 'Panes',
+    label: 'Focus Pane Right',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'ArrowRight' }],
+    action: 'paneFocusRight',
+  },
+  {
+    id: 'pane-focus-up',
+    group: 'Panes',
+    label: 'Focus Pane Up',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'ArrowUp' }],
+    action: 'paneFocusUp',
+  },
+  {
+    id: 'pane-focus-down',
+    group: 'Panes',
+    label: 'Focus Pane Down',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'ArrowDown' }],
+    action: 'paneFocusDown',
+  },
+  // tmux: C-arrow resizes by one cell, M-arrow by five; both repeat without
+  // the prefix for half a second.
+  {
+    id: 'pane-resize-left',
+    group: 'Panes',
+    label: 'Resize Pane Left',
+    prefix: true,
+    bindings: [
+      { modifiers: ['ctrl'], key: 'ArrowLeft' },
+      { modifiers: ['alt'], key: 'ArrowLeft' },
+    ],
+    action: 'paneResizeLeft',
+  },
+  {
+    id: 'pane-resize-right',
+    group: 'Panes',
+    label: 'Resize Pane Right',
+    prefix: true,
+    bindings: [
+      { modifiers: ['ctrl'], key: 'ArrowRight' },
+      { modifiers: ['alt'], key: 'ArrowRight' },
+    ],
+    action: 'paneResizeRight',
+  },
+  {
+    id: 'pane-resize-up',
+    group: 'Panes',
+    label: 'Resize Pane Up',
+    prefix: true,
+    bindings: [
+      { modifiers: ['ctrl'], key: 'ArrowUp' },
+      { modifiers: ['alt'], key: 'ArrowUp' },
+    ],
+    action: 'paneResizeUp',
+  },
+  {
+    id: 'pane-resize-down',
+    group: 'Panes',
+    label: 'Resize Pane Down',
+    prefix: true,
+    bindings: [
+      { modifiers: ['ctrl'], key: 'ArrowDown' },
+      { modifiers: ['alt'], key: 'ArrowDown' },
+    ],
+    action: 'paneResizeDown',
+  },
+  {
+    id: 'pane-close',
+    group: 'Panes',
+    label: 'Close Pane (the session keeps running)',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'x' }],
+    action: 'paneClose',
+  },
+  {
+    id: 'pane-zoom',
+    group: 'Panes',
+    label: 'Zoom Pane',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'z' }],
+    action: 'paneZoom',
+  },
+  {
+    id: 'pane-next',
+    group: 'Panes',
+    label: 'Next Pane',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'o' }],
+    action: 'paneNext',
+  },
+  {
+    id: 'pane-last',
+    group: 'Panes',
+    label: 'Last Pane',
+    prefix: true,
+    bindings: [{ modifiers: [], key: ';' }],
+    action: 'paneLast',
+  },
+  {
+    id: 'pane-swap-prev',
+    group: 'Panes',
+    label: 'Swap Pane with Previous',
+    prefix: true,
+    bindings: [{ modifiers: [], key: '{' }],
+    action: 'paneSwapPrev',
+  },
+  {
+    id: 'pane-swap-next',
+    group: 'Panes',
+    label: 'Swap Pane with Next',
+    prefix: true,
+    bindings: [{ modifiers: [], key: '}' }],
+    action: 'paneSwapNext',
+  },
+  {
+    id: 'pane-show-numbers',
+    group: 'Panes',
+    label: 'Show Pane Numbers (then a digit picks one)',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 'q' }],
+    action: 'paneShowNumbers',
+  },
+  {
+    id: 'pane-choose-session',
+    group: 'Panes',
+    label: 'Choose the Session in This Pane',
+    prefix: true,
+    bindings: [{ modifiers: [], key: 's' }],
+    action: 'paneChooseSession',
+  },
   // Physical key codes, so macOS Option layouts that print "“" for Option+[ still match.
   {
     id: 'previous-session',
@@ -1445,6 +1619,11 @@ class CodemanApp {
 
       // Don't intercept keys during CJK IME composition
       if (e.isComposing || e.keyCode === 229) return;
+
+      // The tmux-style pane keys (tile-grid.js handlePaneKeydown): the prefix and
+      // the key after it, ahead of every other chord (Escape after the prefix
+      // only cancels it). A key they take is stopped here, so no terminal sees it.
+      if (this.handlePaneKeydown?.(e)) return;
 
       if (this.shouldOpenCommandPaletteFromShortcut?.(e)) {
         e.preventDefault();
@@ -9962,6 +10141,9 @@ class CodemanApp {
     if (this._tileGrid?.open) {
       if (this._tileGrid.has(sessionId)) return this._selectTiledSession(sessionId, options);
       if (options?.auto === true && !options?.leaveTiles) return;
+      // A tmux-style layout (the pane keys): the pick takes the FOCUSED pane and
+      // the layout stays, as tmux shows a chosen window in the current pane.
+      if (!options?.leaveTiles && this._showInFocusedPane?.(sessionId)) return;
       this.closeTileGrid({ keepStored: true, reselect: false });
       // The parked terminal still holds what it showed before the grid opened;
       // with no active id, the switch below snapshots none of it.
@@ -11364,7 +11546,9 @@ class CodemanApp {
       if (s.bindings.length === 0) return '<span class="shortcut-overlay-unbound">not bound</span>';
       return s.bindings.map((b) => {
         const parts = [...(b.modifiers || []).map((m) => m.charAt(0).toUpperCase() + m.slice(1)), b.key || b.code || ''];
-        return `<kbd data-i18n-skip>${escapeHtml(parts.join('+'))}</kbd>`;
+        // A key after the pane prefix reads as the prefix, then that key (Ctrl+B %).
+        const text = s.prefix && typeof this.paneBindingLabel === 'function' ? this.paneBindingLabel(b) : parts.join('+');
+        return `<kbd data-i18n-skip>${escapeHtml(text)}</kbd>`;
       }).join(' / ');
     };
     list.innerHTML = Object.entries(groups).map(([group, items]) =>

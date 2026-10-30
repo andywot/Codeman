@@ -323,6 +323,9 @@
           /* The controller must never interfere with xterm's own handling. */
         }
         if (ev.isComposing || ev.key === 'Process' || ev.keyCode === 229) return true;
+        // A key the pane keys took (the prefix and the key after it,
+        // tile-grid.js handlePaneKeydown): never this pane's PTY's.
+        if (global.app?._paneKeyConsumed?.(ev)) return false;
         if (
           ev.altKey &&
           !ev.ctrlKey &&

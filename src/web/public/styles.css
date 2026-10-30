@@ -21305,6 +21305,78 @@ body.tile-grid-resizing--row * {
   display: none;
 }
 
+/* tmux-style panes (tile-grid.js tree layout): the tiles and the dividers are
+   placed absolutely by _placePaneTiles (inline left/top/width/height inside
+   the section's padding), so the section is their containing block and no
+   longer a grid. AFTER `.main.tiles-active .tile-grid`, same specificity. */
+.main.tiles-active .tile-grid.tile-grid--tree {
+  display: block;
+  position: relative;
+  overflow: hidden;
+}
+
+.main.webview-active .tile-grid.tile-grid--tree {
+  display: none;
+}
+
+.tile-grid--tree > .tile-divider {
+  position: absolute;
+}
+
+/* Prefix q (tmux display-panes): each pane's number, a digit focuses it. */
+.tile-pane-number {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--control-border, #333);
+  border-radius: 6px;
+  background: var(--bg-card, #1b222c);
+  color: var(--text, #f3f6fa);
+  box-shadow: var(--elevated-shadow, 0 12px 36px rgba(0, 0, 0, 0.3));
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
+}
+
+.tile-pane-number--focused {
+  border-color: var(--accent, #4a9eff);
+  color: var(--accent-text, var(--accent, #4a9eff));
+}
+
+/* The pane prefix waiting for its key (tile-grid.js _setPanePrefixArmed): a
+   small mark in the corner above the status line, so a swallowed key is never
+   a mystery. */
+.pane-prefix-indicator {
+  position: fixed;
+  right: 12px;
+  bottom: 32px;
+  z-index: 950;
+  padding: 3px 8px;
+  border: 1px solid var(--accent, #4a9eff);
+  border-radius: 3px;
+  background: var(--bg-card, #1b222c);
+  color: var(--accent-text, var(--accent, #4a9eff));
+  box-shadow: var(--elevated-shadow, 0 12px 36px rgba(0, 0, 0, 0.3));
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.pane-prefix-indicator[hidden] {
+  display: none;
+}
+
 .tile-btn.tile-zoom[aria-pressed='true'] {
   opacity: 1;
   color: var(--accent, #4a9eff);
