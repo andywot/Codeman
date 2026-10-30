@@ -1692,6 +1692,9 @@ export const SettingsUpdateSchema = z
     // the TmuxManager watcher does nothing — dropped remote sessions are NOT
     // auto-reattached.
     remoteAutoReconnect: z.boolean().optional(),
+    // Fork: agent mail (agent-mail.ts): install `rc-mail` on the fleet's machines and relay messages
+    // between agents (default ON; absent = on).
+    agentMailEnabled: z.boolean().optional(),
     thinkingEffort: z.string().max(20).optional(),
     /** Advisor model for new Claude sessions ('' = leave it to the CLI's own /advisor choice). */
     claudeAdvisorModel: z

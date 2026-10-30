@@ -713,6 +713,7 @@ Object.assign(CodemanApp.prototype, {
     document.getElementById('appSettingsClaudeModel').value = settings.claudeModel ?? '';
     document.getElementById('appSettingsOpusContext1m').checked = settings.opusContext1mEnabled ?? false;
     document.getElementById('appSettingsRemoteAutoReconnect').checked = settings.remoteAutoReconnect ?? true;
+    document.getElementById('appSettingsAgentMail').checked = settings.agentMailEnabled !== false;
     document.getElementById('appSettingsThinkingEffort').value = settings.thinkingEffort ?? '';
     document.getElementById('appSettingsClaudeAdvisor').value = settings.claudeAdvisorModel ?? '';
     // CPU Priority settings
@@ -3086,6 +3087,7 @@ Object.assign(CodemanApp.prototype, {
       claudeModel: document.getElementById('appSettingsClaudeModel').value,
       opusContext1mEnabled: document.getElementById('appSettingsOpusContext1m').checked,
       remoteAutoReconnect: document.getElementById('appSettingsRemoteAutoReconnect').checked,
+      agentMailEnabled: document.getElementById('appSettingsAgentMail').checked,
       thinkingEffort: document.getElementById('appSettingsThinkingEffort').value,
       claudeAdvisorModel: document.getElementById('appSettingsClaudeAdvisor').value,
       // CPU Priority settings
@@ -4259,6 +4261,8 @@ Object.assign(CodemanApp.prototype, {
         mobileOverviewEnabled: true,
         // Remote auto-reconnect (COD-108) — on by default
         remoteAutoReconnect: true,
+        // Fork: agent mail between agents across machines (rc-mail) — on by default
+        agentMailEnabled: true,
         // Input
         gestureControlEnabled: false,
         // Feature toggles - keep tracking on even on mobile

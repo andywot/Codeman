@@ -24680,6 +24680,28 @@ html[data-focus='on'] main {
 .fm-status[data-kind='bad'] {
   color: var(--red-text);
 }
+/* Fork: agent mail section (fleet-manager.js _renderAgentMail). Addresses run longer than machine names. */
+.fm-mail .fm-system-name {
+  width: auto;
+  min-width: 90px;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.fm-mail-sub {
+  margin-top: 6px;
+}
+.fm-mail-nudge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  flex: none;
+}
 .fm-btn {
   height: 26px;
   padding: 0 10px;
