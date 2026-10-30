@@ -1324,7 +1324,15 @@ export function buildRemoteLaunchCommand(options: {
     modeCommand = override;
   } else if (mode === 'claude') {
     const signalsKey = remoteTmuxSessionName(sessionId);
-    if (/^[A-Za-z0-9._-]+$/.test(signalsKey)) signalsEnv = `export ${REMOTE_SESSION_ENV}=${signalsKey} && `;
+    if (/^[A-Za-z0-9._-]+$/.test(signalsKey)) {
+      signalsEnv = `export ${REMOTE_SESSION_ENV}=${signalsKey} && `;
+      // A Windows system runs Windows claude from this WSL shell (fleet.ts): WSLENV carries the key
+      // into it, with no flag so it also comes back when that claude runs `rc-mail` (its wrapper
+      // calls wsl.exe), which then knows the session's mail address (agent-mail-cli.ts).
+      if (remote.system === 'windows') {
+        signalsEnv += `export WSLENV="\${WSLENV:+$WSLENV:}${REMOTE_SESSION_ENV}" && `;
+      }
+    }
     // Deterministic conversation pinning for SSH-remote claude (mirrors the
     // docker-claude shape in claudeDockerPaneCommand, INCLUDING the distinct
     // resumeId branch it declares — this used to only mirror the same-id

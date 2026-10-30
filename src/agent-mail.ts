@@ -48,6 +48,10 @@ import type { RemoteHost } from './types.js';
 export const MAIL_DIR = '.config/claude-rc/mail';
 export const MAIL_BIN = '.config/claude-rc/bin/rc-mail';
 export const MAIL_SKILL = '.claude/skills/rc-mail/SKILL.md';
+/** Relative to the WINDOWS profile (`%USERPROFILE%`) of a machine whose WSL is polled. */
+export const WIN_MAIL_CMD = '.config/claude-rc/bin/rc-mail.cmd';
+export const WIN_MAIL_SHIM = '.config/claude-rc/bin/rc-mail';
+export const WIN_MAIL_SKILL = '.claude/skills/rc-mail/SKILL.md';
 
 /** Largest message body (UTF-8 bytes) the CLI writes and the relay accepts. */
 export const MAX_BODY_BYTES = 64 * 1024;
@@ -283,6 +287,11 @@ export interface MailEndpoint {
   host?: RemoteHost;
   /** Every host id of this login (sessions on any of them belong here). */
   hostIds: string[];
+  /**
+   * The login also has a Windows system (native Windows claude on the same machine and home): the
+   * poll installs the Windows wrappers and skill there too (its `W` step, through WSL interop).
+   */
+  windows?: boolean;
 }
 
 export const LOCAL_ENDPOINT_ID = 'local';
@@ -293,8 +302,9 @@ export function loginOf(r: { username: string; host: string; port?: number }): s
 
 /**
  * The mailbox trees: this server first, then one per ssh login (a machine's WSL and Windows
- * systems share one login and one home). A login with only a Windows system is left out: native
- * Windows claude does not run the CLI. Machine names are unique slugs (`-2` on a clash); the
+ * systems share one login and one home). A login with only a Windows system is left out: there is
+ * no WSL to run the CLI in. A login with both is marked `windows`, and native Windows claude uses
+ * the WSL CLI through the wrappers the poll installs. Machine names are unique slugs (`-2` on a clash); the
  * server's own is `localName`.
  */
 export function mailEndpoints(hosts: readonly RemoteHost[], localName: string): MailEndpoint[] {
@@ -312,7 +322,14 @@ export function mailEndpoints(hosts: readonly RemoteHost[], localName: string): 
     const primary = group.find((h) => h.system !== 'windows');
     if (!primary) continue;
     const name = primary.machine || primary.label.split(' · ')[0] || primary.label;
-    out.push({ id: login, machine: unique(name), local: false, host: primary, hostIds: group.map((h) => h.id) });
+    out.push({
+      id: login,
+      machine: unique(name),
+      local: false,
+      host: primary,
+      hostIds: group.map((h) => h.id),
+      ...(group.some((h) => h.system === 'windows') ? { windows: true } : {}),
+    });
   }
   return out;
 }
@@ -431,7 +448,9 @@ export type PollInput =
   | { kind: 'deliver'; mailbox: string; id: string; json: string; text: string }
   | { kind: 'status'; id: string; text: string }
   | { kind: 'directory'; tsv: string; json: string; self: string }
-  | { kind: 'install'; cli: string; skill: string };
+  | { kind: 'install'; cli: string; skill: string }
+  /** The Windows side of a WSL machine: skill, `rc-mail.cmd` and Git Bash shim templates. */
+  | { kind: 'windows'; skill: string; cmd: string; shim: string };
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
 
@@ -451,10 +470,73 @@ export function buildPollInput(items: readonly PollInput[]): string {
       lines.push(`R ${b64(it.tsv)} ${b64(it.json)} ${b64(it.self + '\n')}`);
     } else if (it.kind === 'install') {
       lines.push(`I ${b64(it.cli)} ${b64(it.skill)}`);
+    } else if (it.kind === 'windows') {
+      lines.push(`W ${b64(it.skill)} ${b64(it.cmd)} ${b64(it.shim)}`);
     }
   }
   return lines.length ? lines.join('\n') + '\n' : '';
 }
+
+/**
+ * The poll's Windows install (`W <skill> <cmd> <shim>`, all base64), as POSIX sh run in WSL.
+ *
+ * - `winhome` finds the Windows profile: `cmd.exe /d /c echo %USERPROFILE%` (no AutoRun, stdin from
+ *   /dev/null so it cannot eat the poll's input, 10 s at most) through `wslpath -u`. It must be a
+ *   real folder (an absolute path, not a symlink); without interop, or on any doubt, nothing is
+ *   written and `.winhome` says `none`. `RC_MAIL_CMD_EXE` overrides the cmd.exe path (tests).
+ * - Every folder on the way (`.claude/skills/rc-mail`, `.config/claude-rc/bin`) is checked, and a
+ *   symlinked one (a junction shows as one) stops the install: nothing is written through a link.
+ * - Files are written only where absent or still carrying our marker (`wput`), via a temp file the
+ *   link check also covers, then `mv`.
+ * - The wrappers get `-u <user>` (plus `-d <distro>` from `$WSL_DISTRO_NAME`) and the CLI path,
+ *   each checked against a narrow character class first (no quote, `|`, `&`, `%` or backslash can
+ *   reach the sed replacement or the `.cmd`); a user or home outside it skips the wrappers.
+ */
+const WINDOWS_INSTALL_FUNCTIONS = String.raw`winhome() {
+  x=${'$'}{RC_MAIL_CMD_EXE:-/mnt/c/Windows/System32/cmd.exe}
+  [ -x "$x" ] || return 1
+  p=$(cd /mnt/c 2>/dev/null || cd /; timeout 10 "$x" /d /c 'echo %USERPROFILE%' </dev/null 2>/dev/null | tr -d '\r' | head -n 1)
+  case "$p" in [A-Za-z]:\\?*) ;; *) return 1;; esac
+  case "$p" in *%*) return 1;; esac
+  u=$(wslpath -u "$p" </dev/null 2>/dev/null) || return 1
+  case "$u" in /?*) ;; *) return 1;; esac
+  [ -d "$u" ] && [ ! -L "$u" ] || return 1
+  printf '%s' "$u"
+}
+wput() {
+  if [ -L "$1" ] || [ -L "$1.rcm-tmp" ] || { [ -e "$1" ] && ! grep -q "$2" "$1" 2>/dev/null; }; then cat >/dev/null; return 1; fi
+  cat > "$1.rcm-tmp" && mv -f "$1.rcm-tmp" "$1"
+}
+wsub() { printf '%s' "$1" | base64 -d 2>/dev/null | sed -e "s|@@WSLARGS@@|$wa|g" -e "s|@@CLI@@|$cli|g"; }
+wininst() {
+  W=$(winhome) || W=
+  [ -n "$W" ] || { printf 'none\n' > "$M/.winhome"; return 0; }
+  for d in .claude .claude/skills .claude/skills/rc-mail .config .config/claude-rc .config/claude-rc/bin; do
+    [ -L "$W/$d" ] && return 0
+    [ -d "$W/$d" ] || mkdir "$W/$d" 2>/dev/null || return 0
+    [ -L "$W/$d" ] && return 0
+  done
+  printf '%s' "$1" | base64 -d 2>/dev/null | wput "$W/${WIN_MAIL_SKILL}" 'claude-rc:rc-mail-skill v'
+  wa=""; wu=$(id -un 2>/dev/null)
+  case "$wu" in [a-z_]*) case "$wu" in *[!a-z0-9_.-]*) ;; *) wa="-u $wu" ;; esac ;; esac
+  case "$HOME" in /*) case "$HOME" in *[!A-Za-z0-9_./-]*) wa="" ;; esac ;; *) wa="" ;; esac
+  if [ -n "$wa" ]; then
+    case "${'$'}{WSL_DISTRO_NAME:-}" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9_.-]*) ;; *) wa="-d $WSL_DISTRO_NAME $wa" ;; esac
+    cli="$HOME/${MAIL_BIN}"
+    wsub "$2" | wput "$W/${WIN_MAIL_CMD}" 'claude-rc:rc-mail-windows v'
+    wsub "$3" | wput "$W/${WIN_MAIL_SHIM}" 'claude-rc:rc-mail-windows v' && chmod 755 "$W/${WIN_MAIL_SHIM}" 2>/dev/null
+  fi
+  printf '%s\n' "$W" > "$M/.winhome"
+}
+winver() {
+  [ -s "$M/.winhome" ] || { echo -; return; }
+  W=$(head -n 1 "$M/.winhome")
+  case "$W" in none) echo none; return ;; /?*) ;; *) echo -; return ;; esac
+  a=$(sed -n 's/^rem claude-rc:rc-mail-windows v\([0-9][0-9]*\).*/\1/p' "$W/${WIN_MAIL_CMD}" 2>/dev/null | head -n 1)
+  b=$(sed -n 's/^# claude-rc:rc-mail-windows v\([0-9][0-9]*\).*/\1/p' "$W/${WIN_MAIL_SHIM}" 2>/dev/null | head -n 1)
+  c=$(sed -n 's/^<!-- claude-rc:rc-mail-skill v\([0-9][0-9]*\).*/\1/p' "$W/${WIN_MAIL_SKILL}" 2>/dev/null | head -n 1)
+  echo "${'$'}{a:-0} ${'$'}{b:-0} ${'$'}{c:-0}"
+}`;
 
 /**
  * The one command a poll runs on a machine (POSIX sh; the relay runs it as `sh -c`). Fixed text:
@@ -471,6 +553,12 @@ export function buildPollInput(items: readonly PollInput[]): string {
  * and add-only: the CLI and the skill are written only where absent or carrying our marker line, and
  * never through a symlink; `~/.local/bin/rc-mail` is linked to the CLI only when that folder exists
  * and holds no `rc-mail` already.
+ *
+ * `W` (the relay sends it only to a login that also has a Windows system) does the same for native
+ * Windows claude, through WSL interop: {@link WINDOWS_INSTALL_FUNCTIONS}. Every poll then reports
+ *
+ *     @@wv <cmd version> <shim version> <skill version>   or  @@wv none  (no Windows profile found)
+ *     or  @@wv -  (never installed here)
  */
 export const MAIL_POLL_SCRIPT = [
   'umask 077',
@@ -482,6 +570,7 @@ export const MAIL_POLL_SCRIPT = [
   `w64() { [ -L "$2" ] && return 1; printf '%s' "$1" | base64 -d > "$2.rcm-tmp" 2>/dev/null && mv -f "$2.rcm-tmp" "$2"; }`,
   'okname() { case "$1" in [a-z0-9]*) ;; *) return 1;; esac; case "$1" in *[!a-z0-9._~-]*) return 1;; esac; return 0; }',
   'okid() { case "$1" in [0-9]*-*) ;; *) return 1;; esac; case "$1" in *[!0-9a-f-]*) return 1;; esac; return 0; }',
+  WINDOWS_INSTALL_FUNCTIONS,
   'while IFS=" " read -r k a b c d; do',
   '  case "$k" in',
   '  A) okid "${a%.json}" && [ "$a" = "${a%.json}.json" ] && rm -f "$M/outbox/$a" ;;',
@@ -495,11 +584,13 @@ export const MAIL_POLL_SCRIPT = [
   `     f=${MAIL_SKILL}; if [ ! -e "$f" ] || grep -q 'claude-rc:rc-mail-skill v' "$f" 2>/dev/null; then w64 "$b" "$f" && chmod 644 "$f"; fi`,
   // On PATH where the machine has a ~/.local/bin (add-only: never replaces anything there).
   `     [ -d .local/bin ] && [ ! -e .local/bin/rc-mail ] && [ ! -L .local/bin/rc-mail ] && ln -s "$HOME/${MAIL_BIN}" .local/bin/rc-mail ;;`,
+  '  W) wininst "$a" "$b" "$c" ;;',
   '  esac',
   'done',
   `printf '@@id %s\\n' "$(head -c 64 "$M/.id" | tr -dc '0-9a-zA-Z')"`,
   `v=$(sed -n 's/^# claude-rc:rc-mail v\\([0-9][0-9]*\\).*/\\1/p' ${MAIL_BIN} 2>/dev/null | head -n 1); printf '@@v %s\\n' "\${v:-0}"`,
   `v=$(sed -n 's/^<!-- claude-rc:rc-mail-skill v\\([0-9][0-9]*\\).*/\\1/p' ${MAIL_SKILL} 2>/dev/null | head -n 1); printf '@@sv %s\\n' "\${v:-0}"`,
+  `printf '@@wv %s\\n' "$(winver)"`,
   `printf '@@now %s\\n' "$(date +%s)"`,
   'n=0; t=0',
   'for f in "$M"/outbox/*.json; do',
@@ -529,6 +620,11 @@ export interface PollOutput {
   treeId: string | null;
   cliVersion: number;
   skillVersion: number;
+  /**
+   * The Windows side (`@@wv`): marker versions of `rc-mail.cmd`, the shim and the Windows skill
+   * (0 = absent or not ours), `none` when no Windows profile was found, null when never installed.
+   */
+  windows: { cmd: number; shim: number; skill: number } | 'none' | null;
   now: number | null;
   delivered: string[];
   outbox: Array<{ file: string; bytes: Buffer }>;
@@ -542,6 +638,7 @@ export function parsePollOutput(stdout: string): PollOutput {
     treeId: null,
     cliVersion: 0,
     skillVersion: 0,
+    windows: null,
     now: null,
     delivered: [],
     outbox: [],
@@ -561,6 +658,12 @@ export function parsePollOutput(stdout: string): PollOutput {
         break;
       case 'sv':
         out.skillVersion = Number(a) || 0;
+        break;
+      case 'wv':
+        if (a === 'none') out.windows = 'none';
+        else if (/^\d+$/.test(a) && /^\d+$/.test(b) && /^\d+$/.test(c)) {
+          out.windows = { cmd: Number(a), shim: Number(b), skill: Number(c) };
+        }
         break;
       case 'now':
         if (/^\d+$/.test(a)) out.now = Number(a);

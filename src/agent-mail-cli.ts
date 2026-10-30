@@ -12,6 +12,16 @@
  *
  * The script is exercised for real under `sh` in test/agent-mail-cli.test.ts.
  *
+ * Windows (native Windows claude on a machine whose WSL is a fleet system): the poll, which runs in
+ * WSL, also writes a Windows variant of the skill into the Windows profile's `.claude/skills` and
+ * two wrappers into `%USERPROFILE%\.config\claude-rc\bin` ({@link RC_MAIL_WINDOWS_CMD} for
+ * PowerShell/cmd, {@link RC_MAIL_WINDOWS_SHIM} for Git Bash, claude's Bash tool there) that run the
+ * WSL CLI through `wsl.exe`, so Windows claude shares that machine's WSL mailbox. The wrappers hand
+ * WSL `CLAUDE_RC_SESSION` (a dashboard pane exports it and tmux-manager.ts adds it to `WSLENV`) and
+ * the caller's folder (`RC_MAIL_CWD`, which WSLENV's `/p` turns into `/mnt/c/...`), so `whoami`
+ * finds the address the server lists. The install fills `@@WSLARGS@@` and `@@CLI@@` from checked
+ * values (the poll's `W` step in agent-mail.ts); nothing else is substituted.
+ *
  * @module agent-mail-cli
  */
 
@@ -318,16 +328,37 @@ case "$cmd" in
 esac
 `;
 
-export const RC_MAIL_SKILL = `---
+/** Bump when the Windows wrappers or the Windows skill change. */
+export const RC_MAIL_WINDOWS_VERSION = 1;
+
+/** How the skill tells claude to run the command, per system. */
+const RUN_UNIX = `\`~/.config/claude-rc/bin/rc-mail\` (run it by that path if \`rc-mail\` is not on PATH) keeps a mailbox
+per agent. The Claude RC server carries messages between machines; there is no other channel.`;
+
+const RUN_WINDOWS = `You are on Windows: \`rc-mail\` runs inside this machine's WSL through a wrapper and keeps a
+mailbox per agent. The Claude RC server carries messages between machines; there is no other
+channel. It is not on PATH; run it by its full path. Below, \`rc-mail\` stands for:
+
+- Bash tool (Git Bash): \`~/.config/claude-rc/bin/rc-mail\`
+- PowerShell: \`& "$env:USERPROFILE\\.config\\claude-rc\\bin\\rc-mail.cmd"\`
+- cmd: \`"%USERPROFILE%\\.config\\claude-rc\\bin\\rc-mail.cmd"\`
+
+Give message bodies on stdin with \`-\` (a heredoc in Git Bash, a pipe in PowerShell), never as an
+argument to the \`.cmd\` wrapper: cmd.exe re-reads \`& | < > ^ % "\` in arguments. Keep subjects to
+plain words. In Windows PowerShell 5, run \`$OutputEncoding = [Text.UTF8Encoding]::new($false)\`
+first, or non-ASCII text is piped as \`?\`. Example (PowerShell):
+\`"Can you review the API change?" | & "$env:USERPROFILE\\.config\\claude-rc\\bin\\rc-mail.cmd" send pc/api "Review request" -\``;
+
+function skillText(version: number, run: string, variant: string): string {
+  return `---
 name: rc-mail
 description: Message other Claude agents running on the user's Claude RC machines (other sessions, other machines, other Claude accounts) and read the messages they sent you. Use when the user asks you to contact, ask, tell, hand work to or coordinate with another agent or session, when a "[rc-mail]" notice appears, or while you wait on another agent's answer.
 ---
-<!-- claude-rc:rc-mail-skill v${RC_MAIL_SKILL_VERSION} (installed by Claude RC; delete this line to keep your own edits) -->
+<!-- claude-rc:rc-mail-skill v${version}${variant} (installed by Claude RC; delete this line to keep your own edits) -->
 
 # rc-mail: messages between agents
 
-\`~/.config/claude-rc/bin/rc-mail\` (run it by that path if \`rc-mail\` is not on PATH) keeps a mailbox
-per agent. The Claude RC server carries messages between machines; there is no other channel.
+${run}
 
 ## Commands
 
@@ -358,4 +389,48 @@ address the directory does not list yet (mail waits in that mailbox until someon
 - Keep messages short and self-contained: say who you are, what you need and by when.
 - A \`[rc-mail]\` line typed into your prompt is the dashboard waking you: run \`rc-mail inbox\`.
   Agents outside the dashboard are not woken; check your inbox when you expect an answer.
+`;
+}
+
+export const RC_MAIL_SKILL = skillText(RC_MAIL_SKILL_VERSION, RUN_UNIX, '');
+
+/** The skill native Windows claude reads (`%USERPROFILE%\.claude\skills\rc-mail\SKILL.md`). */
+export const RC_MAIL_WINDOWS_SKILL = skillText(RC_MAIL_WINDOWS_VERSION, RUN_WINDOWS, ' windows');
+
+/** What the wrappers hand to WSL: the dashboard key, the caller's folder (as a WSL path), an override. */
+export const RC_MAIL_WRAPPER_WSLENV = 'CLAUDE_RC_SESSION:RC_MAIL_CWD/p:RC_MAIL_AS';
+
+/**
+ * `rc-mail.cmd`, for PowerShell and cmd (CRLF line ends). The install replaces `@@WSLARGS@@` with
+ * `-u <user>` (plus `-d <distro>` when known) and `@@CLI@@` with the CLI's WSL path. Arguments pass
+ * through `%*`, which cmd.exe re-reads, so the skill sends bodies on stdin.
+ */
+export const RC_MAIL_WINDOWS_CMD = [
+  '@echo off',
+  `rem claude-rc:rc-mail-windows v${RC_MAIL_WINDOWS_VERSION}`,
+  'rem rc-mail for Windows: runs the Claude RC mail command inside WSL. Installed and updated by',
+  'rem the Claude RC server; delete the marker line above to keep a modified copy.',
+  'setlocal',
+  'set "RC_MAIL_CWD=%CD%"',
+  `set "RC_MAIL_WSLENV=${RC_MAIL_WRAPPER_WSLENV}"`,
+  'if defined WSLENV set "RC_MAIL_WSLENV=%WSLENV%:%RC_MAIL_WSLENV%"',
+  'set "WSLENV=%RC_MAIL_WSLENV%"',
+  'set "RC_MAIL_WSLENV="',
+  '"%SystemRoot%\\System32\\wsl.exe" @@WSLARGS@@ -e @@CLI@@ %*',
+  'exit /b %ERRORLEVEL%',
+  '',
+].join('\r\n');
+
+/**
+ * `rc-mail` (no extension), for Git Bash: claude's Bash tool on Windows. MSYS path conversion is
+ * off for the arguments (it would rewrite the CLI's `/home/...` path into a Windows one).
+ */
+export const RC_MAIL_WINDOWS_SHIM = `#!/bin/sh
+# claude-rc:rc-mail-windows v${RC_MAIL_WINDOWS_VERSION}
+# rc-mail for Windows (Git Bash): runs the Claude RC mail command inside WSL. Installed and updated
+# by the Claude RC server; delete the marker line above to keep a modified copy.
+RC_MAIL_CWD=$(pwd -W 2>/dev/null || cygpath -w "$PWD" 2>/dev/null || pwd)
+WSLENV="\${WSLENV:+$WSLENV:}${RC_MAIL_WRAPPER_WSLENV}"
+export RC_MAIL_CWD WSLENV
+MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 exec wsl.exe @@WSLARGS@@ -e @@CLI@@ "$@"
 `;

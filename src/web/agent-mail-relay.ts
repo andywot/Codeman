@@ -64,7 +64,16 @@ import {
   type PollOutput,
   type SentState,
 } from '../agent-mail.js';
-import { RC_MAIL_CLI, RC_MAIL_CLI_VERSION, RC_MAIL_SKILL, RC_MAIL_SKILL_VERSION } from '../agent-mail-cli.js';
+import {
+  RC_MAIL_CLI,
+  RC_MAIL_CLI_VERSION,
+  RC_MAIL_SKILL,
+  RC_MAIL_SKILL_VERSION,
+  RC_MAIL_WINDOWS_CMD,
+  RC_MAIL_WINDOWS_SHIM,
+  RC_MAIL_WINDOWS_SKILL,
+  RC_MAIL_WINDOWS_VERSION,
+} from '../agent-mail-cli.js';
 import type { SessionRemote } from '../types/index.js';
 
 export const POLL_ACTIVE_MS = 4_000;
@@ -159,6 +168,8 @@ interface EndpointState {
   treeId: string | null;
   cliVersion: number | null;
   skillVersion: number | null;
+  /** The Windows side's state: installed at our version, `none` (no profile), or not yet. */
+  windows: 'ok' | 'none' | null;
   writtenDirHash: string | null;
   counts: Map<string, { pending: number; unseen: number }>;
   presence: Array<{ name: string; cwd: string; at: number }>;
@@ -177,6 +188,8 @@ export interface AgentMailStatus {
     lastOkAt: number | null;
     error: string | null;
     installed: boolean;
+    /** The Windows side of a WSL machine (absent: no Windows system there). */
+    windows?: 'installed' | 'unavailable' | 'pending';
     aliasOf?: string;
   }>;
   agents: Array<MailAgent & { pending: number; unseen: number; nudge: boolean | null }>;
@@ -307,6 +320,7 @@ export class AgentMailRelay {
         treeId: null,
         cliVersion: null,
         skillVersion: null,
+        windows: null,
         writtenDirHash: null,
         counts: new Map(),
         presence: [],
@@ -364,13 +378,17 @@ export class AgentMailRelay {
       const ep = this.endpointOfSession(s, endpoints);
       if (!ep) continue;
       const key = s.remote ? this.ports.sessionKey(s) : undefined;
+      // A native Windows session is told by its key when its launch carried it into Windows (via
+      // WSLENV, tmux-manager.ts), and keeps the folder as a fallback: one launched before that, or
+      // whose claude does not pass it on, still finds its address by folder.
+      const exclusiveKey = !!key && s.remote?.system !== 'windows';
       sources.push({
         machine: this.machineOf(ep, endpoints),
         kind: 'dashboard',
         name: s.name,
         sid: s.id,
         ...(key ? { key } : {}),
-        ...(s.remote ? (key ? { ident: 'key' as const } : {}) : { ident: 'sid' as const }),
+        ...(s.remote ? (exclusiveKey ? { ident: 'key' as const } : {}) : { ident: 'sid' as const }),
         cwd: s.remote ? s.remote.remotePath : s.workingDir,
         title: s.name,
       });
@@ -431,6 +449,17 @@ export class AgentMailRelay {
     if (dirSent) items.push({ kind: 'directory', tsv: dir.tsv, json: dir.json, self: machine });
     const install = st.cliVersion !== RC_MAIL_CLI_VERSION || st.skillVersion !== RC_MAIL_SKILL_VERSION;
     if (install) items.push({ kind: 'install', cli: RC_MAIL_CLI, skill: RC_MAIL_SKILL });
+    // Native Windows claude on the same machine: after the first answer says the Windows side is
+    // missing or older, at most once per server run (whatever came of it stands until a restart).
+    const winInstall = !!ep.windows && st.windows === null && st.lastOkAt > 0;
+    if (winInstall) {
+      items.push({
+        kind: 'windows',
+        skill: RC_MAIL_WINDOWS_SKILL,
+        cmd: RC_MAIL_WINDOWS_CMD,
+        shim: RC_MAIL_WINDOWS_SHIM,
+      });
+    }
     let budget = MAX_DELIVER_BYTES;
     for (const q of this.queue) {
       const to = parseAddress(q.message.to);
@@ -468,6 +497,19 @@ export class AgentMailRelay {
       // The user owns the file (marker removed): do not try again every poll.
       st.cliVersion = RC_MAIL_CLI_VERSION;
       st.skillVersion = RC_MAIL_SKILL_VERSION;
+    }
+    if (ep.windows) {
+      const w = out.windows;
+      const current =
+        w !== null &&
+        w !== 'none' &&
+        w.cmd === RC_MAIL_WINDOWS_VERSION &&
+        w.shim === RC_MAIL_WINDOWS_VERSION &&
+        w.skill === RC_MAIL_WINDOWS_VERSION;
+      // A user's own file (marker removed), a symlinked folder or missing interop is not retried
+      // every poll: one attempt per run.
+      if (winInstall) st.windows = w === 'none' ? 'none' : 'ok';
+      else if (current) st.windows = 'ok';
     }
     if (dirSent) st.writtenDirHash = dir.hash;
     st.counts = out.counts;
@@ -748,6 +790,9 @@ export class AgentMailRelay {
           lastOkAt: st?.lastOkAt || null,
           error: st?.error ?? null,
           installed: !!st?.cliVersion,
+          ...(ep.windows
+            ? { windows: st?.windows === 'ok' ? 'installed' : st?.windows === 'none' ? 'unavailable' : 'pending' }
+            : {}),
           ...(alias ? { aliasOf: 'this server' } : {}),
         };
       }),

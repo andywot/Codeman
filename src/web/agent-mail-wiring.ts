@@ -10,7 +10,8 @@
  *   with the fixed script, data on stdin), so a poll never waits behind a user's command and never
  *   opens a connection per message;
  * - outside agents: claude-discovery.ts, its read-only script through the same idle-only shell;
- * - nudges: the session's own `writeViaMux`, gated on an idle pane and an empty composer;
+ * - nudges: the session's own `writeViaMux`, gated on an idle pane and an empty composer (a native
+ *   Windows session too: its local pane is the same tmux pane running ssh);
  * - state: `agent-mail.json` in the data dir, 0600, written tmp + rename.
  *
  * @module web/agent-mail-wiring
@@ -23,7 +24,7 @@ import { mailEndpoints, LOCAL_ENDPOINT_ID, type MailEndpoint } from '../agent-ma
 import { readRemoteHosts, shellescape } from '../remote-hosts.js';
 import { remoteExecIfIdle, remoteShellStatus } from '../remote-shell-pool.js';
 import { remoteSignalsKey, remoteSignalsSupport } from '../remote-session-signals.js';
-import { remoteTmuxLocation } from '../tmux-manager.js';
+import { isReclaimedRemote, remoteTmuxLocation } from '../tmux-manager.js';
 import {
   classifyDiscovery,
   discoverLocal,
@@ -122,7 +123,20 @@ export function createAgentMailRelay(deps: AgentMailDeps): AgentMailRelay {
   const sessionKey = (s: Session): string | undefined => {
     if (!s.remote) return undefined;
     const support = remoteSignalsSupport(s);
-    return support === 'on' || support === 'relaunch' ? remoteSignalsKey(s.remote, s.id) : undefined;
+    if (support === 'on' || support === 'relaunch') return remoteSignalsKey(s.remote, s.id);
+    // Native Windows claude: its launch exports the key too, and hands it to Windows through
+    // WSLENV (tmux-manager.ts), unless a host override or someone else started the pane.
+    const r = s.remote;
+    if (
+      support === 'unsupported' &&
+      r.system === 'windows' &&
+      !r.commands?.claude &&
+      !r.remoteTmuxSocket &&
+      (r.owned !== false || isReclaimedRemote(r))
+    ) {
+      return remoteSignalsKey(r, s.id);
+    }
+    return undefined;
   };
 
   return new AgentMailRelay({
