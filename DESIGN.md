@@ -311,13 +311,18 @@ Small, square-ish corners. Controls, chips, rows and buttons use 4px (`--btn-rad
 - Items are 20px, 6px padding, 3px corners; buttons among them get a hover fill and `ink` text.
 - **Connection:** a 7px dot, green connected, yellow reconnecting, red offline.
 - **Attention:** a 7px yellow diamond and `ink` weight-600 text ("Nothing waiting" / count waiting).
-- **Machines:** one item per machine with the machine-state dot and its usage rings.
 - **Usage rings:** one 11px ring per window, the arc is the share used, green, then yellow (`--mid`), then red (`--high`); the unused arc is `rule-strong`.
 - **Detection hints:** a 6px hollow `mark-muted` ring, deliberately quiet.
 
+### Machines in the Title Bar (signature)
+
+- Desktop only (768px+), right side of the title bar, after the server's CPU/MEM pill: ONE 24px pill (12px radius, `control-bg`, 1px `control-border`, JetBrains Mono 11px) holding one 20px entry per machine: machine-state dot, name in weight 600, then CPU and MEM usage rings with their percentages, or the state word (`asleep`, `offline`, `key refused`) when there are no figures. Below 1280px the percentages and the `server` tag drop out and the rings stay.
+- The machine the dashboard server runs on is never a second entry: the server's own CPU/MEM pill takes its name, a 10px uppercase `server` tag (1px `control-border`, 3px corners, `ink-muted`) and the machine's state dot at its left, separated from the readings by a 1px divider. Without such a machine the pill is labelled "This server" once other machines are listed. New session shows the same tag on the machine chip and offers the server's own agent as a "Server container" system of that machine.
+- An entry is a button: an asleep machine offers Wake-on-LAN on click, any other opens Machines & accounts. The tooltip carries the one-line fix hint.
+
 ### Machine Dots
 
-One dot language for the status bar and New session chips: 7px circle; green online, yellow online but unusable, hollow 1.5px `mark-muted` ring asleep, red offline, hollow 1.5px `accent` ring pulsing (1.2s, off under reduced motion) while waking.
+One dot language for the title bar machines and New session chips: 7px circle; green online, yellow online but unusable, hollow 1.5px `mark-muted` ring asleep, red offline, hollow 1.5px `accent` ring pulsing (1.2s, off under reduced motion) while waking.
 
 ### Overview Board (signature)
 

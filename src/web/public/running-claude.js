@@ -67,7 +67,7 @@ Object.assign(CodemanApp.prototype, {
     for (const target of targets) {
       const section = this._rnEl('section', 'rn-machine');
       const head = this._rnEl('div', 'rn-machine-head');
-      const name = target.hostId === null ? this._localMachineLabel?.() || target.name : target.name;
+      const name = target.hostId === null ? this._serverContainerLabel?.() || target.name : target.name;
       head.append(this._rnEl('h3', 'fm-h', name));
       if (target.hostId !== null) head.append(this._rnEl('span', 'rn-addr', target.address));
       const list = this._rnEl('div', 'rn-list');
@@ -251,7 +251,7 @@ Object.assign(CodemanApp.prototype, {
 
   async _resumeRunningClaude(dialog, target, p, button) {
     if (button.disabled) return;
-    const where = target.hostId === null ? this._localMachineLabel?.() || target.name : target.name;
+    const where = target.hostId === null ? this._serverContainerLabel?.() || target.name : target.name;
     const ok = confirm(
       `This Claude is still running on ${where} (pid ${p.pid}) in ${p.cwd}.\n\n` +
         'Resuming starts a second Claude on the same conversation. Both write to one log, ' +

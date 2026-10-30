@@ -6,7 +6,8 @@
  * - PUT    /api/fleet/accounts/:id            create or update an account; omit `secret` to
  *                                             keep the saved one, send "" to clear it
  * - DELETE /api/fleet/accounts/:id
- * - PUT    /api/fleet/machines/:slug          { name, host, username, port?, systems[], wakeMac? }
+ * - PUT    /api/fleet/machines/:slug          { name, host, username, port?, systems[], wakeMac?,
+ *                                             serverHost? }
  *                                             writes one remote host per system
  * - DELETE /api/fleet/machines/:slug          removes its hosts and their remote cases
  * - POST   /api/fleet/hosts/:id/test          ssh, tmux and claude on that system
@@ -71,6 +72,8 @@ const MachineSchema = z.object({
     .min(1)
     .max(3),
   wakeMac: z.string().max(200).optional(),
+  /** The dashboard server runs on this machine (shown as one entry with it). */
+  serverHost: z.boolean().optional(),
 });
 
 const AccountSchema = z.object({
@@ -97,13 +100,30 @@ function denied(req: FastifyRequest, reply: FastifyReply): ApiResponse<never> | 
 function groupMachines(hosts: RemoteHost[]) {
   const machines = new Map<
     string,
-    { name: string; host: string; username: string; port?: number; wakeMac?: string; systems: unknown[] }
+    {
+      name: string;
+      host: string;
+      username: string;
+      port?: number;
+      wakeMac?: string;
+      serverHost: boolean;
+      systems: unknown[];
+    }
   >();
   for (const h of hosts) {
     const name = h.machine || h.label.split(' · ')[0] || h.label;
     if (!machines.has(name)) {
-      machines.set(name, { name, host: h.host, username: h.username, port: h.port, wakeMac: h.wakeMac, systems: [] });
+      machines.set(name, {
+        name,
+        host: h.host,
+        username: h.username,
+        port: h.port,
+        wakeMac: h.wakeMac,
+        serverHost: false,
+        systems: [],
+      });
     }
+    if (h.serverHost === true) machines.get(name)!.serverHost = true;
     machines.get(name)!.systems.push({
       hostId: h.id,
       system: h.system ?? null,
@@ -221,6 +241,7 @@ export function registerFleetRoutes(
         username: machine.username,
         ...(machine.port ? { port: machine.port } : {}),
         ...(machine.wakeMac ? { wakeMac: machine.wakeMac } : {}),
+        ...(machine.serverHost ? { serverHost: true } : {}),
         machine: machine.name,
         system,
         // LAN machines: trust the host key on first connect (a later change still fails).

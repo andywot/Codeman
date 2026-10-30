@@ -25,6 +25,7 @@
  */
 
 import net from 'node:net';
+import { readFileSync } from 'node:fs';
 import type { RemoteHost } from './types.js';
 import { isProbeable, resolveWakeTarget, DEFAULT_SSH_PORT } from './remote-wake.js';
 import { remoteExecIfIdle, remoteShellStatus, RemoteExecError, type RemoteShellStatus } from './remote-shell-pool.js';
@@ -90,6 +91,14 @@ export interface MachineStatus extends MachineVerdict {
   name: string;
   host: string;
   port: number;
+  /**
+   * The dashboard server itself runs on this machine (in a container on it, say), so the
+   * UI shows the two as one. Set by the `serverHost` flag on the machine's hosts, or found
+   * when the machine's kernel boot id equals this server's (see {@link serverHostOf}).
+   */
+  isServerHost: boolean;
+  /** Where `isServerHost` came from; null when it is false. */
+  serverHostSource: 'setting' | 'detected' | null;
   /** A Wake-on-LAN MAC or wake command is configured; the hostId to wake through. */
   wakeHostId: string | null;
   load: MachineLoad | null;
@@ -269,11 +278,50 @@ export interface ProbeOutput {
   claude: boolean | null;
   cpu: CpuSample[];
   mem: string[];
+  /** The kernel's boot id (`/proc/sys/kernel/random/boot_id`), when readable. */
+  boot: string | null;
+}
+
+/** A kernel boot id (a UUID), lower-cased; null for anything else (an empty read, login noise). */
+export function normalizeBootId(text: string | null | undefined): string | null {
+  const id = (text ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id) ? id : null;
+}
+
+/**
+ * Whether a machine is the one the dashboard server runs on. The `serverHost` setting on
+ * any of its hosts wins. Otherwise the boot id decides: a container shares its host's
+ * kernel, so both read the same `boot_id`, and two different machines never do. A hostname
+ * match is NOT used: a container's hostname is its container id, and the address a
+ * container reaches its host by (a Docker bridge IP) is not the address the machine is
+ * configured with.
+ */
+export function serverHostOf(
+  hosts: Pick<RemoteHost, 'serverHost'>[],
+  machineBoot: string | null,
+  localBoot: string | null
+): { isServerHost: boolean; source: 'setting' | 'detected' | null } {
+  if (hosts.some((h) => h.serverHost === true)) return { isServerHost: true, source: 'setting' };
+  if (machineBoot && localBoot && machineBoot === localBoot) return { isServerHost: true, source: 'detected' };
+  return { isServerHost: false, source: null };
+}
+
+/** This server's own boot id; read once (it only changes at reboot, which restarts us too). */
+let localBootCache: string | null | undefined;
+export function readLocalBootId(): string | null {
+  if (localBootCache === undefined) {
+    try {
+      localBootCache = normalizeBootId(readFileSync('/proc/sys/kernel/random/boot_id', 'utf8'));
+    } catch {
+      localBootCache = null;
+    }
+  }
+  return localBootCache;
 }
 
 /** The `@@` marker lines of {@link buildProbeScript}'s output; anything else is login noise. */
 export function parseProbeOutput(stdout: string): ProbeOutput {
-  const out: ProbeOutput = { ok: false, tmux: null, claude: null, cpu: [], mem: [] };
+  const out: ProbeOutput = { ok: false, tmux: null, claude: null, cpu: [], mem: [], boot: null };
   for (const raw of stdout.split('\n')) {
     const line = raw.replace(/\r$/, '');
     if (line === '@@ok') out.ok = true;
@@ -283,6 +331,7 @@ export function parseProbeOutput(stdout: string): ProbeOutput {
       const sample = parseCpuLine(line.slice(6));
       if (sample) out.cpu.push(sample);
     } else if (line.startsWith('@@mem ')) out.mem.push(line.slice(6));
+    else if (line.startsWith('@@boot ')) out.boot = normalizeBootId(line.slice(7));
   }
   return out;
 }
@@ -312,6 +361,9 @@ export function buildProbeScript(opts: {
     lines.push(`[ -r /proc/stat ] && printf '@@cpu %s\\n' "$(head -n1 /proc/stat)"`);
     if (opts.secondSample)
       lines.push(`[ -r /proc/stat ] && sleep 0.3 && printf '@@cpu %s\\n' "$(head -n1 /proc/stat)"`);
+    lines.push(
+      `[ -r /proc/sys/kernel/random/boot_id ] && printf '@@boot %s\\n' "$(cat /proc/sys/kernel/random/boot_id)"`
+    );
     lines.push(`[ -r /proc/meminfo ] && grep -E '^(MemTotal|MemAvailable):' /proc/meminfo | sed 's/^/@@mem /'`);
   }
   lines.push('true');
@@ -361,6 +413,8 @@ export interface MachineStatusDeps {
   shellStatus(host: RemoteHost): RemoteShellStatus;
   exec(host: RemoteHost, script: string): Promise<ExecOutcome>;
   now(): number;
+  /** This server's kernel boot id, for finding the machine it runs on. Absent = no detection. */
+  localBootId?(): string | null;
 }
 
 export function createDefaultMachineStatusDeps(readHosts: () => Promise<RemoteHost[]>): MachineStatusDeps {
@@ -384,6 +438,7 @@ export function createDefaultMachineStatusDeps(readHosts: () => Promise<RemoteHo
         }
       ),
     now: () => Date.now(),
+    localBootId: () => readLocalBootId(),
   };
 }
 
@@ -406,6 +461,8 @@ export class MachineStatusMonitor {
   private readonly memo = new Map<string, HostMemo>();
   private readonly cpuPrev = new Map<string, CpuSample>();
   private readonly loadMemo = new Map<string, MachineLoad>();
+  /** Last kernel boot id read per machine. */
+  private readonly bootMemo = new Map<string, string>();
   /** Last unanswered probe per address of a wakeable machine. */
   private readonly quiet = new Map<string, { at: number; outcome: TcpOutcome }>();
   private forced = false;
@@ -542,6 +599,7 @@ export class MachineStatusMonitor {
       if (stats && ok) {
         loadTried = true;
         load = this.loadFrom(name, parsed);
+        if (parsed.boot) this.bootMemo.set(name, parsed.boot);
       }
     }
     // Keep the configured order in the answer.
@@ -552,10 +610,13 @@ export class MachineStatusMonitor {
       this.cpuPrev.delete(name);
       this.loadMemo.delete(name);
     }
+    const serverHost = serverHostOf(hosts, this.bootMemo.get(name) ?? null, this.deps.localBootId?.() ?? null);
     return {
       name,
       host: first.host,
       port,
+      isServerHost: serverHost.isServerHost,
+      serverHostSource: serverHost.source,
       wakeHostId: verdict.state === 'online' ? null : (wakeHost?.id ?? null),
       ...verdict,
       load,

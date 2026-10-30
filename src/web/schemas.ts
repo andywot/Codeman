@@ -962,6 +962,8 @@ export const RemoteHostSchema = z.object({
     .regex(/^[^\x00-\x1f'"`$\\]+$/, 'Invalid machine name')
     .optional(),
   system: z.enum(['wsl', 'windows', 'linux']).optional(),
+  // Fork (fleet.ts): the dashboard server runs on this machine.
+  serverHost: z.boolean().optional(),
 });
 
 export const RemoteCaseLinkSchema = z.object({

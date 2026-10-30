@@ -22,6 +22,8 @@ import {
   parseCpuLine,
   parseMemInfo,
   parseProbeOutput,
+  normalizeBootId,
+  serverHostOf,
   type ExecOutcome,
   type MachineStatusDeps,
   type TcpOutcome,
@@ -270,5 +272,72 @@ describe('MachineStatusMonitor', () => {
     const monitor = new MachineStatusMonitor(deps);
     await Promise.all([monitor.read(), monitor.read({ force: true })]);
     expect(calls.exec).toHaveLength(1);
+  });
+});
+
+// ── Which machine is the dashboard's own host ──
+
+const BOOT_A = '3f2b8a40-1c2d-4e5f-9a6b-7c8d9e0f1a2b';
+const BOOT_B = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+
+describe('the machine the server runs on', () => {
+  it('reads and normalises a kernel boot id', () => {
+    expect(normalizeBootId(` ${BOOT_A.toUpperCase()}\n`)).toBe(BOOT_A);
+    expect(normalizeBootId('not a uuid')).toBeNull();
+    expect(normalizeBootId('')).toBeNull();
+    expect(parseProbeOutput(`@@ok\n@@boot ${BOOT_A}\n`).boot).toBe(BOOT_A);
+    expect(parseProbeOutput('@@ok\n@@boot welcome back\n').boot).toBeNull();
+    expect(buildProbeScript({ tools: false, stats: true, secondSample: false, windows: false })).toContain(
+      '/proc/sys/kernel/random/boot_id'
+    );
+  });
+
+  it('the serverHost setting on any host wins, a matching boot id finds it otherwise', () => {
+    expect(serverHostOf([{ serverHost: true }, {}], null, null)).toEqual({ isServerHost: true, source: 'setting' });
+    expect(serverHostOf([{}], BOOT_A, BOOT_A)).toEqual({ isServerHost: true, source: 'detected' });
+    expect(serverHostOf([{}], BOOT_A, BOOT_B)).toEqual({ isServerHost: false, source: null });
+    // No reading on either side is never a match (two nulls are not "equal").
+    expect(serverHostOf([{}], null, null).isServerHost).toBe(false);
+    expect(serverHostOf([{}], BOOT_A, null).isServerHost).toBe(false);
+  });
+
+  it('flags the machine in the poll, by setting or by boot id', async () => {
+    const probe = (boot: string) => async () => ({
+      ok: true,
+      stdout: `${PROC(100, 900)}@@boot ${boot}\n`,
+      stderr: '',
+      timedOut: false,
+      busy: false,
+    });
+    const hosts = [
+      host('arr-linux', { machine: 'arr', system: 'linux' }),
+      host('lap-wsl', { machine: 'Laptop', system: 'wsl', host: '10.0.0.2' }),
+      host('nas-linux', { machine: 'NAS', system: 'linux', host: '10.0.0.3', serverHost: true }),
+    ];
+    const { deps } = fakeDeps({
+      hosts,
+      localBootId: () => BOOT_A,
+      exec: async (h, script) => (h.id === 'arr-linux' ? probe(BOOT_A) : probe(BOOT_B))(h, script),
+    } as never);
+    const machines = await new MachineStatusMonitor(deps).read();
+    const by = Object.fromEntries(machines.map((m) => [m.name, m]));
+    expect(by.arr).toMatchObject({ isServerHost: true, serverHostSource: 'detected' });
+    expect(by.Laptop).toMatchObject({ isServerHost: false, serverHostSource: null });
+    expect(by.NAS).toMatchObject({ isServerHost: true, serverHostSource: 'setting' });
+  });
+
+  it('does not detect anything when this server cannot read its own boot id', async () => {
+    const { deps } = fakeDeps({
+      hosts: [host('arr-linux', { machine: 'arr', system: 'linux' })],
+      exec: async () => ({
+        ok: true,
+        stdout: `${PROC(100, 900)}@@boot ${BOOT_A}\n`,
+        stderr: '',
+        timedOut: false,
+        busy: false,
+      }),
+    });
+    const [m] = await new MachineStatusMonitor(deps).read();
+    expect(m.isServerHost).toBe(false);
   });
 });

@@ -24672,6 +24672,24 @@ html[data-focus='on'] main {
   align-items: center;
   gap: 6px;
 }
+.fm-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fm-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-base);
+}
+.fm-check input {
+  accent-color: var(--accent);
+}
+.fm-check-note {
+  margin: -2px 0 0;
+  font-size: var(--fs-sm);
+}
 /* Shared config view inside Machines & accounts (shared-config.js). */
 .sc-view {
   display: flex;
@@ -25221,7 +25239,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
    One dot language for the status bar and the New session chips: green
    online, amber online but not usable (key refused, tools missing), a hollow
    ring asleep, red offline, a pulsing accent ring while waking. */
-:is(.rc-machine, .ns-chip)[data-mstate]::before {
+:is(.rc-machine, .ns-chip, .stat-host)[data-mstate]::before {
   content: '';
   flex: 0 0 auto;
   width: 7px;
@@ -25230,20 +25248,20 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   box-sizing: border-box;
   background: var(--mark-muted);
 }
-:is(.rc-machine, .ns-chip)[data-mstate='ok']::before {
+:is(.rc-machine, .ns-chip, .stat-host)[data-mstate='ok']::before {
   background: var(--green);
 }
-:is(.rc-machine, .ns-chip)[data-mstate='issue']::before {
+:is(.rc-machine, .ns-chip, .stat-host)[data-mstate='issue']::before {
   background: var(--yellow);
 }
-:is(.rc-machine, .ns-chip)[data-mstate='asleep']::before {
+:is(.rc-machine, .ns-chip, .stat-host)[data-mstate='asleep']::before {
   background: none;
   border: 1.5px solid var(--mark-muted);
 }
-:is(.rc-machine, .ns-chip)[data-mstate='offline']::before {
+:is(.rc-machine, .ns-chip, .stat-host)[data-mstate='offline']::before {
   background: var(--red);
 }
-.rc-machine[data-mstate='waking']::before {
+:is(.rc-machine, .stat-host)[data-mstate='waking']::before {
   background: none;
   border: 1.5px solid var(--accent);
   animation: rc-machine-wake 1.2s ease-in-out infinite;
@@ -25254,7 +25272,7 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rc-machine[data-mstate='waking']::before {
+  :is(.rc-machine, .stat-host)[data-mstate='waking']::before {
     animation: none;
   }
 }
@@ -26055,5 +26073,102 @@ html .toolbar .btn-git-status.git-status--conflict {
     width: auto !important;
     min-width: 0;
     max-width: none;
+  }
+}
+
+/* ── Fork: machines in the top bar (machine-status-ui.js renderHeaderMachines) ──
+   One pill holds one entry per machine: state dot, name, CPU ring + %, MEM ring + %.
+   The machine the dashboard server runs on is not an entry here: its name (with a
+   `server` tag and the machine's state dot) leads the server's own CPU/MEM pill,
+   whose figures are live. The pill is drawn the same in every header stats style, and
+   is a desktop thing: phones keep the New session chips and the Overview. */
+.header-machines,
+.stat-host {
+  font-family: 'JetBrains Mono', var(--font-mono, monospace);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.header-machines {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  gap: 2px;
+  border-radius: 12px;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  overflow: hidden;
+}
+.header-machines[hidden],
+.stat-host[hidden] {
+  display: none;
+}
+.hm-item,
+.stat-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hm-item:hover,
+.stat-host:hover {
+  background: var(--control-bg-hover);
+}
+.hm-name {
+  font-weight: 600;
+}
+.hm-tag {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 3px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 14px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hm-item .rc-ring-key {
+  font-variant-numeric: tabular-nums;
+}
+/* The name in front of the server's own pill: a divider, then the readings. */
+.header-system-stats > .stat-host {
+  flex: none;
+  margin: 0 2px 0 -6px;
+  padding-right: 9px;
+  border-radius: 10px 0 0 10px;
+  box-shadow: 1px 0 0 var(--control-border);
+}
+html[data-header-stats='tiles'] .header-system-stats > .stat-host {
+  height: 100%;
+  min-height: 32px;
+  align-self: stretch;
+}
+html[data-header-machines='off'] .header-machines,
+html[data-header-machines='off'] .stat-host {
+  display: none;
+}
+@media (max-width: 1279px) {
+  .hm-tag,
+  .hm-item .hm-pct {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  .header-machines,
+  .stat-host {
+    display: none;
   }
 }

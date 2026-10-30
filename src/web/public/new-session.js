@@ -85,22 +85,34 @@ Object.assign(CodemanApp.prototype, {
     return json && 'data' in json ? json.data : json;
   },
 
-  /** Fleet machines plus this server, each with its systems. */
+  /**
+   * Fleet machines plus this server, each with its systems. The machine the server runs on is
+   * ONE entry: the server's own agent (in its container) is an extra system of that machine
+   * ("Server container") instead of a second machine, so nothing is lost but the duplicate.
+   */
   _newSessionMachines(fleet) {
+    this.noteFleetServerHost?.(fleet);
+    const hostName = this._serverHostMachine?.()?.name || '';
     const list = (fleet?.machines || []).map((m) => ({
       name: m.name,
       address: m.host,
+      server: Boolean(hostName) && m.name === hostName,
       systems: m.systems.map((s) => ({
         id: s.hostId,
         system: s.system || (/windows/i.test(s.label) ? 'windows' : 'linux'),
         label: SYSTEM_NAMES[s.system] || s.label.split(' · ').slice(1).join(' · ') || 'Default',
       })),
     }));
-    list.push({
-      name: this._localMachineLabel?.() || 'This server',
-      address: 'local',
-      systems: [{ id: NEW_SESSION_LOCAL, system: 'linux', label: 'Local' }],
-    });
+    const merged = list.find((m) => m.server);
+    if (merged) {
+      merged.systems.push({ id: NEW_SESSION_LOCAL, system: 'linux', label: 'Server container' });
+    } else {
+      list.push({
+        name: this._localMachineLabel?.() || 'This server',
+        address: 'local',
+        systems: [{ id: NEW_SESSION_LOCAL, system: 'linux', label: 'Local' }],
+      });
+    }
     return list;
   },
 
@@ -204,7 +216,7 @@ Object.assign(CodemanApp.prototype, {
     const hintEl = $('.ns-hint');
     const browseEl = $('.ns-browse');
 
-    const chip = (label, selected, onPick, detail = '') => {
+    const chip = (label, selected, onPick, detail = '', tag = '') => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'ns-chip';
@@ -212,6 +224,12 @@ Object.assign(CodemanApp.prototype, {
       b.setAttribute('aria-checked', String(selected));
       b.setAttribute('data-i18n-skip', '');
       b.textContent = label;
+      if (tag) {
+        const t = document.createElement('span');
+        t.className = 'hm-tag';
+        t.textContent = tag;
+        b.appendChild(t);
+      }
       if (detail) {
         const d = document.createElement('span');
         d.className = 'ns-chip-detail';
@@ -370,7 +388,8 @@ Object.assign(CodemanApp.prototype, {
               render();
               queueBrowse(0);
             },
-            m.address === 'local' ? '' : (this.machineStatusDetail?.(m.name) ?? m.address)
+            m.address === 'local' ? '' : (this.machineStatusDetail?.(m.name) ?? m.address),
+            m.server ? 'server' : ''
           )
         )
       );

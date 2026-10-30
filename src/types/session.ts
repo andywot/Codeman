@@ -141,6 +141,13 @@ export interface RemoteHost extends RemoteSshOptions {
   machine?: string;
   /** Fork (fleet.ts): which system on the machine; `windows` runs Windows claude from WSL. */
   system?: 'wsl' | 'windows' | 'linux';
+  /**
+   * Fork (fleet.ts): the dashboard server itself runs on this machine (typically in a Docker
+   * container on it). The UI then shows the server and this machine as one entry. Set on
+   * every host of the machine; a machine that is not flagged may still be detected
+   * (machine-status.ts `serverHostOf`).
+   */
+  serverHost?: boolean;
 }
 
 export interface RemoteCase {

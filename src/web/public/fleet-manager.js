@@ -49,6 +49,7 @@ Object.assign(CodemanApp.prototype, {
       body.textContent = `Could not load: ${err.message}`;
       return;
     }
+    this.noteFleetServerHost?.(fleet);
     const el = (tag, cls, text) => {
       const node = document.createElement(tag);
       if (cls) node.className = cls;
@@ -77,10 +78,21 @@ Object.assign(CodemanApp.prototype, {
       const card = el('div', 'fm-card');
       const top = el('div', 'fm-card-top');
       const title = el('div', 'fm-card-title');
-      title.append(
-        el('strong', '', m.name),
-        el('span', 'fm-addr', `${m.username}@${m.host}${m.port ? ':' + m.port : ''}`)
-      );
+      const nameRow = el('div', 'fm-name-row');
+      nameRow.append(el('strong', '', m.name));
+      title.append(nameRow);
+      // The machine the dashboard server runs on: set here, or found by comparing kernels.
+      const detected = this._serverHostMachine?.();
+      const isServer = m.serverHost || detected?.name === m.name;
+      if (isServer) {
+        const tag = el('span', 'hm-tag', 'server');
+        tag.title =
+          !m.serverHost && detected?.source === 'detected'
+            ? 'The dashboard server runs on this machine (found automatically).'
+            : 'The dashboard server runs on this machine.';
+        nameRow.append(tag);
+      }
+      title.append(el('span', 'fm-addr', `${m.username}@${m.host}${m.port ? ':' + m.port : ''}`));
       const slug = (m.systems[0]?.hostId || '').replace(/-(wsl|windows|linux)$/, '').replace(/-wsl-.*$/, '');
       top.append(
         title,
@@ -259,6 +271,8 @@ Object.assign(CodemanApp.prototype, {
         </div>
       </div>
       <label class="ns-field"><span class="ns-label">Wake-on-LAN MAC (optional)</span><input class="ns-input" name="wakeMac" placeholder="18:C0:4D:AE:93:C9"></label>
+      <label class="fm-check"><input type="checkbox" name="serverHost"> <span>This is the dashboard's host</span></label>
+      <p class="fm-muted fm-check-note">Tick it on the machine the dashboard server itself runs on (for example the Docker host). It then shows as one entry, tagged <em>server</em>, instead of the server and that machine twice. Leave it off if the server runs somewhere that is not in this list.</p>
       <p class="ns-error" role="alert" hidden></p>
       <footer class="ns-foot">
         <button type="button" class="ns-cancel">Back</button>
@@ -269,6 +283,7 @@ Object.assign(CodemanApp.prototype, {
     form.username.value = machine?.username || '';
     form.port.value = machine?.port || '';
     form.wakeMac.value = machine?.wakeMac || '';
+    form.serverHost.checked = Boolean(machine?.serverHost);
     for (const box of form.querySelectorAll('input[name="sys"]')) box.checked = systems.has(box.value);
     form.querySelector('.ns-cancel').addEventListener('click', () => this._renderFleetManager(dialog));
     form.addEventListener('submit', async (event) => {
@@ -283,6 +298,7 @@ Object.assign(CodemanApp.prototype, {
       };
       if (form.port.value.trim()) payload.port = Number(form.port.value.trim());
       if (form.wakeMac.value.trim()) payload.wakeMac = form.wakeMac.value.trim();
+      if (form.serverHost.checked) payload.serverHost = true;
       try {
         await this._fetchJson(`/api/fleet/machines/${encodeURIComponent(slug)}`, {
           method: 'PUT',
@@ -383,7 +399,8 @@ Object.assign(CodemanApp.prototype, {
         if (form.apiSmallModel.value.trim()) payload.apiSmallModel = form.apiSmallModel.value.trim();
       }
       if (kind === 'shell') payload.setupCommand = form.setupCommand.value.trim();
-      if ((kind === 'shell' || kind === 'api') && form.quotaUrl.value.trim()) payload.quotaUrl = form.quotaUrl.value.trim();
+      if ((kind === 'shell' || kind === 'api') && form.quotaUrl.value.trim())
+        payload.quotaUrl = form.quotaUrl.value.trim();
       if ((kind === 'token' || kind === 'api') && form.secret.value.trim()) payload.secret = form.secret.value.trim();
       try {
         await this._fetchJson(`/api/fleet/accounts/${encodeURIComponent(id)}`, {

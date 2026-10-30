@@ -5707,6 +5707,9 @@ class CodemanApp {
       // same PC) share a section: the machine is the part before the first dot.
       const machine = this._machineNameOf(session.remote);
       if (machine) return { key: `machine:${machine}`, label: machine };
+      // A session on the server itself joins the machine the server runs on, when there is one.
+      const host = this._serverHostMachine?.();
+      if (host) return { key: `machine:${host.name}`, label: host.name };
       return { key: 'host:local', label: this._localMachineLabel() };
     }
     const dir = (session.workingDir || '').replace(/\/+$/, '');
@@ -5734,9 +5737,22 @@ class CodemanApp {
     return parts.length > 1 ? parts.slice(1).join(' · ') : '';
   }
 
-  /** Name of the machine Codeman itself runs on, for the machine grouping. */
+  /**
+   * Name of the machine Codeman itself runs on, for the machine grouping: the fleet machine
+   * the server runs on when there is one (so its sessions sit with that machine's), else
+   * "This server".
+   */
   _localMachineLabel() {
-    return window.__codemanHostname || 'This server';
+    return this._serverHostMachine?.()?.name || window.__codemanHostname || 'This server';
+  }
+
+  /**
+   * Where a list that keeps the server's own sessions apart from the machine's (history,
+   * running elsewhere) names them: the server container on that machine, else "This server".
+   */
+  _serverContainerLabel() {
+    const host = this._serverHostMachine?.();
+    return host ? `${host.name} (server container)` : this._localMachineLabel();
   }
 
   /**

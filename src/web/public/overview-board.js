@@ -107,9 +107,12 @@ Object.assign(CodemanApp.prototype, {
 
   /** Machine identity for a session: its remote host, else this server. */
   _overviewMachineFor(session) {
+    const host = this._serverHostMachine?.();
     const machine = this._machineNameOf?.(session?.remote);
-    if (machine) return { key: `machine:${machine}`, label: machine, remote: true };
-    return { key: 'host:local', label: this._localMachineLabel?.() || 'This server', remote: false };
+    if (machine) return { key: `machine:${machine}`, label: machine, remote: true, server: host?.name === machine };
+    // The server's own sessions sit with the machine it runs on: one section, not two.
+    if (host) return { key: `machine:${host.name}`, label: host.name, remote: false, server: true };
+    return { key: 'host:local', label: this._localMachineLabel?.() || 'This server', remote: false, server: false };
   },
 
   /** The last two folders of a path: what tells projects apart at a glance. */
@@ -182,7 +185,11 @@ Object.assign(CodemanApp.prototype, {
     }
     for (const section of sections) {
       body.appendChild(
-        this._buildOverviewSection(section.label, section.rows, order, { remote: section.remote, machine: true })
+        this._buildOverviewSection(section.label, section.rows, order, {
+          remote: section.remote,
+          server: section.server,
+          machine: true,
+        })
       );
     }
     const history = this._overviewHistoryBlock();
@@ -196,7 +203,12 @@ Object.assign(CodemanApp.prototype, {
     }
   },
 
-  _buildOverviewSection(label, rows, order, { attention = false, remote = false, machine = false } = {}) {
+  _buildOverviewSection(
+    label,
+    rows,
+    order,
+    { attention = false, remote = false, server = false, machine = false } = {}
+  ) {
     const section = document.createElement('section');
     section.className = 'ob-section' + (attention ? ' ob-section--attention' : '');
     const heading = document.createElement('h2');
@@ -208,7 +220,7 @@ Object.assign(CodemanApp.prototype, {
     if (machine) {
       const kind = document.createElement('span');
       kind.className = 'ob-section-kind';
-      kind.textContent = remote ? 'remote' : 'local';
+      kind.textContent = server ? 'server' : remote ? 'remote' : 'local';
       heading.appendChild(kind);
     }
     const count = document.createElement('span');
@@ -258,7 +270,7 @@ Object.assign(CodemanApp.prototype, {
     const model = document.createElement('span');
     model.className = 'ob-model';
     // Which system/account on the machine, then what the agent reports.
-    model.textContent = [this._machineVariantOf?.(session.remote), row.modeBadge || session.displayModel]
+    model.textContent = [this._machineVariantOf?.(session.remote), row.modeBadge || session.displayModel?.model]
       .filter(Boolean)
       .join(' · ');
     model.setAttribute('data-i18n-skip', '');
