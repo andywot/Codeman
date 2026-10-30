@@ -795,7 +795,8 @@ html.mobile-init .file-browser-panel {
     min-height: 32px;
     max-height: 32px;
     padding: 0.35rem 0.5rem;
-    font-size: var(--fs-xs);
+    /* 12px, one step up from 11: the names were the smallest text on the phone. */
+    font-size: var(--fs-sm);
     gap: 0.25rem;
     border-radius: 4px;
   }
@@ -900,14 +901,20 @@ html.mobile-init .file-browser-panel {
     opacity: 0.5;
   }
 
-  /* Truncate tab names on mobile. 80px, not the old 50px: session names share
-     a `w1-` style prefix, and at 50px "w1-ingest-pipeline" became "w1-inge…"
-     and a clipped tab just "w1-", which says nothing about which session it is.
-     The 20px the hidden tab number gave back pays for most of the difference. */
+  /* Truncate tab names on mobile. 104px, not the old 50px or 80px: session
+     names share a prefix (`w1-…`, `<project> · <account>`), and at 80px
+     "claude-rc · Personal" became "claude-rc · Pe…", which says nothing about
+     which account it is. The ACTIVE tab, the one being read, gets more room
+     (below), so its whole name fits in all but long cases. */
   .session-tab .tab-name {
-    max-width: 80px;
+    max-width: 104px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-tab.active .tab-name {
+    max-width: 148px;
   }
 
   /* ⚠️ Reserve a tappable label on the ACTIVE tab, which is the only one that
@@ -1475,7 +1482,7 @@ html.mobile-init .file-browser-panel {
     bottom: calc(var(--safe-area-bottom) + 40px); /* Above toolbar */
     left: 0;
     right: 0;
-    height: 44px;
+    height: var(--accessory-bar-height, 44px);
     background: #1a1a1a;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     padding: 6px 8px;
@@ -1584,9 +1591,24 @@ html.mobile-init .file-browser-panel {
     padding: 6px 14px;
   }
 
-  /* When keyboard is visible, also move accessory bar up */
-  .keyboard-visible .keyboard-accessory-bar.visible {
-    /* Position is handled by JS transform along with toolbar */
+  /* With the keyboard up the phone shows ONE row above it: the accessory bar.
+     The toolbar used to ride along underneath, and on Android Chrome the lift
+     came up short, so half of it peeked out between the accessory bar and the
+     keyboard. Its keys are covered while typing anyway (the keyboard has its
+     own Enter, the accessory bar its own Esc), so it steps aside and the
+     accessory bar takes its slot. KeyboardHandler.updateLayoutForKeyboard()
+     lifts whatever bars are visible and reserves their measured height. */
+  .keyboard-visible .toolbar {
+    display: none;
+  }
+
+  .keyboard-visible .keyboard-accessory-bar,
+  .keyboard-visible.ios-device.safari-browser .keyboard-accessory-bar {
+    bottom: var(--safe-area-bottom);
+  }
+
+  .touch-device.keyboard-visible #cjkInput.cjk-input-visible {
+    bottom: calc(var(--safe-area-bottom) + var(--accessory-bar-height, 44px));
   }
 
   /* Paste overlay for iOS clipboard access */

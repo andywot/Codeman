@@ -253,7 +253,7 @@ Desktop is an editor grid: title bar (`--header-height` 36px), explorer (`--tab-
 
 Rhythm is tight and ruled rather than spaced: board rows are 36px on a six-column grid (number 18px, mark 12px, name, folder, model, state) with 12px gaps; explorer rows 28px with 8px gaps; status items 20px. Sections are separated by 26px and a 1px rule, form fields by 18px. There is no spacing token in the CSS; the frontmatter steps are the values that recur.
 
-Phones (`max-width: 599px`): the home screen becomes a single column of 56px-minimum rows; the bottom toolbar is a fixed 40px bar with 32px keys (Stop, Enter, Attach, Settings) honouring the left and right safe-area insets; the keyboard accessory bar sits directly above it with 32px keys. Tabs run across the top as a horizontal strip. Breakpoints in use: 599px (phone), 767/768px (status line and focus mode).
+Phones (`max-width: 599px`): the home screen becomes a single column of 56px-minimum rows; the bottom toolbar is a fixed 40px bar of equal-width 32px keys (Stop, Enter, Attach, Settings; each key's hit area reaches the bar's full 40px) honouring the left and right safe-area insets. With the keyboard up the toolbar steps aside and the keyboard accessory bar, built the same way (40px, 32px keys growing equally, 13px labels), is the one row sitting on the keyboard. Tabs run across the top of a 44px title bar as a horizontal strip. Breakpoints in use: 599px (phone), 767/768px (status line and focus mode).
 
 ## Elevation & Depth
 
@@ -345,7 +345,7 @@ Full-width strips under the title bar (offline, reboot restore, host wake): 6px 
 
 ### Tab Rows (phone)
 
-On phones the session tabs run as a horizontal strip across the top: rounded chips with the state dot, a small agent badge (`SH` / `CC`) on a yellow tint, and the ellipsised name.
+On phones the session tabs run as a horizontal strip across the top, after the `RC` home mark (16px, 44px wide, a 1px rule after it): 32px chips with the state dot, the agent mark and the name in 12px, ellipsised at 104px (148px on the active tab). Inactive tabs are quiet: no fill or border, `ink-dim` names. The active tab is a `paper` chip with a 1px `rule-strong` border, a 2px `accent` underline and an `accent-text` weight-600 name, never a filled pink box.
 
 ### Phone Home
 
