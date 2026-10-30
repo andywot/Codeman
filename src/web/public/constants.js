@@ -1637,7 +1637,35 @@ if (typeof window !== 'undefined') {
     assign: assignMarkdownHeadingAnchors,
     find: findMarkdownAnchorTarget,
   };
+  // Terminal text size defaults (2026-10-30: raised a step, 12/14 still read
+  // small). A size the user picked is saved per device as `codeman-font-size`;
+  // a saved size below the new default is dropped ONCE (marker key), since it
+  // was almost always picked against the old, smaller defaults.
+  const TERMINAL_FONT_SIZE_DEFAULTS = { mobile: 13, desktop: 15 };
+  const TERMINAL_FONT_SIZE_MIGRATION_KEY = 'codeman-font-size-v2';
+  function terminalFontSizeDefault(deviceType) {
+    return deviceType === 'mobile' ? TERMINAL_FONT_SIZE_DEFAULTS.mobile : TERMINAL_FONT_SIZE_DEFAULTS.desktop;
+  }
+  /** The saved size (10..24), or null. Applies the one-time migration. */
+  function savedTerminalFontSize(storage, deviceType) {
+    try {
+      const raw = parseInt(storage.getItem('codeman-font-size'), 10);
+      const saved = raw >= 10 && raw <= 24 ? raw : null;
+      if (!storage.getItem(TERMINAL_FONT_SIZE_MIGRATION_KEY)) {
+        storage.setItem(TERMINAL_FONT_SIZE_MIGRATION_KEY, '1');
+        if (saved !== null && saved < terminalFontSizeDefault(deviceType)) {
+          storage.removeItem('codeman-font-size');
+          return null;
+        }
+      }
+      return saved;
+    } catch {
+      return null;
+    }
+  }
   window.CodemanTerminalFont = {
+    defaultSize: terminalFontSizeDefault,
+    savedSize: savedTerminalFontSize,
     DEFAULT_STACK: TERMINAL_FONT_DEFAULT_STACK,
     resolve: resolveTerminalFontFamily,
     WEIGHT_DEFAULTS: TERMINAL_FONT_WEIGHT_DEFAULTS,

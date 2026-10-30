@@ -236,7 +236,9 @@
         theme: { ...global.codemanCurrentXtermTheme() },
         fontFamily: global.CodemanTerminalFont.resolve(this.fontSettings.terminalFontFamily),
         ...global.CodemanTerminalFont.resolveWeights(this.fontSettings),
-        fontSize: Number.isFinite(savedFontSize) ? savedFontSize : 14,
+        fontSize: Number.isFinite(savedFontSize)
+          ? savedFontSize
+          : global.CodemanTerminalFont.defaultSize(global.MobileDetection?.getDeviceType?.()),
         lineHeight: 1.2,
         cursorBlink: false,
         cursorStyle: 'block',

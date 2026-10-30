@@ -759,12 +759,11 @@ Object.assign(CodemanApp.prototype, {
       // Both weight slots, each falling back to xterm's own default for that
       // slot, so an untouched install renders exactly as it always has.
       ...window.CodemanTerminalFont.resolveWeights(fontSettings),
-      // Phones default a step below desktop, not two: 10px was hard to read at
-      // arm's length, and 12px still leaves ~55 columns at 412px for Claude's
-      // status line. A size the user picked (Ctrl +/-, the header font
-      // controls) is saved per device as `codeman-font-size` and loadFontSize()
-      // applies it after this, so it still wins.
-      fontSize: MobileDetection.getDeviceType() === 'mobile' ? 12 : 14,
+      // Defaults live in CodemanTerminalFont.defaultSize (phone 13, desktop 15).
+      // A size the user picked (Ctrl +/-, the header font controls) is saved
+      // per device as `codeman-font-size` and loadFontSize() applies it after
+      // this, so it still wins.
+      fontSize: window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType()),
       lineHeight: 1.2,
       cursorBlink: false,
       cursorStyle: 'block',
@@ -6508,7 +6507,7 @@ Object.assign(CodemanApp.prototype, {
       this.setTileFontSize(Math.min(this._tileGridFontSize() + 2, 24));
       return;
     }
-    const current = this.terminal.options.fontSize || 14;
+    const current = this.terminal.options.fontSize || window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType());
     this.setFontSize(Math.min(current + 2, 24));
   },
 
@@ -6517,7 +6516,7 @@ Object.assign(CodemanApp.prototype, {
       this.setTileFontSize(Math.max(this._tileGridFontSize() - 2, 10));
       return;
     }
-    const current = this.terminal.options.fontSize || 14;
+    const current = this.terminal.options.fontSize || window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType());
     this.setFontSize(Math.max(current - 2, 10));
   },
 
@@ -6624,14 +6623,9 @@ Object.assign(CodemanApp.prototype, {
   },
 
   loadFontSize() {
-    const saved = localStorage.getItem('codeman-font-size');
-    if (saved) {
-      const size = parseInt(saved, 10);
-      if (size >= 10 && size <= 24) {
-        this.terminal.options.fontSize = size;
-        document.getElementById('fontSizeDisplay').textContent = size;
-      }
-    }
+    const size = window.CodemanTerminalFont.savedSize(localStorage, MobileDetection.getDeviceType());
+    if (size !== null) this.terminal.options.fontSize = size;
+    document.getElementById('fontSizeDisplay').textContent = this.terminal.options.fontSize;
   },
 
   /**
