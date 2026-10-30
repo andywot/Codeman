@@ -25043,6 +25043,20 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 .rail-project:focus-within {
   background: var(--control-bg-hover);
 }
+.rail-project.is-dragging {
+  opacity: 0.5;
+}
+.rail-project.drop-before {
+  box-shadow: 0 -2px 0 0 var(--accent);
+}
+.rail-project.drop-after {
+  box-shadow: 0 2px 0 0 var(--accent);
+}
+.tab-rail-projects.is-drag-active {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
 .rail-project.is-busy {
   opacity: 0.55;
 }

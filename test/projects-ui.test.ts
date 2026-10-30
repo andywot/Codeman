@@ -47,3 +47,16 @@ describe('CodemanProjects', () => {
     });
   });
 });
+
+describe('CodemanProjects.moveId', () => {
+  const M = P as unknown as { moveId(ids: string[], d: string, t: string, after: boolean): string[] | null };
+  it('moves a row before or after another', () => {
+    expect(M.moveId(['a', 'b', 'c'], 'c', 'a', false)).toEqual(['c', 'a', 'b']);
+    expect(M.moveId(['a', 'b', 'c'], 'a', 'b', true)).toEqual(['b', 'a', 'c']);
+  });
+  it('returns null when nothing changes', () => {
+    expect(M.moveId(['a', 'b', 'c'], 'a', 'a', true)).toBeNull();
+    expect(M.moveId(['a', 'b', 'c'], 'a', 'b', false)).toBeNull();
+    expect(M.moveId(['a', 'b'], 'x', 'b', false)).toBeNull();
+  });
+});

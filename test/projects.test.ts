@@ -102,4 +102,16 @@ describe('project routes', () => {
     await Promise.all([1, 2, 3, 4, 5].map((n) => post({ ...pick, path: `/home/a/p${n}` })));
     expect(await readProjects(dirRef.dir)).toHaveLength(5);
   });
+  it('reorders by id list, keeps unnamed projects after, ignores unknown ids', async () => {
+    const ids: string[] = [];
+    for (const n of [1, 2, 3]) ids.push((await post({ ...pick, path: `/home/a/p${n}` })).json().data.project.id);
+    const put = (payload: unknown) =>
+      h.app.inject({ method: 'PUT', url: '/api/projects/order', payload: payload as object });
+    const r = await put({ ids: [ids[2], 'p-gone', ids[0]] });
+    expect(r.statusCode).toBe(200);
+    expect((await readProjects(dirRef.dir)).map((p) => p.id)).toEqual([ids[2], ids[0], ids[1]]);
+    const list = await h.app.inject({ method: 'GET', url: '/api/projects' });
+    expect(list.json().data.projects.map((p: { id: string }) => p.id)).toEqual([ids[2], ids[0], ids[1]]);
+    expect((await put({ ids: 'nope' })).statusCode).toBe(400);
+  });
 });

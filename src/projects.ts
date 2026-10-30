@@ -32,6 +32,8 @@ export const ProjectInputSchema = z.object({
 
 export const ProjectRenameSchema = z.object({ name: z.string().trim().min(1).max(60) });
 
+export const ProjectOrderSchema = z.object({ ids: z.array(z.string().max(40)).max(200) });
+
 export type ProjectInput = z.infer<typeof ProjectInputSchema>;
 export interface Project extends ProjectInput {
   id: string;
@@ -83,4 +85,24 @@ export function sameProject(a: ProjectInput, b: ProjectInput): boolean {
     (a.accountId || '') === (b.accountId || '') &&
     (a.model || '') === (b.model || '')
   );
+}
+
+/**
+ * Put `projects` in the order of `ids`. Unknown ids and repeats are ignored; a project the
+ * list does not name (saved from another device meanwhile) keeps its relative place after
+ * the named ones, so a stale drag can never drop a project.
+ */
+export function reorderProjects<T extends { id: string }>(projects: T[], ids: string[]): T[] {
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const id of ids) {
+    const p = byId.get(id);
+    if (p && !seen.has(id)) {
+      seen.add(id);
+      out.push(p);
+    }
+  }
+  for (const p of projects) if (!seen.has(p.id)) out.push(p);
+  return out;
 }

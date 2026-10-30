@@ -41,6 +41,18 @@ const CodemanProjects = {
       .join(' · ');
   },
 
+  /**
+   * `ids` with `dragId` moved next to `targetId` (before it, or after when `after`).
+   * Returns null when nothing would change (same row, unknown id, or already there).
+   */
+  moveId(ids, dragId, targetId, after) {
+    if (dragId === targetId || !ids.includes(dragId) || !ids.includes(targetId)) return null;
+    const rest = ids.filter((id) => id !== dragId);
+    const at = rest.indexOf(targetId) + (after ? 1 : 0);
+    rest.splice(at, 0, dragId);
+    return rest.every((id, i) => id === ids[i]) ? null : rest;
+  },
+
   /** What `_startPick` takes. */
   toPick(project) {
     return {
@@ -100,6 +112,130 @@ Object.assign(CodemanApp.prototype, {
     await this.loadProjects();
   },
 
+  /** Save a new order (optimistic: the rail already shows it; a refusal reloads the server's). */
+  async reorderProjects(ids) {
+    const current = this._projects || [];
+    const byId = new Map(current.map((p) => [p.id, p]));
+    this._projects = [...ids.map((id) => byId.get(id)).filter(Boolean), ...current.filter((p) => !ids.includes(p.id))];
+    this.renderProjectRail();
+    try {
+      await this._fetchJson('/api/projects/order', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+    } catch (err) {
+      this.showToast?.(`Could not save the order: ${err.message}`, 'error');
+      await this.loadProjects();
+    }
+  },
+
+  /**
+   * Drag a project to reorder (mouse: press and move; touch: long-press, then move). Pointer
+   * events bound once on the rail host, which survives every re-render; a click that ends
+   * a drag is swallowed so it does not start a session.
+   */
+  _bindProjectDrag(host) {
+    if (host._projectDragBound) return;
+    host._projectDragBound = true;
+    let drag = null;
+    const clearMarks = () =>
+      host
+        .querySelectorAll('.drop-before, .drop-after')
+        .forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+    const end = () => {
+      if (!drag) return;
+      clearTimeout(drag.timer);
+      window.removeEventListener('pointerup', drag.up, true);
+      window.removeEventListener('pointercancel', drag.cancel, true);
+      drag.row.classList.remove('is-dragging');
+      host.classList.remove('is-drag-active');
+      clearMarks();
+      if (drag.active) {
+        const swallow = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        };
+        window.addEventListener('click', swallow, { capture: true, once: true });
+        setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
+      }
+      drag = null;
+    };
+    const activate = () => {
+      if (!drag) return;
+      drag.active = true;
+      drag.row.classList.add('is-dragging');
+      host.classList.add('is-drag-active');
+    };
+    const targetAt = (x, y) => {
+      const hit = document.elementFromPoint(x, y);
+      const row = hit && hit.closest ? hit.closest('.rail-project') : null;
+      if (!row || !host.contains(row)) return null;
+      const r = row.getBoundingClientRect();
+      return { row, id: row.dataset.id, after: y >= r.top + r.height / 2 };
+    };
+    host.addEventListener('pointerdown', (e) => {
+      end();
+      if (e.button !== 0) return;
+      const row = e.target.closest('.rail-project');
+      if (!row || !row.dataset.id || e.target.closest('.rail-project-more, input')) return;
+      drag = {
+        row,
+        id: row.dataset.id,
+        x: e.clientX,
+        y: e.clientY,
+        pointerId: e.pointerId,
+        touch: e.pointerType === 'touch',
+        active: false,
+        target: null,
+      };
+      drag.up = (ev) => {
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+        const t = drag.active ? targetAt(ev.clientX, ev.clientY) || drag.target : null;
+        const id = drag.id;
+        end();
+        if (!t) return;
+        const ids = (this._projects || []).map((p) => p.id);
+        const next = CodemanProjects.moveId(ids, id, t.id, t.after);
+        if (next) this.reorderProjects(next);
+      };
+      drag.cancel = () => end();
+      window.addEventListener('pointerup', drag.up, true);
+      window.addEventListener('pointercancel', drag.cancel, true);
+      if (drag.touch) drag.timer = setTimeout(activate, 450);
+    });
+    host.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+      if (!drag.active) {
+        if (drag.touch) {
+          // Moved before the long-press fired: this is a scroll, not a drag.
+          if (moved > 8) end();
+          return;
+        }
+        if ((e.buttons & 1) === 0) return end();
+        if (moved < 6) return;
+        activate();
+      }
+      e.preventDefault();
+      clearMarks();
+      const t = targetAt(e.clientX, e.clientY);
+      drag.target = t;
+      if (t && t.id !== drag.id) t.row.classList.add(t.after ? 'drop-after' : 'drop-before');
+    });
+    // Once a long-press drag is live, keep the rail from scrolling under the finger.
+    host.addEventListener(
+      'touchmove',
+      (e) => {
+        if (drag && drag.active && e.cancelable) e.preventDefault();
+      },
+      { passive: false }
+    );
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && drag) end();
+    });
+  },
+
   async removeProject(id) {
     await this._fetchJson(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
     await this.loadProjects();
@@ -130,6 +266,7 @@ Object.assign(CodemanApp.prototype, {
     if (!host) return;
     const projects = this._projects || [];
     host.hidden = !projects.length;
+    this._bindProjectDrag(host);
     host.replaceChildren();
     if (!projects.length) return;
     const head = document.createElement('div');
@@ -140,6 +277,7 @@ Object.assign(CodemanApp.prototype, {
       const item = document.createElement('div');
       item.className = 'rail-project';
       item.setAttribute('data-i18n-skip', '');
+      item.dataset.id = project.id;
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'rail-project-main';

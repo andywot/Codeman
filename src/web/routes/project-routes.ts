@@ -4,6 +4,7 @@
  * - GET    /api/projects        the saved projects, oldest first
  * - POST   /api/projects        save one (the same pick twice returns the existing one)
  * - PATCH  /api/projects/:id    { name } rename
+ * - PUT    /api/projects/order  { ids } the new order (drag to reorder, shared by every device)
  * - DELETE /api/projects/:id
  *
  * Stored in ~/.codeman/projects.json (src/projects.ts). Admin-only in multi-user mode,
@@ -19,9 +20,11 @@ import { isAdmin } from '../route-helpers.js';
 import {
   MAX_PROJECTS,
   ProjectInputSchema,
+  ProjectOrderSchema,
   ProjectRenameSchema,
   newProjectId,
   readProjects,
+  reorderProjects,
   sameProject,
   writeProjects,
 } from '../../projects.js';
@@ -70,6 +73,21 @@ export function registerProjectRoutes(app: FastifyInstance): void {
       await writeProjects(dir(), [...projects, project]);
       reply.code(201);
       return { success: true, data: { project, created: true } };
+    });
+  });
+
+  app.put('/api/projects/order', async (req, reply) => {
+    const no = denied(req, reply);
+    if (no) return no;
+    const parsed = ProjectOrderSchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return createErrorResponse(ApiErrorCode.INVALID_INPUT, 'Send { ids: [project ids in the new order] }');
+    }
+    return exclusive(async () => {
+      const projects = reorderProjects(await readProjects(dir()), parsed.data.ids);
+      await writeProjects(dir(), projects);
+      return { success: true, data: { projects } };
     });
   });
 

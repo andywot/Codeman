@@ -6,7 +6,8 @@
  * under {workingDir}/.codeman-uploads/. The route only triggers cleanup on
  * killMux=true session deletion, so long-lived sessions can fill disk under
  * heavy pasting. This sweeper bounds disk use by deleting `paste-*` files
- * older than MAX_AGE_MS from each live session's upload dirs on an interval.
+ * older than MAX_AGE_MS from each live session's upload dirs on an interval;
+ * remote (ssh) sessions get the same sweep on their machine, one command per host.
  *
  * Conservative defaults — only files matching the `paste-` prefix are
  * considered, and we lstat (not stat) so a planted symlink cannot escape the
@@ -17,6 +18,9 @@ import { realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { getDataDir } from '../config/instance.js';
 import { probePathKind, type PathProbeOptions } from '../utils/bounded-path-probe.js';
+import { shellescape } from '../remote-hosts.js';
+import { remoteExecIfIdle } from '../remote-shell-pool.js';
+import type { RemoteHost } from '../types.js';
 import type { SessionPort } from './ports/index.js';
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -129,6 +133,78 @@ export async function sweepPasteImagesOnce(
   return { scanned, deleted };
 }
 
+/** The slice of a session the remote sweep reads: where it runs and its working folder there. */
+export interface RemoteSweepSession {
+  remote?: {
+    hostId: string;
+    host: string;
+    username: string;
+    port?: number;
+    remotePath: string;
+  } & Record<string, unknown>;
+}
+
+/** Runs one script on a host; resolves on exit 0, rejects otherwise. Injectable for tests. */
+export type RemoteSweepExec = (host: RemoteHost, script: string) => Promise<unknown>;
+
+/**
+ * The one shell command that sweeps a host's upload dirs. For each directory: only a REAL
+ * `<dir>/.codeman-uploads` (not a link someone planted there), only regular files
+ * (`-type f`, and `find` never follows links) directly inside it (`-maxdepth 1`) named
+ * `paste-*` and last modified more than 7 days ago (`-mtime +7`). Paths are shell-escaped
+ * tokens; every folder is independent (`;`), so one that is gone does not stop the rest.
+ * Pure, so the test pins the exact text.
+ */
+export function buildRemoteSweepScript(dirs: readonly string[]): string {
+  return dirs
+    .map((dir) => {
+      const up = `${dir.replace(/\/+$/, '')}/${UPLOADS_DIR}`;
+      const q = shellescape(up);
+      return `if [ -d ${q} ] && [ ! -L ${q} ]; then find ${q} -maxdepth 1 -type f -name 'paste-*' -mtime +7 -exec rm -f -- {} +; fi`;
+    })
+    .join('; ');
+}
+
+/**
+ * Same 7-day sweep for REMOTE (ssh) sessions, whose uploads `pushUploadToHost()` (fleet.ts)
+ * wrote into `<remote workspace>/.codeman-uploads/` on the machine. ONE command per host per
+ * sweep, naming only the workspaces of that host's live sessions here (several sessions in
+ * one folder collapse to one entry). Never wakes anything: it only ever asks a pooled shell
+ * that is idle (`remoteExecIfIdle`, the machine poll's way), the Wake-on-LAN registry is not
+ * involved, and a host that does not answer (asleep, offline, busy) is skipped until the next
+ * hour; the files are old news. Windows systems are WSL under the hood (the same POSIX shell
+ * and `/mnt/c/...` path the upload used), so they sweep like the rest.
+ */
+export async function sweepRemotePasteImagesOnce(
+  ctx: { sessions: Map<string, RemoteSweepSession> | { values(): Iterable<RemoteSweepSession> } },
+  exec: RemoteSweepExec = (host, script) => remoteExecIfIdle(host, script, { timeout: 30_000, maxBuffer: 64 * 1024 })
+): Promise<{ hosts: number; swept: number; failed: number }> {
+  const byHost = new Map<string, { host: RemoteHost; dirs: Set<string> }>();
+  for (const session of ctx.sessions.values()) {
+    const remote = session.remote;
+    if (!remote || typeof remote.remotePath !== 'string') continue;
+    // Absolute only: a relative or empty path would sweep the login directory's own .codeman-uploads.
+    if (!remote.remotePath.startsWith('/') || remote.remotePath.replace(/\/+$/, '') === '') continue;
+    let entry = byHost.get(remote.hostId);
+    if (!entry) {
+      entry = { host: remote as unknown as RemoteHost, dirs: new Set() };
+      byHost.set(remote.hostId, entry);
+    }
+    entry.dirs.add(remote.remotePath.replace(/\/+$/, ''));
+  }
+  let swept = 0;
+  let failed = 0;
+  for (const { host, dirs } of byHost.values()) {
+    try {
+      await exec(host, buildRemoteSweepScript([...dirs]));
+      swept += 1;
+    } catch {
+      failed += 1; // asleep, busy or unreachable: next hour
+    }
+  }
+  return { hosts: byHost.size, swept, failed };
+}
+
 /**
  * The path two sessions must share to share an upload dir: the canonical
  * path when it can be resolved, so a sibling that reaches the same directory
@@ -197,12 +273,12 @@ export function pasteImageDirInUseByOtherSession(input: {
 }
 
 export function startPasteImageGc(ctx: Pick<SessionPort, 'sessions'>): () => void {
-  const initial = setTimeout(() => {
+  const sweep = (): void => {
     void sweepPasteImagesOnce(ctx);
-  }, INITIAL_DELAY_MS);
-  const interval = setInterval(() => {
-    void sweepPasteImagesOnce(ctx);
-  }, SWEEP_INTERVAL_MS);
+    void sweepRemotePasteImagesOnce(ctx as unknown as Parameters<typeof sweepRemotePasteImagesOnce>[0]).catch(() => {});
+  };
+  const initial = setTimeout(sweep, INITIAL_DELAY_MS);
+  const interval = setInterval(sweep, SWEEP_INTERVAL_MS);
   if (typeof initial.unref === 'function') initial.unref();
   if (typeof interval.unref === 'function') interval.unref();
   return (): void => {
