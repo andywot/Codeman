@@ -830,6 +830,11 @@ Object.assign(CodemanApp.prototype, {
       }
       if (ev.isComposing || ev.key === 'Process' || ev.keyCode === 229) return true;
 
+      // A key the pane keys took (the prefix and the key after it, tile-grid.js
+      // handlePaneKeydown): stopped in the capture phase already, refused here too
+      // so it can never reach the PTY (and arm the tmux prefix behind the tab).
+      if (this._paneKeyConsumed?.(ev)) return false;
+
       // Let the app's Alt/Option session-nav and Command Palette shortcuts reach the document keydown handler
       // (app.js switches tabs by PHYSICAL e.code) instead of xterm injecting ESC<char> into
       // the PTY. Mirror app.js's gate exactly — same physical codes + modifier guard — so

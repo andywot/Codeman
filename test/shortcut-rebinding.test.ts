@@ -48,6 +48,8 @@ function makeApp(initial: Record<string, any> = {}) {
   });
   vm.runInContext(`${read('constants.js')}\n${read('app.js')}\nglobalThis.__CodemanApp = CodemanApp;`, context);
   vm.runInContext(read('settings-ui.js'), context, { filename: 'settings-ui.js' });
+  // The pane keys' matcher and labels (the `prefix: true` entries).
+  vm.runInContext(read('tile-grid.js'), context, { filename: 'tile-grid.js' });
   const CodemanApp = (context as unknown as { __CodemanApp: { prototype: object } }).__CodemanApp;
   const app = Object.create(CodemanApp.prototype) as App;
   app.loadAppSettingsFromStorage = () => settings;
@@ -231,5 +233,33 @@ describe('duplicate chords are refused', () => {
     app.resetShortcutOverride('next-session-alt');
     app.resetShortcutOverride('clear-terminal');
     expect(settings.shortcutOverrides['clear-terminal']).toBeUndefined();
+  });
+});
+
+describe('keys after the pane prefix (tmux-style panes)', () => {
+  it('capture a bare key, the produced character only (Shift is part of it)', () => {
+    const { app, settings } = makeApp();
+    app.onShortcutCaptureKeydown(key({ key: '|', code: 'Backslash', shiftKey: true }), 'pane-split-horizontal');
+    expect(settings.shortcutOverrides['pane-split-horizontal'].bindings).toEqual([{ modifiers: [], key: '|' }]);
+    expect(app.showToast).not.toHaveBeenCalled();
+  });
+
+  it('conflict only with another prefixed key, never with a chord of the same shape', () => {
+    const { app } = makeApp();
+    // `x` after the prefix is Close Pane.
+    expect(app.findShortcutConflict(key({ key: 'x', code: 'KeyX' }), 'pane-zoom')).toBe(
+      'Close Pane (the session keeps running)'
+    );
+    // Ctrl+Left after the prefix (Resize Pane Left) does not take Ctrl+Left from a chord.
+    expect(app.findShortcutConflict(key({ ctrlKey: true, key: 'ArrowLeft' }), 'next-session-alt')).toBe('');
+    // A prefixed key never collides with the chords' reserved list.
+    expect(app.findShortcutConflict(key({ ctrlKey: true, key: 'v', code: 'KeyV' }), 'pane-zoom')).toBe('');
+  });
+
+  it('a refused capture leaves the binding as it was', () => {
+    const { app, settings } = makeApp();
+    app.onShortcutCaptureKeydown(key({ key: 'o', code: 'KeyO' }), 'pane-zoom');
+    expect(settings.shortcutOverrides?.['pane-zoom']).toBeUndefined();
+    expect(app.showToast).toHaveBeenCalledWith(expect.stringContaining('Next Pane'), 'error');
   });
 });

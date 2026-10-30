@@ -2514,7 +2514,16 @@ export function registerSessionRoutes(
     const body = req.body as Record<string, unknown>;
     const key = typeof body?.key === 'string' ? body.key : '';
 
-    if (key !== 'S-Enter' && key !== 'C-Enter') {
+    // `C-<letter>` / `M-<letter or digit>`: the browser pane prefix pressed twice
+    // (tile-grid.js, tmux's send-prefix). Typed into the pane with send-keys -H,
+    // so the byte never passes the tab's tmux attach client and cannot arm that
+    // client's own prefix table.
+    const prefixLiteral = /^C-[a-z]$/.test(key)
+      ? [(key.charCodeAt(2) - 96).toString(16).padStart(2, '0')]
+      : /^M-[a-z0-9]$/.test(key)
+        ? ['1b', key.charCodeAt(2).toString(16).padStart(2, '0')]
+        : null;
+    if (key !== 'S-Enter' && key !== 'C-Enter' && !prefixLiteral) {
       return createErrorResponse(ApiErrorCode.INVALID_INPUT, `Key not allowed: ${key}`);
     }
 
@@ -2532,9 +2541,10 @@ export function registerSessionRoutes(
       'esc-enter': ['1b', '0d'], // ESC CR, the Alt/Option+Enter chord
     };
     const hex =
-      key === 'C-Enter'
+      prefixLiteral ??
+      (key === 'C-Enter'
         ? NEWLINE_HEX['line-feed']
-        : NEWLINE_HEX[getCli(session.mode)?.capabilities.newline ?? 'line-feed'];
+        : NEWLINE_HEX[getCli(session.mode)?.capabilities.newline ?? 'line-feed']);
 
     try {
       // Route through the dedicated Codeman socket — bare `tmux` would target the

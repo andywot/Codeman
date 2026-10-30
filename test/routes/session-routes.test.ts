@@ -263,6 +263,24 @@ describe('session-routes', () => {
       it('falls back to a line feed for a mode the registry does not know', async () => {
         expect(await sentHex('no-such-cli', 'S-Enter')).toEqual(['0a']);
       });
+
+      it('types the literal pane prefix (C-<letter>, M-<letter>) as its byte, past the attach client', async () => {
+        expect(await sentHex('claude', 'C-b')).toEqual(['02']);
+        expect(await sentHex('shell', 'C-a')).toEqual(['01']);
+        expect(await sentHex('claude', 'M-x')).toEqual(['1b', '78']);
+        expect(await sentHex('claude', 'M-1')).toEqual(['1b', '31']);
+      });
+    });
+
+    it.each(['C-B', 'C-bb', 'C-', 'M-', 'M-%', 'C-1', 'C-b; rm'])('refuses %s as a prefix literal', async (key) => {
+      execFile.mockReset();
+      const res = await harness.app.inject({
+        method: 'POST',
+        url: '/api/sessions/test-session-1/send-key',
+        payload: { key },
+      });
+      expect(JSON.parse(res.body).success).toBe(false);
+      expect(execFile).not.toHaveBeenCalled();
     });
 
     it('answers 409 CONFLICT, without an error log, when a guarded submit cannot hold the key', async () => {
