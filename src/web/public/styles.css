@@ -25,6 +25,24 @@
   font-weight: 100 800;
   src: url('fonts/jetbrains-mono-variable.woff2') format('woff2');
 }
+/* The glyphs JetBrains Mono does not have and Claude Code draws all the time
+   (⎿ ⏵ ⏺ ✻ ✳ ✔ ✘ ⧉ ◐ ☐ ☒ ⏸ ...), cut from Iosevka Term SS14 (the Iosevka set that
+   imitates JetBrains Mono), re-centred in a 600-unit cell and renamed
+   (fonts/LICENSE-terminal-fonts.txt, scripts/build-terminal-symbols-font.py).
+   Second in the xterm stack (constants.js: TERMINAL_FONT_DEFAULT_STACK), so every
+   device falls back to THIS face for those glyphs instead of whatever the OS has
+   (thin and mismatched in Firefox, tofu on Android). The descriptor spans every
+   weight on purpose: the face is static, and a narrower range would make the
+   browser synthesize bold by smearing the 500 outlines. Awaited by
+   _awaitTerminalFont (it is deliberately NOT in TERMINAL_FONT_UNMEASURED): a
+   glyph drawn into xterm's atlas before this loads stays a fallback glyph. */
+@font-face {
+  font-family: 'Codeman Terminal Symbols';
+  font-style: normal;
+  font-display: block;
+  font-weight: 100 900;
+  src: url('fonts/codeman-terminal-symbols.woff2') format('woff2');
+}
 /* Icons-only per-glyph fallback for the terminal (Symbols Nerd Font Mono, MIT,
    fonts/LICENSE-nerd-fonts.txt). Sits BEHIND the text fonts in the xterm stack
    (constants.js: TERMINAL_FONT_DEFAULT_STACK), so it only ever supplies the
@@ -37,6 +55,13 @@
   font-style: normal;
   font-display: block;
   src: url('fonts/symbols-nerd-font-mono.woff2') format('woff2');
+}
+
+/* A terminal shows what the program wrote. Firefox draws xterm's DOM-renderer rows
+   through the font's `calt`, which turned `->` into a drawn arrow and `=>` into
+   `⇒` (the canvas/WebGL renderer never did, so the two browsers disagreed). */
+.xterm .xterm-rows {
+  font-variant-ligatures: none;
 }
 
 :root {

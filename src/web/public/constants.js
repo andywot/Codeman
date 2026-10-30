@@ -1229,10 +1229,14 @@ const TERMINAL_FONT_WAIT_MS = 2000;
  */
 const TERMINAL_FONT_UNMEASURED = new Set(['monospace', 'serif', 'sans-serif', 'system-ui', 'symbols nerd font mono']);
 
-// The bundled JetBrains Mono leads so every device draws the same face; the
-// installed families after it only matter if the woff2 fails to load.
+// The bundled JetBrains Mono leads so every device draws the same face, and
+// "Codeman Terminal Symbols" (fonts/codeman-terminal-symbols.woff2) comes
+// straight after it: it carries the glyphs Claude Code draws that JetBrains Mono
+// lacks (⎿ ⏵ ⏺ ✻ ✔ ✘ ⧉ ◐ ☐ ...), so they never reach an OS fallback (thin in
+// Firefox, tofu on Android). The installed families after it only matter if the
+// woff2 files fail to load.
 const TERMINAL_FONT_DEFAULT_STACK =
-  '"JetBrains Mono", "Fira Code", "Cascadia Code", "SF Mono", Monaco, "Symbols Nerd Font Mono", monospace';
+  '"JetBrains Mono", "Codeman Terminal Symbols", "Fira Code", "Cascadia Code", "SF Mono", Monaco, "Symbols Nerd Font Mono", monospace';
 
 /**
  * Resolve the xterm fontFamily from the per-device `terminalFontFamily`
