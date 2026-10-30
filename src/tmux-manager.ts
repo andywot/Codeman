@@ -293,6 +293,18 @@ const PANE_LIST_FORMAT =
  * 或命令替换，因为 fullCmd 目前经由双引号 bash -c 传递，外层
  * shell 会提前展开它们。
  */
+/**
+ * The `bash -c` argument of a pane's respawn-pane line. A local launch keeps the historical
+ * double quotes (its exports expand on this same host either way). A remote (ssh) or docker
+ * launch is already fully shell-escaped for the FAR side and must reach it verbatim: in
+ * double quotes this host's shell expanded every `$VAR` and `$(...)` first, so an account
+ * token's `$(cat ~/.config/claude-rc/<id>.secret)` ran HERE (empty, or a stale local copy),
+ * `$HOME` became the server's home and the hooks' `$CLAUDE_RC_SESSION` vanished.
+ */
+export function quotePaneLaunch(launchCmd: string, verbatim: boolean): string {
+  return verbatim ? shellescape(launchCmd) : JSON.stringify(launchCmd);
+}
+
 export function buildNofileLimitCommand(targetLimit = CLAUDE_CODE_NOFILE_LIMIT): string {
   const safeLimit = Number.isSafeInteger(targetLimit) && targetLimit > 0 ? targetLimit : CLAUDE_CODE_NOFILE_LIMIT;
   return `ulimit -Sn ${safeLimit} 2>/dev/null || ulimit -n ${safeLimit} 2>/dev/null || true`;
@@ -2691,7 +2703,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
       // pane launch in /tmp, then cd inside bash against the current mount table.
       const launchCmd = remote || docker || adoptedTmux ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
       execSync(
-        `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${JSON.stringify(launchCmd)}`,
+        `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${quotePaneLaunch(launchCmd, Boolean(remote || docker))}`,
         {
           timeout: EXEC_TIMEOUT_MS,
           stdio: 'ignore',
@@ -2949,7 +2961,7 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
       // -c /tmp + cd bounce — see createSession() for rationale (stale FUSE state).
       const launchCmd = remote || docker || adoptedTmux ? fullCmd : `cd ${JSON.stringify(workingDir)} && ${fullCmd}`;
       await execAsync(
-        `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${JSON.stringify(launchCmd)}`,
+        `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${muxName}" bash -c ${quotePaneLaunch(launchCmd, Boolean(remote || docker))}`,
         {
           timeout: EXEC_TIMEOUT_MS,
         }
@@ -3342,10 +3354,13 @@ export class TmuxManager extends EventEmitter implements TerminalMultiplexer {
         execSync(`${this.tmux()} set-option -t "${name}" ${opt}`, { timeout: EXEC_TIMEOUT_MS, stdio: 'ignore' });
       }
       restrictTmuxPrefixTable(this.tmux());
-      execSync(`${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${name}" bash -c ${JSON.stringify(cmd)}`, {
-        timeout: EXEC_TIMEOUT_MS,
-        stdio: 'ignore',
-      });
+      execSync(
+        `${this.tmux()} respawn-pane -k -c ${TMUX_LAUNCH_CWD} -t "${name}" bash -c ${quotePaneLaunch(cmd, true)}`,
+        {
+          timeout: EXEC_TIMEOUT_MS,
+          stdio: 'ignore',
+        }
+      );
       await new Promise((resolve) => setTimeout(resolve, TMUX_CREATION_WAIT_MS));
       const pid = this.getPanePid(name);
       if (pid) console.log(`[TmuxManager] Reattached remote session ${remoteName} for ${session.sessionId}`);
