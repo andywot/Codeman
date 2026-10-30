@@ -58,8 +58,8 @@ const APP_SHELL = [
   '/vendor/xterm-addon-fit.min.js',
   '/vendor/xterm-addon-unicode11.min.js',
   '/vendor/xterm.css',
-  '/icon-192.png',
-  '/icon-512.png',
+  '/icon-rc-192.png',
+  '/icon-rc-512.png',
   '/manifest.json',
 ].map(B);
 
@@ -146,8 +146,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: body || '',
     tag: tag || 'codeman-default',
-    icon: B('/icon-192.png'),
-    badge: B('/icon-192.png'),
+    icon: B('/icon-rc-192.png'),
+    badge: B('/icon-rc-192.png'),
     data: { sessionId, approvalId, url: sessionId ? B(`/?session=${sessionId}`) : B('/') },
     renotify: true,
     requireInteraction: urgency === 'critical',
