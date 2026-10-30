@@ -25439,64 +25439,241 @@ html[data-tab-orientation='vertical'] .tab-rail-projects:not([hidden]) {
 }
 
 /* ── Fork: phone chrome on the workbench skin ────────────────────────────────
-   The skin's 32px status-line toolbar is a desktop size. mobile.css lays the
-   phone out around a 40px fixed toolbar (the accessory bar sits 40px up and
-   `main` reserves 40px), so the 32px bar left an 8px strip of terminal between
-   the accessory bar and the toolbar, and the skin's `padding: 0 8px` dropped the
-   landscape safe-area insets. The keys grow to fill both bars: they are the
-   phone's most-tapped controls. Upstream's navy Enter and the accessory confirm
-   state are repainted in skin tokens (the light-skin repaint in mobile.css
-   resets every .accessory-btn, which hid "Tap again"). */
+   One key language for the phone's two bars and one chip language for its tab
+   strip, so the edges of the screen read as one surface:
+
+   - Bars are 40px with 32px keys (DESIGN.md). Each key's hit area reaches the
+     full 40px through a transparent ::after, so a thumb landing on the bar's
+     padding still presses the key. The toolbar's keys share the width equally
+     (Stop, Enter, Attach, Settings, plus the mic when voice is on); the
+     accessory bar's keys grow equally from their content and scroll when an
+     extended layout has more than fit. Enter keeps the accent outline that
+     marks it as the one send key, but it is the same size as its neighbours.
+   - With the keyboard up only the accessory bar shows (mobile.css hides the
+     toolbar), sitting straight on the keyboard.
+   - The header is 44px, the phone floor for a touch target, holding 32px tabs:
+     inactive tabs are quiet chips, the active one is a paper chip with a 2px
+     accent underline and an accent-text name, no filled pink box.
+   - Labels are 13px (body), tab names 12px: one step up from the 10 and 11px
+     the phone used to draw them at.
+
+   The keyboard accessory confirm state is repainted in skin tokens (the
+   light-skin repaint in mobile.css resets every .accessory-btn, which hid
+   "Tap again"). */
 @media (max-width: 599px) {
   html[data-skin="monokai-pro-light"] {
+    --header-height: calc(44px * var(--ui-scale));
     --toolbar-height: 40px;
+    --accessory-bar-height: 40px;
   }
+
+  /* ── Title bar: the RC home mark, then the strip ── */
+  html[data-skin="monokai-pro-light"] header.header {
+    gap: 0;
+    padding-left: var(--safe-area-left);
+  }
+  html[data-skin="monokai-pro-light"] header.header .header-brand {
+    margin: 0 6px 0 0;
+    padding: 0 6px 0 0;
+    border-right: 1px solid var(--border);
+    height: 28px;
+  }
+  html[data-skin="monokai-pro-light"] header.header .header-brand .logo {
+    min-width: 44px;
+    height: var(--header-height);
+    margin-left: 0;
+    border-radius: 0;
+    font-size: var(--fs-lg);
+    letter-spacing: 0.02em;
+  }
+  html[data-skin="monokai-pro-light"] header.header .header-brand .logo:active {
+    background: var(--control-bg);
+  }
+
+  /* ── Tab strip ── */
+  html[data-skin="monokai-pro-light"] .header .session-tabs {
+    gap: 4px;
+    align-items: center;
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab {
+    height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-dim);
+    opacity: 1;
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab:active {
+    background: var(--control-bg);
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab .tab-name {
+    font-weight: 500;
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab.active,
+  html[data-skin="monokai-pro-light"] .header .session-tab.active[data-color] {
+    background: var(--bg-dark) !important;
+    border: 1px solid var(--border-light) !important;
+    box-shadow: inset 0 -2px 0 var(--accent) !important;
+    color: var(--text) !important;
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab.active .tab-name {
+    font-weight: 600;
+    color: var(--accent-text);
+  }
+  /* The active tab's gear and close sit on paper: dim ink at full strength
+     (upstream faded the gear to 60%, 2:1). */
+  html[data-skin="monokai-pro-light"] .session-tab.active :is(.tab-gear, .tab-close) {
+    color: var(--text-dim);
+    opacity: 1;
+  }
+  html[data-skin="monokai-pro-light"] .header .session-tab.active .tab-gear {
+    font-size: var(--fs-base);
+  }
+
+  /* ── Bottom toolbar (keyboard down) ── */
   html[data-skin="monokai-pro-light"] footer.toolbar {
-    padding: 4px 8px;
+    padding: 0 8px;
     padding-left: calc(8px + var(--safe-area-left));
     padding-right: calc(8px + var(--safe-area-right));
+    gap: 0;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
   }
-  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar {
+  /* The centre slot holds only the desktop mic on a phone (hidden): its
+     margin pushed the keys 6px off the bar's right edge. */
+  html[data-skin="monokai-pro-light"] footer.toolbar .toolbar-center {
+    margin: 0;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .toolbar-left,
+  html[data-skin="monokai-pro-light"] footer.toolbar .toolbar-left .toolbar-group:first-child {
+    gap: 8px;
+    justify-content: flex-start;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-toolbar.btn-stop, .btn-toolbar.btn-enter, .btn-attach-mobile-wrap, .btn-voice-mobile, .btn-settings-mobile) {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  /* Every key, drawn the same: 32px, paper, a 1px control border, dim ink. */
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-toolbar.btn-stop, .btn-toolbar.btn-enter, .btn-attach-mobile, .btn-voice-mobile, .btn-settings-mobile) {
+    position: relative;
+    box-sizing: border-box;
     height: 32px !important;
     min-height: 32px !important;
     max-height: 32px !important;
+    /* No side padding: with flex-basis 0 it would add to these keys' width
+       and not to the attach key's (its wrapper is the flex item). */
+    padding: 0 !important;
+    margin: 0;
+    /* The outline is an inset shadow, not a border, for the same reason. */
+    border: 0 !important;
+    border-radius: var(--btn-radius) !important;
+    background: var(--bg-dark) !important;
+    color: var(--text-dim) !important;
+    font-size: var(--fs-base) !important;
     line-height: 32px;
+    box-shadow: inset 0 0 0 1px var(--control-border) !important;
   }
-  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-attach-mobile, .btn-voice-mobile, .btn-settings-mobile) {
-    width: 32px;
-    height: 32px;
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-attach-mobile {
+    width: 100%;
   }
-  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-stop {
-    min-width: 32px;
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-toolbar.btn-stop, .btn-attach-mobile, .btn-voice-mobile, .btn-settings-mobile) svg {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+  /* Settings is a text glyph (U+2699), not an svg: size it to match the icons. */
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-settings-mobile.btn-settings-mobile.btn-settings-mobile {
+    font-size: var(--fs-lg) !important;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-stop svg {
+    width: 12px;
+    height: 12px;
+  }
+  /* Enter is the send key: same box, the accent outline and an accent-text label. */
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-enter {
+    box-shadow: inset 0 0 0 1px var(--accent) !important;
+    color: var(--accent-text) !important;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-toolbar.btn-stop, .btn-toolbar.btn-enter, .btn-voice-mobile, .btn-settings-mobile):active,
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-attach-mobile-wrap:active .btn-attach-mobile {
+    background: var(--control-bg) !important;
+    color: var(--text) !important;
+  }
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-enter:active {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-dark)) !important;
+    color: var(--accent-text) !important;
   }
   html[data-skin="monokai-pro-light"] footer.toolbar .btn-toolbar.btn-run-gear {
     min-width: 26px !important;
   }
-  html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter {
-    background: var(--bg-dark) !important;
-    border: 1px solid var(--accent) !important;
-    color: var(--accent-text) !important;
+  /* 40px hit areas: the key's own box reaches the bar's full height. The
+     attach key's wrapper takes the taps (its file input covers it), so the
+     wrapper is the 40px box and the key is centred inside it. */
+  html[data-skin="monokai-pro-light"] footer.toolbar :is(.btn-toolbar.btn-stop, .btn-toolbar.btn-enter, .btn-voice-mobile, .btn-settings-mobile)::after {
+    content: '';
+    position: absolute;
+    inset: -5px -4px;
   }
-  html[data-skin="monokai-pro-light"] .btn-toolbar.btn-enter:active {
-    background: color-mix(in srgb, var(--accent) 12%, var(--bg-dark)) !important;
+  html[data-skin="monokai-pro-light"] footer.toolbar .btn-attach-mobile-wrap {
+    height: 40px;
+    align-items: center;
+  }
+
+  /* ── Keyboard accessory bar (keyboard up) ── */
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar {
+    height: 40px;
+    padding: 0 8px;
+    padding-left: calc(8px + var(--safe-area-left));
+    padding-right: calc(8px + var(--safe-area-right));
+    gap: 6px;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
   }
   html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn {
-    min-height: 32px;
-  }
-  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn-dismiss {
+    position: relative;
+    box-sizing: border-box;
+    flex: 1 0 0;
+    min-width: min-content;
     height: 32px;
-    padding-block: 0;
+    min-height: 32px;
+    margin: 0;
+    padding: 0 10px;
+    border-radius: var(--btn-radius);
+    font-size: var(--fs-base);
+    font-weight: 500;
+    line-height: 1;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+  /* Dismiss is a key like the others, not a 100px slab pushed to the end. */
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn-dismiss {
+    flex: 1 0 0;
+    max-width: none;
+    margin-left: 0;
+    padding: 0 10px;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn-dismiss svg {
+    width: 18px;
+    height: 18px;
+  }
+  html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn::after {
+    content: '';
+    position: absolute;
+    inset: -4px -3px;
   }
   html[data-skin="monokai-pro-light"] .keyboard-accessory-bar .accessory-btn.confirming {
     background: color-mix(in srgb, var(--yellow) 18%, var(--bg-input));
     border-color: var(--yellow);
     color: var(--yellow-text);
-  }
-  /* The active tab's gear and close sit on its accent tint: dim ink at full
-     strength (upstream faded the gear to 60%, 2:1). */
-  html[data-skin="monokai-pro-light"] .session-tab.active :is(.tab-gear, .tab-close) {
-    color: var(--text-dim);
-    opacity: 1;
   }
 }
 

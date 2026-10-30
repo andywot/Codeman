@@ -437,13 +437,12 @@ const KeyboardHandler = {
 
       if (isSmallMedium) {
         // Phones/small tablets: toolbar and accessory bar are position:fixed
-        // via CSS. Use translateY to lift them above the keyboard.
+        // via CSS. Use translateY to lift them above the keyboard. On a phone
+        // the toolbar itself is hidden while the keyboard is up (mobile.css),
+        // so the accessory bar is the one row left above the keyboard.
         const toolbar = document.querySelector('.toolbar');
         const main = document.querySelector('.main');
-
-        const layoutHeight = window.innerHeight;
-        const visualBottom = window.visualViewport.offsetTop + window.visualViewport.height;
-        const keyboardOffset = Math.max(0, layoutHeight - visualBottom);
+        const keyboardOffset = this._keyboardLift([toolbar, accessoryBar]);
 
         if (toolbar) {
           toolbar.style.transform = keyboardOffset > 0 ? `translateY(${-keyboardOffset}px)` : '';
@@ -454,9 +453,17 @@ const KeyboardHandler = {
         if (caseSheet) {
           caseSheet.style.transform = keyboardOffset > 0 ? `translateY(${-keyboardOffset}px)` : '';
         }
+        if (cjkInput?.classList.contains('cjk-input-visible')) {
+          cjkInput.style.transform = keyboardOffset > 0 ? `translateY(${-keyboardOffset}px)` : '';
+          cjkInput.style.bottom = '';
+        }
         if (main && keyboardHeight > 0) {
+          // Reserve what the bars measure (the accessory bar alone on a phone,
+          // the toolbar too on a small tablet, plus the CJK row), not a fixed
+          // 84px that kept counting the toolbar after it was hidden.
           const cjkInputHeight = cjkInput?.classList.contains('cjk-input-visible') ? 44 : 0;
-          main.style.paddingBottom = `${84 + cjkInputHeight}px`;
+          const bars = this._fixedBottomBarsHeight();
+          main.style.paddingBottom = `${bars > 0 ? bars : 84 + cjkInputHeight}px`;
         }
       } else if (keyboardHeight > 0) {
         // iPad: use direct bottom positioning (translateY unreliable —
@@ -470,23 +477,47 @@ const KeyboardHandler = {
       }
 
       // CJK textarea positioning (always position:fixed on touch devices).
-      if (cjkInput?.classList.contains('cjk-input-visible') && keyboardHeight > 0) {
-        if (isSmallMedium) {
-          // Phones: use translateY like toolbar/accessory bar.
-          const layoutHeight = window.innerHeight;
-          const visualBottom = window.visualViewport.offsetTop + window.visualViewport.height;
-          const keyboardOffset = Math.max(0, layoutHeight - visualBottom);
-          cjkInput.style.transform = keyboardOffset > 0 ? `translateY(${-keyboardOffset}px)` : '';
-          cjkInput.style.bottom = '';
-        } else {
-          // iPad: direct bottom = keyboard + accessory bar height.
-          cjkInput.style.bottom = `${keyboardHeight + 44}px`;
-          cjkInput.style.transform = '';
-        }
+      // Phones lift it with the bars above; iPad: direct bottom = keyboard +
+      // accessory bar height.
+      if (!isSmallMedium && cjkInput?.classList.contains('cjk-input-visible') && keyboardHeight > 0) {
+        cjkInput.style.bottom = `${keyboardHeight + 44}px`;
+        cjkInput.style.transform = '';
       }
     } else {
       this.resetLayout();
     }
+  },
+
+  /**
+   * How far to lift the fixed bottom bars so the lowest visible one sits on
+   * the keyboard's top edge.
+   *
+   * Measured, not derived from `innerHeight`: the bars rest on the fixed
+   * containing block (less the safe-area inset), and on Android Chrome that
+   * block's bottom and `innerHeight` can disagree, which left the lowest bar
+   * partly under the keyboard. Transforms are cleared first so the reading is
+   * the resting position; the caller sets them again before anything paints.
+   *
+   * @param {Array<HTMLElement|null>} bars - hidden or missing ones are skipped
+   * @returns {number} px to translate up (0 when the keyboard does not cover them)
+   */
+  _keyboardLift(bars) {
+    const vv = window.visualViewport;
+    if (!vv) return 0;
+    const visualBottom = vv.offsetTop + vv.height;
+    let restingBottom = -Infinity;
+    for (const bar of bars) {
+      if (!bar || typeof bar.getBoundingClientRect !== 'function') continue;
+      bar.style.transform = '';
+      const style = window.getComputedStyle?.(bar);
+      if (style && (style.display === 'none' || style.visibility === 'hidden')) continue;
+      const rect = bar.getBoundingClientRect();
+      if (rect.height > 0) restingBottom = Math.max(restingBottom, rect.bottom);
+    }
+    // Nothing laid out to measure: fall back to the layout-viewport estimate.
+    if (!Number.isFinite(restingBottom)) restingBottom = window.innerHeight;
+    const lift = Math.round(restingBottom - visualBottom);
+    return lift > 0 ? lift : 0;
   },
 
   /** Reset layout to normal (no keyboard) */

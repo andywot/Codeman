@@ -759,8 +759,12 @@ Object.assign(CodemanApp.prototype, {
       // Both weight slots, each falling back to xterm's own default for that
       // slot, so an untouched install renders exactly as it always has.
       ...window.CodemanTerminalFont.resolveWeights(fontSettings),
-      // Use smaller font on mobile to fit more columns (prevents wrapping of Claude's status line)
-      fontSize: MobileDetection.getDeviceType() === 'mobile' ? 10 : 14,
+      // Phones default a step below desktop, not two: 10px was hard to read at
+      // arm's length, and 12px still leaves ~55 columns at 412px for Claude's
+      // status line. A size the user picked (Ctrl +/-, the header font
+      // controls) is saved per device as `codeman-font-size` and loadFontSize()
+      // applies it after this, so it still wins.
+      fontSize: MobileDetection.getDeviceType() === 'mobile' ? 12 : 14,
       lineHeight: 1.2,
       cursorBlink: false,
       cursorStyle: 'block',
