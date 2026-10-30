@@ -79,6 +79,8 @@
     'Open away digest': '打开离开期间摘要',
     'Session Manager': '会话管理器',
     'Session actions': '会话操作',
+    'New terminal here': '在此新建终端',
+    'New Claude session here': '在此新建 Claude 会话',
     Ungrouped: '未分组',
     'Group actions': '分组操作',
     'Group name': '分组名称',

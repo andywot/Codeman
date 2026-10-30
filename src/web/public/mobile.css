@@ -3265,6 +3265,19 @@ html.mobile-init .file-browser-panel {
     color: var(--accent-text);
   }
 
+  .mobile-overview-more {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+    margin: -8px 0;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font: 700 var(--fs-lg)/1 var(--font-mono);
+  }
+
   .mobile-overview-chevron {
     flex-shrink: 0;
     color: var(--text-muted);
