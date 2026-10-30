@@ -224,7 +224,7 @@ A warm off-white paper with near-black plum ink, a single hot-pink accent, and t
 ## Typography
 
 **UI Font:** Manrope (variable, self-hosted `fonts/manrope-variable.woff2`), with -apple-system, BlinkMacSystemFont, Segoe UI fallback
-**Data / Terminal Font:** JetBrains Mono (variable, self-hosted), with Fira Code, SF Mono, Menlo fallback
+**Data / Terminal Font:** JetBrains Mono (variable, self-hosted), with Codeman Terminal Symbols (bundled, supplies the glyphs Claude Code draws that JetBrains Mono lacks: ⎿ ⏵ ⏺ ✻ ✔ ✘ ...) and then Fira Code, SF Mono, Menlo fallback
 
 **Character:** A plain geometric sans that stays quiet at 12 to 14px, beside a monospace that makes every path, count and clock read as data. Form controls inherit the page face; `code`, `kbd`, `samp` and `pre` take the mono face.
 

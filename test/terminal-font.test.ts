@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
@@ -34,6 +34,27 @@ describe('CodemanTerminalFont', () => {
     const monoAt = font.DEFAULT_STACK.lastIndexOf('monospace');
     expect(symbolsAt).toBeGreaterThan(-1);
     expect(monoAt).toBeGreaterThan(symbolsAt);
+  });
+
+  it('puts the bundled symbols face straight after JetBrains Mono, ahead of any installed font', () => {
+    // Glyphs JetBrains Mono lacks (⎿ ⏵ ⏺ ✻ ...) must come from the bundled face, not from
+    // whichever installed family or OS fallback happens to carry them (tofu on Android,
+    // thin and mismatched in Firefox).
+    const families = font.DEFAULT_STACK.split(',').map((f) => f.trim().replace(/^"|"$/g, ''));
+    expect(families.slice(0, 2)).toEqual(['JetBrains Mono', 'Codeman Terminal Symbols']);
+  });
+
+  it('ships both bundled faces and declares the symbols face for every weight', () => {
+    const publicDir = resolve(import.meta.dirname, '../src/web/public');
+    const css = readFileSync(resolve(publicDir, 'styles.css'), 'utf8');
+    for (const file of ['jetbrains-mono-variable.woff2', 'codeman-terminal-symbols.woff2']) {
+      expect(existsSync(resolve(publicDir, 'fonts', file))).toBe(true);
+    }
+    expect(existsSync(resolve(publicDir, 'fonts/LICENSE-terminal-fonts.txt'))).toBe(true);
+    const block = /@font-face\s*\{[^}]*'Codeman Terminal Symbols'[^}]*\}/.exec(css)?.[0] ?? '';
+    expect(block).toContain("url('fonts/codeman-terminal-symbols.woff2')");
+    // A static face: a narrower range would make the browser synthesize bold by smearing it.
+    expect(block).toMatch(/font-weight:\s*100 900/);
   });
 
   it('prepends a custom family and preserves the full default stack', () => {
