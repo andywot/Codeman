@@ -81,6 +81,7 @@ const AccountSchema = z.object({
   baseUrl: z.string().max(300).optional(),
   apiModel: z.string().max(70).optional(),
   apiSmallModel: z.string().max(70).optional(),
+  quotaUrl: z.string().max(300).optional(),
   secret: z.string().max(4096).optional(),
 });
 
@@ -169,7 +170,7 @@ export function registerFleetRoutes(
     const fleet = await readFleet(CONFIG_DIR);
     const prev = fleet.accounts.find((a) => a.id === id);
     const next: FleetAccount = { id, ...parsed.data };
-    for (const key of ['email', 'baseUrl', 'apiModel', 'apiSmallModel', 'setupCommand'] as const) {
+    for (const key of ['email', 'baseUrl', 'apiModel', 'apiSmallModel', 'setupCommand', 'quotaUrl'] as const) {
       if (!next[key]) delete next[key];
     }
     if (parsed.data.secret === undefined) {

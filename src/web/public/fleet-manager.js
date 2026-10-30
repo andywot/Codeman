@@ -322,6 +322,7 @@ Object.assign(CodemanApp.prototype, {
         <label class="ns-field"><span class="ns-label">Model</span><input class="ns-input" name="apiModel" placeholder="glm-5.3"></label>
         <label class="ns-field"><span class="ns-label">Small model</span><input class="ns-input" name="apiSmallModel" placeholder="glm-5.3-flash"></label>
       </div>
+      <label class="ns-field" data-for="shell api"><span class="ns-label">Quota status URL (optional)</span><input class="ns-input" name="quotaUrl" placeholder="http://127.0.0.1:3001/api/status"></label>
       <label class="ns-field" data-for="token api"><span class="ns-label fm-secret-label">Token</span><input class="ns-input" name="secret" type="password" autocomplete="off" spellcheck="false"></label>
       <p class="ns-error" role="alert" hidden></p>
       <footer class="ns-foot">
@@ -355,6 +356,7 @@ Object.assign(CodemanApp.prototype, {
       form.apiModel.value = account.apiModel || '';
       form.apiSmallModel.value = account.apiSmallModel || '';
       form.setupCommand.value = account.setupCommand || '';
+      form.quotaUrl.value = account.quotaUrl || '';
     }
     form.kind.addEventListener('change', sync);
     sync();
@@ -381,6 +383,7 @@ Object.assign(CodemanApp.prototype, {
         if (form.apiSmallModel.value.trim()) payload.apiSmallModel = form.apiSmallModel.value.trim();
       }
       if (kind === 'shell') payload.setupCommand = form.setupCommand.value.trim();
+      if ((kind === 'shell' || kind === 'api') && form.quotaUrl.value.trim()) payload.quotaUrl = form.quotaUrl.value.trim();
       if ((kind === 'token' || kind === 'api') && form.secret.value.trim()) payload.secret = form.secret.value.trim();
       try {
         await this._fetchJson(`/api/fleet/accounts/${encodeURIComponent(id)}`, {

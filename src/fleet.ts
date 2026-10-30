@@ -71,6 +71,11 @@ export interface FleetAccount {
   apiModel?: string;
   /** `api` only: model for the small/fast tier. */
   apiSmallModel?: string;
+  /**
+   * `shell`/`api` only: a quota-throttle status URL (`http://127.0.0.1:3001/api/status`) read
+   * ON each machine with the usage pass, so a gateway bound to one machine's loopback works.
+   */
+  quotaUrl?: string;
   /** `shell` only: function/command run first, e.g. `use-glm` (words, no metacharacters). */
   setupCommand?: string;
   /** Token or API key (kinds `token` and `api`). Never sent to the browser. */
@@ -185,6 +190,9 @@ export function validateAccount(account: FleetAccount): string | null {
     if (!account.baseUrl || !URL_RE.test(account.baseUrl)) return 'API accounts need a base URL (http or https)';
     if (account.apiModel && !MODEL_RE.test(account.apiModel)) return 'Invalid model name';
     if (account.apiSmallModel && !MODEL_RE.test(account.apiSmallModel)) return 'Invalid small model name';
+  }
+  if (account.quotaUrl && (account.kind === 'machine' || account.kind === 'token' || !URL_RE.test(account.quotaUrl))) {
+    return 'The quota URL must be http(s), for GLM-style accounts only';
   }
   if (account.secret !== undefined && (/[\r\n]/.test(account.secret) || account.secret.length > 4096)) {
     return 'The token must be a single line';
@@ -480,6 +488,12 @@ export function parseStatusRead(stdout: string): { byAccount: Map<string, FleetU
       if (/^[^\s@'"]+@[^\s@'"]+$/.test(value)) email = value;
       continue;
     }
+    if (head.startsWith('~')) {
+      const id = head.slice(1).trim();
+      const usage = ID_RE.test(id) ? parseThrottleQuota(block.slice(nl + 1), new Date().toISOString()) : null;
+      if (usage) byAccount.set(id, usage);
+      continue;
+    }
     const [id, mtime] = head.split(' ');
     if (!ID_RE.test(id) && id !== MACHINE_LOGIN_ID) continue;
     const at = Number(mtime) > 0 ? new Date(Number(mtime) * 1000).toISOString() : new Date().toISOString();
@@ -489,8 +503,65 @@ export function parseStatusRead(stdout: string): { byAccount: Map<string, FleetU
   return { byAccount, email };
 }
 
-async function readHostStatus(host: RemoteHost): Promise<void> {
-  const result = await runOnHost(host, STATUS_READ_SCRIPT, undefined, 20_000);
+/**
+ * {@link STATUS_READ_SCRIPT} plus each quota URL, fetched on the machine as `\n@@~<account>\n`
+ * then the body. A machine without that gateway prints an empty body (refused in milliseconds).
+ * ⚠️ The URL is validated by URL_RE (no quotes or spaces), so it sits safely single-quoted.
+ */
+export function buildStatusReadScript(accounts: FleetAccount[]): string {
+  const quota = accounts
+    .filter((a) => a.quotaUrl && ID_RE.test(a.id) && URL_RE.test(a.quotaUrl))
+    .map((a) => `; printf '\\n@@~%s\\n' ${a.id}; curl -s -m 3 '${a.quotaUrl}' 2>/dev/null | head -c 262144`)
+    .join('');
+  // A subshell: its `cd ... || exit 0` must not skip the quota reads.
+  return quota ? `(${STATUS_READ_SCRIPT})${quota}` : STATUS_READ_SCRIPT;
+}
+
+/**
+ * The whole key pool of a quota-throttle `/api/status` as one account's windows: the mean of
+ * each window over the distinct quota pools (keys of one org/project share one), and the soonest
+ * future reset. Keys with an error or no reading are left out; null when none is left.
+ */
+export function parseThrottleQuota(text: string, fetchedAt: string): FleetUsage | null {
+  let data: { keys?: unknown };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(data?.keys)) return null;
+  const now = Date.now();
+  const pools = new Map<string, { five: number | null; week: number | null; fiveAt: number; weekAt: number }>();
+  for (const raw of data.keys as Array<Record<string, unknown>>) {
+    if (!raw || raw.error) continue;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const five = num(raw.five_hour_pct);
+    const week = num(raw.weekly_pct);
+    if (five === null && week === null) continue;
+    const pool = raw.org || raw.project ? `${raw.org}/${raw.project}` : String(raw.name);
+    pools.set(pool, { five, week, fiveAt: num(raw.five_hour_reset) ?? 0, weekAt: num(raw.weekly_reset) ?? 0 });
+  }
+  if (!pools.size) return null;
+  const all = [...pools.values()];
+  const mean = (xs: Array<number | null>) => {
+    const ok = xs.filter((x): x is number => x !== null);
+    return ok.length ? ok.reduce((a, b) => a + b, 0) / ok.length : null;
+  };
+  const soonest = (xs: number[]) => {
+    const future = xs.filter((x) => x > now);
+    return future.length ? new Date(Math.min(...future)).toISOString() : null;
+  };
+  return {
+    fiveHour: mean(all.map((p) => p.five)),
+    fiveHourResetsAt: soonest(all.map((p) => p.fiveAt)),
+    sevenDay: mean(all.map((p) => p.week)),
+    sevenDayResetsAt: soonest(all.map((p) => p.weekAt)),
+    fetchedAt,
+  };
+}
+
+async function readHostStatus(host: RemoteHost, accounts: FleetAccount[]): Promise<void> {
+  const result = await runOnHost(host, buildStatusReadScript(accounts), undefined, 20_000);
   const read =
     result.code === 0 ? parseStatusRead(result.stdout) : { byAccount: new Map<string, FleetUsage>(), email: null };
   hostReadings.set(host.id, { at: Date.now(), ok: result.code === 0, ...read });
@@ -518,7 +589,7 @@ export async function readFleetUsage(config: FleetConfig, hosts: RemoteHost[]): 
       if (last && Date.now() - last.at < ttl) return undefined;
       let pending = hostInFlight.get(host.id);
       if (!pending) {
-        pending = readHostStatus(host)
+        pending = readHostStatus(host, config.accounts)
           .catch(() => hostReadings.set(host.id, { at: Date.now(), ok: false, byAccount: new Map() }))
           .then(() => undefined)
           .finally(() => hostInFlight.delete(host.id));
