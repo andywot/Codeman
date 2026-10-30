@@ -112,7 +112,7 @@ describe('usage from session statuslines', () => {
       { ...account, kind: 'shell', setupCommand: 'use-glm' },
       undefined
     );
-    expect(setup).toMatch(/export WSLENV="[^"]*ANTHROPIC_BASE_URL\/u:ANTHROPIC_API_KEY\/u/);
+    expect(setup).toMatch(/export WSLENV="[^"]*ANTHROPIC_BASE_URL\/w:ANTHROPIC_API_KEY\/w/);
   });
 
   it('reads no usage from a statusline without rate limits or from broken JSON', () => {

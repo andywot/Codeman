@@ -234,7 +234,7 @@ export function buildLaunch(
     );
     // WSLENV carries what the command exported across into the Windows process; without it
     // Windows claude never saw the gateway and ran on the subscription.
-    if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${SHELL_ACCOUNT_VARS.map((k) => `${k}/u`).join(':')}"`);
+    if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${SHELL_ACCOUNT_VARS.map((k) => `${k}/w`).join(':')}"`);
   } else if (account?.kind === 'api') {
     env.ANTHROPIC_BASE_URL = `'${account.baseUrl}'`;
     env.ANTHROPIC_AUTH_TOKEN = `$(cat ${secretFile(account.id)})`;
@@ -257,8 +257,10 @@ export function buildLaunch(
     // An account replaces whatever the machine's shell profile pointed claude at.
     setup.push('unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN');
     setup.push(...keys.map((key) => `export ${key}="${env[key].replace(/^'|'$/g, '')}"`));
-    // WSLENV carries the variables across into the Windows process.
-    if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${keys.map((k) => `${k}/u`).join(':')}"`);
+    // WSLENV carries the variables across into the Windows process. ⚠️ `/w` (WSL → Windows),
+    // never `/u`, which only carries Windows → WSL: with `/u` Windows claude saw none of them
+    // and silently ran on the machine's own login (checked with cmd.exe, 2026-10-30).
+    if (windows) setup.push(`export WSLENV="\${WSLENV:+$WSLENV:}${keys.map((k) => `${k}/w`).join(':')}"`);
     // An empty token silently runs claude on the machine's own login instead, so a
     // missing secret file stops the launch where the pane shows why.
     const tokenKey = keys.find((k) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || k === 'ANTHROPIC_AUTH_TOKEN');
