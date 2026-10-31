@@ -4367,9 +4367,13 @@ class CodemanApp {
   }
 
   /** Record one input frame and kick delivery. The record lives until ACKed. */
-  _reliableSend(sessionId, data, useMux) {
+  _reliableSend(sessionId, data, useMux, extra) {
     const seq = this._nextSeq(sessionId);
     const rec = { seq, data, useMux: !!useMux, ts: Date.now(), tries: 0, sentAt: 0 };
+    // A chat message (chat-view.js): one whole prompt, always delivered over POST so
+    // the server pastes it and presses Enter itself, `tag` naming it for the outbox.
+    if (extra?.post) rec.post = true;
+    if (extra?.tag) rec.tag = extra.tag;
     let list = this._pendingDeliveries.get(sessionId);
     if (!list) {
       list = [];
@@ -4383,6 +4387,7 @@ class CodemanApp {
     this._persistReliableNow();
     this._updateConnectionIndicator();
     this._drainSession(sessionId);
+    return seq;
   }
 
   _nextSeq(sessionId) {
@@ -4401,8 +4406,17 @@ class CodemanApp {
     // them ({t:'ia'}); a frame swallowed by a half-open socket is re-sent after
     // the sweep force-reconnects (which resets sentAt=0 in _onWsReady).
     const sock = this._inputSocketFor(sessionId);
-    if (sock) {
+    // A chat message waits its turn in seq order and always goes over POST, so frames
+    // behind it wait too. One written too long ago stays put until someone taps
+    // (CodemanChatCore.recordHeld), and frames behind that one go ahead.
+    const now = Date.now();
+    const held = (rec) => !!window.CodemanChatCore?.recordHeld(rec, now);
+    const head = list.find((rec) => !held(rec));
+    if (!head) return;
+    if (sock && !head.post) {
       for (const rec of list) {
+        if (held(rec)) continue;
+        if (rec.post) break;
         if (rec.sentAt !== 0) continue;
         try {
           sock.ws.send(JSON.stringify({ t: 'i', d: rec.data, seq: rec.seq, cid: this._clientId }));
@@ -4424,15 +4438,24 @@ class CodemanApp {
         for (;;) {
           const cur = this._pendingDeliveries.get(sessionId);
           if (!cur || cur.length === 0) break;
+          const rec = cur.find((r) => !window.CodemanChatCore?.recordHeld(r, Date.now()));
+          if (!rec) break;
           // If the WebSocket came back mid-drain, yield to it (the acked stream)
           // so we don't redundantly re-POST what onopen is already re-sending.
-          if (this._inputSocketFor(sessionId)) {
+          if (!rec.post && this._inputSocketFor(sessionId)) {
             break;
           }
-          const rec = cur[0];
+          // Backing off after a failed chat message; the sweep and `online` come back.
+          if (rec.retryAt && Date.now() < rec.retryAt) break;
           rec.tries++;
           rec.sentAt = Date.now();
+          // Written down BEFORE it can land: a reload must know this was already tried, or a
+          // "duplicate" answer would read as a lost first attempt and type it a second time.
+          if (rec.post) this._persistReliableNow();
           let resp = null;
+          // A half-open link never answers, and this loop owns the session's queue.
+          const postAbort = new AbortController();
+          const postTimer = setTimeout(() => postAbort.abort(), 20000);
           try {
             const body = { input: rec.data, seq: rec.seq, clientId: this._clientId };
             if (rec.useMux) body.useMux = true;
@@ -4441,15 +4464,37 @@ class CodemanApp {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(body),
               keepalive: rec.data.length < 65536,
+              // A login redirect must read as "not delivered", never as a 200 from
+              // the login page it leads to, which would drop the input as ACKed.
+              redirect: 'manual',
+              signal: postAbort.signal,
             });
           } catch {
             resp = null;
+          } finally {
+            clearTimeout(postTimer);
           }
-          if (resp && resp.ok) {
+          const isLoginPage = /text\/html/i.test(resp?.headers?.get?.('content-type') || '');
+          if (resp && resp.ok && !isLoginPage) {
+            // Same escape hatch as _onWsInputAck, for a chat message: "duplicate" on a FIRST
+            // attempt means another tab or a rolled-back counter used this seq, so this
+            // text has not landed. On a retry it means the earlier attempt did.
+            if (rec.post && rec.tries <= 1) {
+              const reply = await resp.json().catch(() => null);
+              if (reply?.duplicate) {
+                const watermark = Number.isInteger(reply.last) ? reply.last : rec.seq;
+                this._seqCounters.set(sessionId, Math.max(this._seqCounters.get(sessionId) || 0, watermark));
+                rec.seq = this._nextSeq(sessionId);
+                rec.tries = 0;
+                this._persistReliableNow();
+                continue;
+              }
+            }
             this._ackDelivery(sessionId, rec.seq);
           } else if (resp && (resp.status === 404 || resp.status === 410)) {
             // Session no longer exists — the input can never land. Drop it
             // rather than retry forever (not a "lost" prompt: the target is gone).
+            rec.outcome = 'gone';
             this._ackDelivery(sessionId, rec.seq);
           } else if (resp && (resp.status === 400 || resp.status === 413)) {
             // The frame itself was refused, so a retry gets the same answer. Kept
@@ -4458,6 +4503,10 @@ class CodemanApp {
             // transient: an expired login delivers fine once the user signs in.
             this._dropRejectedInput(sessionId, rec);
           } else {
+            if (rec.post) {
+              rec.sentAt = 0;
+              rec.retryAt = Date.now() + (window.CodemanChatCore?.backoffDelay(rec.tries, { max: 30000 }) || 0);
+            }
             break; // offline / 5xx — leave queued; sweep + reconnect retry later
           }
         }
@@ -4469,6 +4518,7 @@ class CodemanApp {
 
   /** Drop a frame the server refused for good, and say so once. */
   _dropRejectedInput(sessionId, rec) {
+    rec.outcome = 'rejected';
     this._ackDelivery(sessionId, rec.seq);
     this.showToast?.(`Input refused by the server (${Math.ceil(rec.data.length / 1024)} KB); not sent`, 'error');
   }
@@ -4479,7 +4529,9 @@ class CodemanApp {
     if (list) {
       const idx = list.findIndex((r) => r.seq === seq);
       if (idx !== -1) {
-        list.splice(idx, 1);
+        const [settled] = list.splice(idx, 1);
+        // Tell the chat outbox how its message ended (acked, refused, session gone).
+        if (settled.tag) this._chatInputSettled?.(sessionId, settled);
         if (list.length === 0) this._pendingDeliveries.delete(sessionId);
         // When nothing is left pending anywhere, flush durable state immediately
         // (not debounced) so a reload in the next 250ms can't redeliver an
@@ -4487,6 +4539,8 @@ class CodemanApp {
         if (this._pendingDeliveries.size === 0) this._persistReliableNow();
         else this._persistReliableState();
         this._updateConnectionIndicator();
+        // A chat message behind the frame just ACKed can go now.
+        if (list.length > 0 && list[0].post) this._drainSession(sessionId);
       }
     }
     // ⚠️ IDLE ONLY, and acknowledged server-side rather than cleared in memory.
@@ -4564,7 +4618,8 @@ class CodemanApp {
       if (!list || list.length === 0) continue;
       const sock = this._inputSocketFor(sessionId);
       if (sock) {
-        const oldest = list[0];
+        // A chat message goes over POST, so it says nothing about the socket.
+        const oldest = list.find((r) => !r.post);
         // Only tear the socket down when the oldest unacked frame is stale AND the
         // socket has been silent for the timeout: a connection still delivering
         // output/ACKs is alive (the ACK is just behind), so force-closing it would
@@ -4590,7 +4645,7 @@ class CodemanApp {
           // (server dedups by seq, so a re-sent lost-ACK frame is harmless).
           // Frames sent recently (not yet stale) are left untouched.
           for (const rec of list) {
-            if (rec.sentAt && Date.now() - rec.sentAt > this._reliableAckTimeoutMs) rec.sentAt = 0;
+            if (!rec.post && rec.sentAt && Date.now() - rec.sentAt > this._reliableAckTimeoutMs) rec.sentAt = 0;
           }
         }
       }
@@ -4652,8 +4707,12 @@ class CodemanApp {
                 data: r.data,
                 useMux: !!r.useMux,
                 ts: r.ts || Date.now(),
-                tries: 0,
+                // A chat message keeps its count: see the note where it is written.
+                tries: r.post ? r.tries || 0 : 0,
                 sentAt: 0,
+                ...(r.post ? { post: true } : {}),
+                ...(r.tag ? { tag: r.tag } : {}),
+                ...(r.approved ? { approved: true } : {}),
               }));
             if (kept.length) this._pendingDeliveries.set(s, kept);
           }
@@ -4691,6 +4750,9 @@ class CodemanApp {
           useMux: r.useMux,
           ts: r.ts,
           tries: r.tries,
+          ...(r.post ? { post: true } : {}),
+          ...(r.tag ? { tag: r.tag } : {}),
+          ...(r.approved ? { approved: true } : {}),
         }));
         for (const r of list) bytes += r.data.length;
       }
@@ -10304,6 +10366,15 @@ class CodemanApp {
           console.error('Failed to attach to restored session:', err);
         }
       }
+    }
+
+    // Chat covers this session (chat-view.js): no capture, no resize, no socket. On a
+    // slow link those cost more than the conversation does, and a phone reading chat
+    // should not resize the pane under a desktop. The terminal loads when asked for.
+    if (this._chatParksTerminal?.(sessionId)) {
+      this._disconnectWs();
+      this._clearTerminalLoadState(sessionId, selectGen);
+      return;
     }
 
     // Hold for the terminal font before measuring anything. A cell measured

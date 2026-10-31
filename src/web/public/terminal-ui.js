@@ -1645,7 +1645,8 @@ Object.assign(CodemanApp.prototype, {
         const detachedElsewhere = !this.isSoloWindow && this.detachedSessions?.has(this.activeSessionId);
         // The tile grid parks the main terminal: its session is sized by its
         // tile, which this same timer refits below (_forEachTile).
-        const tilesOwnTerminal = this._tilesOwnTerminal?.();
+        // Chat parks it too, and a phone reading chat must not resize the pane.
+        const tilesOwnTerminal = this._tilesOwnTerminal?.() || this._chatParksTerminal?.(this.activeSessionId);
         // ⚠️ Whether to fit is the SAME question as whether to send (issue #464).
         // This block used to fit unconditionally and skip only the SIGWINCH,
         // which is the one combination that cannot be right: it moves xterm to
