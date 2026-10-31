@@ -25,7 +25,17 @@ function loadFetchListener(): (event: unknown) => void {
   };
   // A fetch that never settles: the listener only has to decide whether to answer.
   const fetch = vi.fn(() => new Promise(() => {}));
-  vm.runInContext(swJs, vm.createContext({ self, console, caches: {}, fetch, URL }), { filename: 'sw.js' });
+  vm.runInContext(
+    swJs,
+    vm.createContext({
+      self,
+      console,
+      caches: { open: () => new Promise(() => {}), match: () => Promise.resolve(undefined) },
+      fetch,
+      URL,
+    }),
+    { filename: 'sw.js' }
+  );
   const listener = listeners.get('fetch');
   expect(listener, 'sw.js registers a fetch listener').toBeDefined();
   return listener!;
