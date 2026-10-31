@@ -20,6 +20,7 @@ export { registerStatusTelemetryRoutes } from './status-telemetry-routes.js';
 export { registerCaseRoutes } from './case-routes.js';
 export { registerFleetRoutes } from './fleet-routes.js';
 export { registerProjectRoutes } from './project-routes.js';
+export { registerRecentPicksRoutes } from './recent-picks-routes.js';
 export { registerSharedConfigRoutes } from './shared-config-routes.js';
 export { registerAgentMailRoutes } from './agent-mail-routes.js';
 export { registerChatRoutes } from './chat-routes.js';
