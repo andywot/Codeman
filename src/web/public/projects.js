@@ -248,6 +248,13 @@ Object.assign(CodemanApp.prototype, {
       }
       e.preventDefault();
       clearMarks();
+      // The list scrolls on its own: nudge it while the pointer is at its top or bottom edge.
+      const list = host.querySelector('.rail-projects-list');
+      if (list) {
+        const lr = list.getBoundingClientRect();
+        if (e.clientY < lr.top + 18) list.scrollTop -= 10;
+        else if (e.clientY > lr.bottom - 18) list.scrollTop += 10;
+      }
       const t = targetAt(e.clientX, e.clientY);
       drag.target = t;
       if (t && t.id !== drag.id) t.row.classList.add(t.after ? 'drop-after' : 'drop-before');
@@ -327,10 +334,37 @@ Object.assign(CodemanApp.prototype, {
     this._bindProjectDrag(host);
     host.replaceChildren();
     if (!projects.length) return;
-    const head = document.createElement('div');
+    // The heading is a toggle: folded, only "Projects (n)" shows, so a long list never
+    // pushes the sessions out of the rail. Remembered per device.
+    const collapsed = this._projectsCollapsed();
+    const head = document.createElement('button');
+    head.type = 'button';
     head.className = 'rail-projects-head';
-    head.textContent = 'Projects';
+    head.id = 'tabRailProjectsToggle';
+    head.setAttribute('aria-expanded', String(!collapsed));
+    head.setAttribute('aria-controls', 'tabRailProjectsList');
+    const chevron = document.createElement('span');
+    chevron.className = 'rail-projects-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.textContent = '▾';
+    const label = document.createElement('span');
+    label.textContent = 'Projects';
+    const count = document.createElement('span');
+    count.className = 'rail-projects-count';
+    count.textContent = collapsed ? `(${projects.length})` : '';
+    head.append(chevron, label, count);
+    head.addEventListener('click', () => {
+      this._setProjectsCollapsed(!this._projectsCollapsed());
+      this.renderProjectRail();
+      document.getElementById('tabRailProjectsToggle')?.focus();
+    });
+    host.classList.toggle('is-collapsed', collapsed);
     host.appendChild(head);
+    // About three rows tall, then its own scroll (CSS); drag reorder lives inside it.
+    const list = document.createElement('div');
+    list.className = 'rail-projects-list';
+    list.id = 'tabRailProjectsList';
+    list.hidden = collapsed;
     for (const project of projects) {
       const item = document.createElement('div');
       item.className = 'rail-project';
@@ -359,7 +393,25 @@ Object.assign(CodemanApp.prototype, {
         this._openProjectMenu(project, item, more);
       });
       item.append(main, more);
-      host.appendChild(item);
+      list.appendChild(item);
+    }
+    host.appendChild(list);
+  },
+
+  _projectsCollapsed() {
+    try {
+      return localStorage.getItem('codeman:rail-projects-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  },
+
+  _setProjectsCollapsed(collapsed) {
+    try {
+      if (collapsed) localStorage.setItem('codeman:rail-projects-collapsed', '1');
+      else localStorage.removeItem('codeman:rail-projects-collapsed');
+    } catch {
+      /* Per-device convenience only. */
     }
   },
 
