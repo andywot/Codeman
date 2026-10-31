@@ -477,9 +477,13 @@ const DEFAULT_SHORTCUTS = [
     id: 'increase-font',
     group: 'Terminal',
     label: 'Increase Font',
+    // Ctrl++ on a US keyboard is Ctrl+Shift+= (e.key '+', shiftKey true), and the matcher
+    // requires every pressed modifier to be declared, so it needs its own shifted binding.
     bindings: [
       { modifiers: ['ctrl'], key: '=', code: 'Equal' },
       { modifiers: ['ctrl'], key: '+', code: 'Equal' },
+      { modifiers: ['ctrl', 'shift'], key: '+', code: 'Equal' },
+      { modifiers: ['ctrl'], key: '+', code: 'NumpadAdd' },
     ],
     action: 'increaseFontSize',
   },
@@ -487,8 +491,21 @@ const DEFAULT_SHORTCUTS = [
     id: 'decrease-font',
     group: 'Terminal',
     label: 'Decrease Font',
-    bindings: [{ modifiers: ['ctrl'], key: '-', code: 'Minus' }],
+    bindings: [
+      { modifiers: ['ctrl'], key: '-', code: 'Minus' },
+      { modifiers: ['ctrl'], key: '-', code: 'NumpadSubtract' },
+    ],
     action: 'decreaseFontSize',
+  },
+  {
+    id: 'reset-font',
+    group: 'Terminal',
+    label: 'Reset Font Size',
+    bindings: [
+      { modifiers: ['ctrl'], key: '0', code: 'Digit0' },
+      { modifiers: ['ctrl'], key: '0', code: 'Numpad0' },
+    ],
+    action: 'resetFontSize',
   },
   {
     id: 'voice-input',
@@ -11439,6 +11456,7 @@ class CodemanApp {
       restoreTerminalSize: () => this.restoreTerminalSize(),
       increaseFontSize: () => this.increaseFontSize(),
       decreaseFontSize: () => this.decreaseFontSize(),
+      resetFontSize: () => this.resetFontSize(),
       toggleVoiceInput: () => VoiceInput.toggle(),
       moveActiveTabLeft: () => this.moveActiveTabLeft(),
       moveActiveTabRight: () => this.moveActiveTabRight(),
@@ -11453,6 +11471,14 @@ class CodemanApp {
    * session. Defaults are not covered on purpose: several (Ctrl+L) rely on reaching the PTY,
    * and neither is a chord that matches the entry's own default (a re-capture of it).
    */
+  isFontSizeShortcutEvent(e) {
+    if (!e.ctrlKey && !e.metaKey) return false;
+    const fontActions = ['increaseFontSize', 'decreaseFontSize', 'resetFontSize'];
+    return this.getShortcutRegistry().some(
+      (shortcut) => !shortcut.disabled && fontActions.includes(shortcut.action) && this.matchesShortcutEvent(e, shortcut)
+    );
+  }
+
   isUserBoundShortcutEvent(e) {
     if (!e.ctrlKey && !e.metaKey && !e.altKey) return false;
     const overrides = this.loadAppSettingsFromStorage().shortcutOverrides || {};

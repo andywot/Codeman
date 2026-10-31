@@ -22,7 +22,10 @@
  * machine's fix hint (with Wake when it sleeps) shows under them
  * (machine-status-ui.js).
  *
- * Recent picks live in this browser only (`codeman:new-session-recents`).
+ * Recent picks live on the server (`/api/recent-picks`, shared by every device). The dialog
+ * renders synchronously from a cached copy (`codeman:new-session-recents-cache`) and refreshes
+ * it from the server. The old per-browser key (`codeman:new-session-recents`) is now only a
+ * queue of picks the server has not seen yet: it is pushed once and then cleared.
  *
  * @mixin Extends CodemanApp.prototype via Object.assign
  * @dependency app.js (selectSession, showToast), fleet-manager.js (openFleetManager)
@@ -30,6 +33,7 @@
  */
 
 const NEW_SESSION_RECENTS_KEY = 'codeman:new-session-recents';
+const NEW_SESSION_RECENTS_CACHE_KEY = 'codeman:new-session-recents-cache';
 const NEW_SESSION_RECENTS_MAX = 8;
 const NEW_SESSION_LOCAL = 'local';
 const NEW_SESSION_MODELS = [
@@ -53,26 +57,120 @@ function wslPathOf(path) {
   return m ? `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`.replace(/\/+$/, '') : path;
 }
 
-Object.assign(CodemanApp.prototype, {
-  _newSessionRecents() {
-    try {
-      const list = JSON.parse(localStorage.getItem(NEW_SESSION_RECENTS_KEY) || '[]');
-      return Array.isArray(list) ? list.filter((r) => r && typeof r.path === 'string' && r.target) : [];
-    } catch {
-      return [];
+/** Pure helpers for the recent picks (tested in test/new-session-recents.test.ts). */
+const CodemanRecents = {
+  /** Same machine, folder, mode and account is one pick (mirrors src/recent-picks.ts). */
+  key(r) {
+    return `${r.target}\n${r.path}\n${r.mode || 'claude'}\n${r.accountId || ''}`;
+  },
+
+  /** Only the fields the server stores, and only a usable pick (no session name, nothing secret). */
+  clean(r) {
+    if (!r || typeof r.path !== 'string' || !r.path.startsWith('/') || typeof r.target !== 'string' || !r.target) {
+      return null;
     }
+    const out = { target: r.target, path: r.path, mode: r.mode === 'shell' ? 'shell' : 'claude' };
+    if (typeof r.accountId === 'string' && r.accountId) out.accountId = r.accountId;
+    if (typeof r.model === 'string' && r.model) out.model = r.model;
+    out.at = Number.isFinite(r.at) && r.at >= 0 ? r.at : 0;
+    return out;
+  },
+
+  /** Newest first, one per key (the newest of any repeats), at most `max`; ties keep list order. */
+  merge(lists, max = NEW_SESSION_RECENTS_MAX) {
+    const all = lists.flat().map((r, i) => ({ r: CodemanRecents.clean(r), i }));
+    const usable = all.filter((x) => x.r);
+    usable.sort((a, b) => b.r.at - a.r.at || a.i - b.i);
+    const seen = new Set();
+    const out = [];
+    for (const { r } of usable) {
+      const k = CodemanRecents.key(r);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(r);
+      if (out.length >= max) break;
+    }
+    return out;
+  },
+};
+window.CodemanRecents = CodemanRecents;
+
+function readStoredPicks(key) {
+  try {
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+Object.assign(CodemanApp.prototype, {
+  /**
+   * Synchronous, for the dialog: the last copy of the server's list (this page's, else the
+   * cache from an earlier page load) plus any local picks the server has not taken yet.
+   */
+  _newSessionRecents() {
+    const server = this._recentPicks || readStoredPicks(NEW_SESSION_RECENTS_CACHE_KEY);
+    return CodemanRecents.merge([server, readStoredPicks(NEW_SESSION_RECENTS_KEY)]);
   },
 
   _rememberNewSession(pick) {
-    const key = (r) => `${r.target}\n${r.path}\n${r.mode}\n${r.accountId || ''}`;
-    const list = [pick, ...this._newSessionRecents().filter((r) => key(r) !== key(pick))].slice(
-      0,
-      NEW_SESSION_RECENTS_MAX
-    );
+    const clean = CodemanRecents.clean({ ...pick, at: Date.now() });
+    if (!clean) return;
+    this._setRecentPicks(CodemanRecents.merge([[clean], this._newSessionRecents()]));
+    this._fetchJson('/api/recent-picks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pick: clean }),
+    }).catch(() => {
+      // Server unreachable: queue it in the old local key, pushed on the next load.
+      try {
+        localStorage.setItem(
+          NEW_SESSION_RECENTS_KEY,
+          JSON.stringify(CodemanRecents.merge([[clean], readStoredPicks(NEW_SESSION_RECENTS_KEY)]))
+        );
+      } catch {
+        /* storage blocked: recents are a convenience */
+      }
+    });
+  },
+
+  /** Hold the list in memory and keep the cache copy for the next page load. */
+  _setRecentPicks(list) {
+    this._recentPicks = list;
     try {
-      localStorage.setItem(NEW_SESSION_RECENTS_KEY, JSON.stringify(list));
+      localStorage.setItem(NEW_SESSION_RECENTS_CACHE_KEY, JSON.stringify(list));
     } catch {
       /* storage blocked: recents are a convenience */
+    }
+  },
+
+  /**
+   * Push any picks queued in this browser to the server once (it merges them by key, newest
+   * first, same cap), clear the local queue when that worked, then take the server's list.
+   * A failing server leaves the cached copy in use.
+   */
+  async loadRecentPicks() {
+    try {
+      const queued = readStoredPicks(NEW_SESSION_RECENTS_KEY);
+      let data = null;
+      if (queued.length) {
+        data = await this._fetchJson('/api/recent-picks/import', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ picks: queued }),
+        });
+        try {
+          localStorage.removeItem(NEW_SESSION_RECENTS_KEY);
+        } catch {
+          /* storage blocked */
+        }
+      } else {
+        data = await this._fetchJson('/api/recent-picks');
+      }
+      if (Array.isArray(data?.picks)) this._setRecentPicks(CodemanRecents.merge([data.picks]));
+    } catch {
+      /* Offline or refused: the cached copy stays. */
     }
   },
 
@@ -118,12 +216,15 @@ Object.assign(CodemanApp.prototype, {
 
   async openNewSessionFlow() {
     let fleet = null;
+    // The dialog draws from the cached recents; give the server a moment to refresh them.
+    const recentsLoaded = this.loadRecentPicks();
     await this.loadProjects?.();
     try {
       fleet = await this._fetchJson('/api/fleet');
     } catch (err) {
       this.showToast?.(`Could not load machines: ${err.message}`, 'error');
     }
+    await Promise.race([recentsLoaded, new Promise((resolve) => setTimeout(resolve, 1500))]);
     this._renderNewSessionDialog(this._newSessionMachines(fleet), fleet?.accounts || []);
   },
 
@@ -457,7 +558,7 @@ Object.assign(CodemanApp.prototype, {
       pathInput.placeholder = isWindows() ? 'C:\\Users\\you\\project' : '~/project';
     };
 
-    const list = $('.ns-recent-list');
+    const list = $('.ns-recents .ns-recent-list');
     if (recents.length) {
       $('.ns-recents').hidden = false;
       for (const r of recents) {
@@ -727,3 +828,8 @@ Object.assign(CodemanApp.prototype, {
     },
   });
 }
+
+// Pull the shared recents (and push this browser's old ones) once the app exists.
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => window.app?.loadRecentPicks?.(), 0);
+});

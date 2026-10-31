@@ -25,6 +25,7 @@ export const BROWSER_TEST_GLOBS = [
   'test/tab-activation.browser.test.ts',
   'test/tab-layout-editing.browser.test.ts',
   'test/tab-rail-search.browser.test.ts',
+  'test/rail-projects.browser.test.ts',
   'test/tab-focus.browser.test.ts',
   'test/session-sidebar-ux.browser.test.ts',
   'test/header-divider.browser.test.ts',

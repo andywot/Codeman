@@ -234,6 +234,7 @@ import {
   registerCaseRoutes,
   registerFleetRoutes,
   registerProjectRoutes,
+  registerRecentPicksRoutes,
   registerSharedConfigRoutes,
   registerAgentMailRoutes,
   registerChatRoutes,
@@ -1431,6 +1432,7 @@ export class WebServer extends EventEmitter {
     registerCaseRoutes(this.app, ctx);
     registerFleetRoutes(this.app, ctx);
     registerProjectRoutes(this.app);
+    registerRecentPicksRoutes(this.app);
     registerSharedConfigRoutes(this.app);
     registerAgentMailRoutes(this.app, this.agentMail);
     if (!this.testMode) this.agentMail.start();
