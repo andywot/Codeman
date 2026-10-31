@@ -1239,6 +1239,7 @@
     'Tmux sessions keep running in background': 'Tmux 会话继续在后台运行',
     'Refresh tmux sessions': '刷新 Tmux 会话',
     'Restore Terminal Size': '恢复终端大小',
+    'Reset Font Size': '重置字体大小',
     'Clear Terminal': '清空终端',
     'Stop current run': '停止当前运行',
     'Stop respawn': '停止重生',
