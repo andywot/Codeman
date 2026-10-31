@@ -151,6 +151,16 @@ describe('the launch records hook events and statuslines on the machine', () => 
     expect(existsSync(join(h, '.config/claude-rc/status/_machine.json'))).toBe(true);
   });
 
+  it('a render without rate_limits keeps the last good account reading', () => {
+    const h = home();
+    const token = settingsOf(buildLaunch({ system: 'linux' }, account, undefined).args);
+    runSh(token.statusLine.command, { HOME: h, CLAUDE_RC_SESSION: KEY }, STATUSLINE);
+    const fresh = JSON.stringify({ model: 'x', context_window: {} });
+    runSh(token.statusLine.command, { HOME: h, CLAUDE_RC_SESSION: KEY }, fresh);
+    expect(readFileSync(join(h, '.config/claude-rc/status/personal.json'), 'utf8')).toBe(STATUSLINE);
+    expect(readFileSync(join(h, '.config/claude-rc/session', `${KEY}.json`), 'utf8')).toBe(fresh);
+  });
+
   it('the statusLine saves the JSON per session beside the per-account reading, and prints nothing', () => {
     const h = home();
     const token = settingsOf(buildLaunch({ system: 'linux' }, account, undefined).args);

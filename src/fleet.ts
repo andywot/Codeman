@@ -311,7 +311,9 @@ export function buildRemoteSignalsSettings(usageId: string | null): {
   const perSession = `test -z ${key} || { cp $t ${d}/session/.${key}.$$ && mv -f ${d}/session/.${key}.$$ ${d}/session/${key}.json; }`;
   const statusLine =
     `t=${d}/.st.$$; mkdir -p ${d}/session ${d}/status && cat > $t && { ${perSession}; }; ` +
-    (usageId ? `mv -f $t ${d}/status/${usageId}.json` : 'rm -f $t');
+    // Claude omits rate_limits until a session's first API reply: such a render must not replace
+    // the last good reading (a fresh session would blank the account's usage ring).
+    (usageId ? `if grep -q rate_limits $t; then mv -f $t ${d}/status/${usageId}.json; else rm -f $t; fi` : 'rm -f $t');
   const hookCommand = (event: string) =>
     `cat >/dev/null; test -z ${key} || { mkdir -p ${d}/events && echo $(date +%s) ${event} >> ${d}/events/${key}.log; }`;
   const hooks: Record<
