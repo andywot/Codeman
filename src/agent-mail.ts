@@ -543,6 +543,7 @@ winver() {
  * nothing is interpolated. It applies stdin ({@link buildPollInput}), then reports:
  *
  *     @@id <tree id>   @@v <cli version>   @@sv <skill version>   @@now <unix seconds>
+ *     @@dir <directory.tsv bytes> <self>
  *     @@d <id>                       a delivery written
  *     @@o <file> <base64 contents>   an outbox message (removed only after an `A` ack next time)
  *     @@x <file> <reason>            an outbox file moved to outbox/rejected/
@@ -592,6 +593,8 @@ export const MAIL_POLL_SCRIPT = [
   `v=$(sed -n 's/^# claude-rc:rc-mail v\\([0-9][0-9]*\\).*/\\1/p' ${MAIL_BIN} 2>/dev/null | head -n 1); printf '@@v %s\\n' "\${v:-0}"`,
   `v=$(sed -n 's/^<!-- claude-rc:rc-mail-skill v\\([0-9][0-9]*\\).*/\\1/p' ${MAIL_SKILL} 2>/dev/null | head -n 1); printf '@@sv %s\\n' "\${v:-0}"`,
   `printf '@@wv %s\\n' "$(winver)"`,
+  // What the directory on this machine really is: anything else writing here must not stick.
+  `printf '@@dir %s %s\\n' "$( { wc -c < "$M/directory.tsv"; } 2>/dev/null | tr -d ' ')" "$(head -n 1 "$M/self" 2>/dev/null | tr -dc 'a-z0-9._-')"`,
   `printf '@@now %s\\n' "$(date +%s)"`,
   'n=0; t=0',
   'for f in "$M"/outbox/*.json; do',
@@ -621,6 +624,8 @@ export const MAIL_POLL_SCRIPT = [
 
 export interface PollOutput {
   treeId: string | null;
+  /** The machine's directory as it reads now: byte size of directory.tsv, and its `self`. */
+  directory: { bytes: number; self: string } | null;
   cliVersion: number;
   skillVersion: number;
   /**
@@ -641,6 +646,7 @@ export interface PollOutput {
 export function parsePollOutput(stdout: string): PollOutput {
   const out: PollOutput = {
     treeId: null,
+    directory: null,
     cliVersion: 0,
     skillVersion: 0,
     windows: null,
@@ -670,6 +676,9 @@ export function parsePollOutput(stdout: string): PollOutput {
         else if (/^\d+$/.test(a) && /^\d+$/.test(b) && /^\d+$/.test(c)) {
           out.windows = { cmd: Number(a), shim: Number(b), skill: Number(c) };
         }
+        break;
+      case 'dir':
+        if (/^\d+$/.test(a)) out.directory = { bytes: Number(a), self: b };
         break;
       case 'now':
         if (/^\d+$/.test(a)) out.now = Number(a);

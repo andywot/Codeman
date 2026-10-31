@@ -19,7 +19,7 @@
 
 import { spawn } from 'node:child_process';
 import { promises as fs, readFileSync } from 'node:fs';
-import { dataPath, getDataDir, resolveTmuxSocketName } from '../config/instance.js';
+import { CODEMAN_INSTANCE, dataPath, getDataDir, resolveTmuxSocketName } from '../config/instance.js';
 import { mailEndpoints, LOCAL_ENDPOINT_ID, type MailEndpoint } from '../agent-mail.js';
 import { readRemoteHosts, shellescape } from '../remote-hosts.js';
 import { remoteExecIfIdle, remoteShellStatus } from '../remote-shell-pool.js';
@@ -56,8 +56,13 @@ export interface AgentMailDeps {
 
 let settingsCache: { at: number; enabled: boolean } | null = null;
 
-/** `agentMailEnabled`: absent or non-boolean = on (this fork's default). */
+/**
+ * `agentMailEnabled`: absent or non-boolean = on (this fork's default). Always off for a named
+ * instance: `~/.config/claude-rc/mail` is per machine, not per instance, so a test server would
+ * replace the live server's directory there and drain its outbox.
+ */
 export function readAgentMailEnabled(now = Date.now()): boolean {
+  if (CODEMAN_INSTANCE) return false;
   if (settingsCache && now - settingsCache.at < SETTINGS_TTL_MS) return settingsCache.enabled;
   let enabled = true;
   try {

@@ -518,6 +518,10 @@ export class AgentMailRelay {
       else if (current) st.windows = 'ok';
     }
     if (dirSent) st.writtenDirHash = dir.hash;
+    // Rewritten behind our back (another server on the machine): write it again on the next poll.
+    if (out.directory && (out.directory.bytes !== Buffer.byteLength(dir.tsv) || out.directory.self !== machine)) {
+      st.writtenDirHash = null;
+    }
     st.counts = out.counts;
     st.presence = parsePresence(out.presence, out.now);
     st.treeId = out.treeId;

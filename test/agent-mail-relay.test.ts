@@ -11,10 +11,10 @@
 // - unknown machines are rejected back to the sender; a disabled relay touches nothing;
 // - two names for one mailbox tree (the server is a fleet machine too) collapse into one.
 import { execFile, spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { MAIL_BIN, MAIL_DIR, type MailEndpoint } from '../src/agent-mail.js';
 import {
   AgentMailRelay,
@@ -353,5 +353,33 @@ describe('agent mail routes', () => {
     expect(put.json()).toMatchObject({ success: true, data: { enabled: false } });
     expect(w.relay.nudgeEnabled(LOCAL_SID)).toBe(false);
     await app.close();
+  });
+
+  it('rewrites a directory that something else replaced on the machine', async () => {
+    const w = world();
+    await w.relay.tick(0);
+    await w.relay.tick(60_000);
+    const mail = join(w.homes['u@pc:22'], MAIL_DIR);
+    const good = readFileSync(join(mail, 'directory.tsv'), 'utf8');
+    writeFileSync(join(mail, 'self'), 'server\n');
+    writeFileSync(join(mail, 'directory.tsv'), 'stale\n');
+    await w.relay.tick(120_000);
+    await w.relay.tick(180_000);
+    expect(readFileSync(join(mail, 'self'), 'utf8').trim()).toBe('pc');
+    expect(readFileSync(join(mail, 'directory.tsv'), 'utf8')).toBe(good);
+  });
+});
+
+describe('named instances', () => {
+  it('never run the relay: the mail folder belongs to the machine, not the instance', async () => {
+    vi.resetModules();
+    process.env.CODEMAN_INSTANCE = 'mailtest';
+    try {
+      const { readAgentMailEnabled } = await import('../src/web/agent-mail-wiring.js');
+      expect(readAgentMailEnabled()).toBe(false);
+    } finally {
+      delete process.env.CODEMAN_INSTANCE;
+      vi.resetModules();
+    }
   });
 });
