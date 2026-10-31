@@ -827,7 +827,7 @@ const SwipeHandler = {
    * there must not switch sessions. The phone overview and welcome screen are
    * deliberately NOT listed: swiping from home into a session is a feature.
    */
-  IGNORE_SELECTOR: '.tile-grid, .term-select-bar, #cjkInput, .history-trunc-bar',
+  IGNORE_SELECTOR: '.tile-grid, .term-select-bar, #cjkInput, .history-trunc-bar, .chat-view, .chat-home',
 
   /** Initialize swipe handling */
   init() {

@@ -3,42 +3,73 @@
  * Claude phone app shows it, with the live terminal one tap away.
  *
  * The conversation comes from Claude Code's own log (GET /api/sessions/:id/chat,
- * src/chat-transcript.ts), polled by byte offset while the view is open, for local
- * and remote sessions alike. Replies render as markdown; tool calls fold into one
+ * src/chat-transcript.ts), read by byte offset, for local and remote sessions alike.
+ * A saved copy (IndexedDB, chat-core.js) paints first, then only what is new is
+ * fetched. One read at a time, on a pace set by chat-core.js; events from the stream
+ * say when to read sooner, and the timer is the fallback. Replies render as markdown; tool calls fold into one
  * "Ran 3 commands, read 2 files" line per stretch of work that expands to each call
  * and its output; files Claude writes or edits become cards that open the file
  * preview; a question (AskUserQuestion) or permission prompt that is waiting on
- * you becomes a card of buttons. The options on those cards are read from the live
- * terminal screen, so a button always presses what the dialog actually offers.
+ * you becomes a card of buttons. Those options come from the approvals list, which
+ * re-reads the pane on the server, and each answer is checked against a fresh read
+ * before a key is pressed. Answers are never queued: without a live link they are
+ * disabled and the card says why.
  *
  * Composer: a contenteditable box (a phone keyboard will paste images into it,
  * which it refuses for the terminal's plain textarea), an attach button, and send.
  * While Claude works, send queues the message into the running turn (Claude Code's
  * own queue), "Send now" interrupts first, and the empty-composer button stops.
+ * A sent message shows at once and is saved until the server ACKs it. It goes out
+ * through the browser input layer in app.js (one whole prompt, one seq), so it lands
+ * exactly once; the outbox here only decides WHEN it is handed over (chat-core.js).
  *
- * Phone (< 768px): a session list (by machine) and a full-screen conversation with
- * a back arrow, like the Claude app. The terminal is the header's terminal button;
- * the browser back gesture returns to the list. Desktop: a Chat / Terminal switch
- * over the session area. Mode is remembered per device (`codeman:chatMode`).
+ * Phone (< 768px): sessions open in a full-screen conversation with a back arrow to
+ * the phone home. The terminal is the header's terminal button; the browser back
+ * gesture returns home. Desktop stays on the terminal, with a Chat / Terminal switch.
+ * The choice is remembered per device (`codeman:chatMode`). While chat covers a
+ * session the main terminal is PARKED (`_chatParksTerminal`): no capture, no resize,
+ * no socket. It loads when asked for.
+ *
+ * With no server state yet (slow link, or offline from the service worker's shell) the
+ * last conversation, or a list of saved ones, shows from `codeman:chatDirectory`.
  *
  * @mixin Extends CodemanApp.prototype via Object.assign
  * @dependency app.js (_renderMarkdown, _linkifyFilePaths, _bindResponseViewerInteractions, _sendInputAsync)
  * @dependency image-input.js (_normalizeImageForUpload, _uploadPasteImage)
- * @dependency keyboard-accessory.js (KeyboardAccessoryBar._sendComposedPrompt)
+ * @dependency app.js (_reliableSend, the exactly-once input layer)
+ * @dependency chat-core.js (CodemanChatCore)
  * @dependency home-sessions.js (buildHomeSessionRows)
  * @dependency panels-ui.js (openFilePreview)
  * @loadorder after status-bar.js
  */
 
-const CHAT_POLL_MS = 1500;
-const CHAT_PHONE_QUERY = '(max-width: 767px)';
+/** How often the screen is redrawn from what is already known. Reads no network. */
+const CHAT_TICK_MS = 1500;
+// A phone on its side is wider than the width gate, and still a phone.
+const CHAT_PHONE_QUERY = '(max-width: 767px), (max-height: 500px) and (pointer: coarse)';
 const CHAT_MODE_KEY = 'codeman:chatMode';
-/**
- * Paused (owner decision 2026-10-29): the terminal is the view on phone and desktop,
- * and the way into chat is hidden. The log is still read for the status bar's context
- * reading. Set to false to bring the chat view back.
- */
-const CHAT_PAUSED = true;
+const CHAT_OUTBOX_KEY = 'codeman:chatOutbox';
+const CHAT_DIRECTORY_KEY = 'codeman:chatDirectory';
+/** Most conversation rows drawn at once; scrolling up draws more. */
+const CHAT_RENDER_WINDOW = 150;
+/** SSE filter while parked: no session matches, so no terminal output is streamed. */
+const CHAT_SSE_FILTER = 'chat-parked';
+/** Events that mean the log has probably grown. A read follows, or the timer catches it. */
+const CHAT_NUDGE_EVENTS = [
+  'session:working',
+  'session:idle',
+  'hook:stop',
+  'hook:idle_prompt',
+  'hook:permission_prompt',
+  'hook:elicitation_dialog',
+  'hook:prompt_submitted',
+  'transcript:tool_start',
+  'transcript:tool_end',
+  'transcript:complete',
+  'approval:pending',
+  'approval:resolved',
+];
+const chatCore = () => window.CodemanChatCore;
 const CHAT_FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const CHAT_STATE_LABEL = {
   needs: 'Needs you',
@@ -296,6 +327,21 @@ function buildChatItems(entries) {
   return items;
 }
 
+/** Changes when a row must be redrawn: a tool got its result, a text grew. */
+function chatItemSignature(item) {
+  const tools = item.tools || (item.tool ? [item.tool] : []);
+  return [
+    item.kind,
+    (item.text || '').length,
+    item.command ? 1 : 0,
+    item.queued ? 1 : 0,
+    (item.images || []).length,
+    tools.map((t) => (t.result ? (t.result.isError ? 2 : 1) : 0)).join(''),
+    item.title || '',
+    item.after || 0,
+  ].join('|');
+}
+
 /** Numbered options on the bottom of a terminal screen (permission and question dialogs). */
 function parseScreenOptions(lines) {
   const clean = lines.map((l) => l.replace(/[│╭╮╰╯─┃┏┓┗┛━]/g, ' ').replace(/\s+$/, ''));
@@ -379,24 +425,44 @@ Object.assign(CodemanApp.prototype, {
   },
 
   _chatMode() {
-    if (CHAT_PAUSED) return 'terminal';
     let stored = null;
     try {
       stored = localStorage.getItem(CHAT_MODE_KEY);
     } catch {
       /* storage blocked */
     }
-    return stored === 'terminal' || stored === 'chat' ? stored : 'chat';
+    return chatCore().chatModeFor(stored, this._chatIsPhone());
   },
 
   setChatMode(mode) {
+    const before = this._chatMode();
     try {
       localStorage.setItem(CHAT_MODE_KEY, mode);
     } catch {
       /* storage blocked */
     }
     this.chatSync();
-    if (mode === 'terminal') setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    if (mode === before) return;
+    const id = this.activeSessionId;
+    if (!id) return;
+    if (mode === 'terminal') {
+      // The terminal was parked: load it now, the way a tab switch does.
+      if (this.sessions?.has(id)) void this.selectSession(id, { forceReload: true, auto: true });
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    } else if (this._chatParksTerminal(id)) {
+      this._disconnectWs?.();
+      this._wsState = 'fallback';
+      this._updateConnectionIndicator?.();
+      this._updateSseSubscription?.(id);
+    }
+    this._chatKick();
+  },
+
+  /** Chat is on screen for this session, so the main terminal stands aside. */
+  _chatParksTerminal(id) {
+    if (!id || this._chatMode() !== 'chat') return false;
+    if (this._tilesOwnTerminal?.()) return false;
+    return this._chatSupported(id);
   },
 
   _chat(id) {
@@ -411,17 +477,85 @@ Object.assign(CodemanApp.prototype, {
         loaded: false,
         busy: false,
         found: true,
-        drafts: '',
+        draft: '',
         uploads: [],
+        nodes: new Map(),
+        visibleFrom: null,
+        updatedAt: 0,
       };
       this._chatSessions.set(id, s);
     }
     return s;
   },
 
+  _chatCache() {
+    if (!this._chatCacheStore) this._chatCacheStore = chatCore().createChatCache();
+    return this._chatCacheStore;
+  },
+
+  // ── Saved session list (what the page knows before the server answers) ──
+  _chatDirectory() {
+    if (!this._chatDirectoryData) {
+      let saved = null;
+      try {
+        saved = JSON.parse(localStorage.getItem(CHAT_DIRECTORY_KEY) || 'null');
+      } catch {
+        /* storage blocked, or a bad value */
+      }
+      this._chatDirectoryData = saved && typeof saved === 'object' ? saved : {};
+    }
+    return this._chatDirectoryData;
+  },
+
+  /** Keep the saved list in step with the server's, and forget sessions that have gone. */
+  _chatRefreshDirectory() {
+    if (!(this._initGeneration > 0) || !this.sessions) return;
+    const next = {};
+    for (const [id, session] of this.sessions) {
+      if (!this._chatSupported(id)) continue;
+      next[id] = {
+        name: this.getSessionName ? this.getSessionName(session) : session.name || '',
+        mode: session.mode,
+        where: session.remote ? session.remote.label || session.remote.hostId : 'This server',
+        folder: session.remote?.remotePath || session.workingDir || '',
+        model: session.displayModel || session.model || '',
+        state: this._chatRowState(id)?.state || 'idle',
+      };
+    }
+    const before = this._chatDirectory();
+    const text = JSON.stringify(next);
+    if (text === this._chatDirectoryText) return;
+    this._chatDirectoryText = text;
+    for (const id of Object.keys(before)) {
+      if (!next[id]) void this._chatCache().remove(id);
+    }
+    this._chatDirectoryData = next;
+    try {
+      localStorage.setItem(CHAT_DIRECTORY_KEY, text);
+    } catch {
+      /* storage blocked: the list lasts as long as the page */
+    }
+  },
+
+  /** What is shown: the active session, or before the server answers, the last one. */
+  _chatDisplayId() {
+    if (this.activeSessionId) return this.activeSessionId;
+    if (this._initGeneration > 0) return null;
+    if (this._chatOfflineId === undefined) {
+      let stored = null;
+      try {
+        stored = localStorage.getItem('codeman-active-session');
+      } catch {
+        /* storage blocked */
+      }
+      this._chatOfflineId = stored && this._chatDirectory()[stored] ? stored : null;
+    }
+    return this._chatOfflineId;
+  },
+
   _chatSupported(id) {
     const session = this.sessions?.get(id);
-    if (!session) return false;
+    if (!session) return !(this._initGeneration > 0) && !!this._chatDirectory()[id];
     // Registry data, never a CLI id: only a CLI that keeps a Claude-format log has a chat.
     const catalog = Array.isArray(window.__codemanCliCatalog) ? window.__codemanCliCatalog : [];
     return catalog.some((entry) => entry.id === session.mode && entry.transcript === 'claude-jsonl');
@@ -454,8 +588,10 @@ Object.assign(CodemanApp.prototype, {
         <button type="button" class="chat-icon-btn chat-to-terminal" data-chat="mode-terminal" aria-label="Show terminal" title="Terminal">${CHAT_ICONS.terminal}</button>
         <button type="button" class="chat-icon-btn" data-chat="options" aria-label="Session options" title="Session options">${CHAT_ICONS.more}</button>
       </header>
+      <div class="chat-link" role="status" hidden></div>
       <div class="chat-scroll">
         <div class="chat-log" role="log" aria-live="polite"></div>
+        <div class="chat-outbox" aria-live="polite"></div>
       </div>
       <div class="chat-dock">
         <div class="chat-prompt" hidden></div>
@@ -494,6 +630,7 @@ Object.assign(CodemanApp.prototype, {
         <button type="button" class="chat-icon-btn" data-chat="terminal-home" aria-label="Terminal view" title="Terminal view">${CHAT_ICONS.terminal}</button>
         <button type="button" class="chat-icon-btn" data-chat="settings" aria-label="Settings" title="Settings">${chatIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>', 20)}</button>
       </header>
+      <div class="chat-link" role="status" hidden></div>
       <div class="chat-home-search"><input type="search" placeholder="Search sessions" aria-label="Search sessions" autocomplete="off" spellcheck="false"></div>
       <div class="chat-home-list"></div>
       <div class="chat-home-foot">
@@ -510,24 +647,28 @@ Object.assign(CodemanApp.prototype, {
       if (action === 'new') this.openNewSessionFlow?.();
       else if (action === 'settings') this.openAppSettings?.();
       else if (action === 'terminal-home') this.setChatMode('terminal');
+      else if (action === 'retry') this._chatRetryNow();
+      else if (action === 'signin') this._chatSignIn();
     });
     el.querySelector('input[type="search"]').addEventListener('input', () => this._chatRenderHome());
     return el;
   },
 
   // ── Navigation ──────────────────────────────────────────────────────────
-  /** Phone: open one session's conversation (pushes a history entry so Back returns to the list). */
+  /** Open one session's conversation. */
   chatOpenSession(id) {
     if (!id) return;
-    this._chatPhoneScreen = 'session';
-    if (this._chatIsPhone() && history.state?.chat !== 'session') {
+    if (this._initGeneration > 0 && this.sessions?.has(id)) {
+      if (this.activeSessionId !== id) this.selectSession(id);
+    } else {
+      // Nothing from the server yet: read the saved copy.
+      this._chatOfflineId = id;
       try {
-        history.pushState({ chat: 'session' }, '');
+        localStorage.setItem('codeman-active-session', id);
       } catch {
-        /* sandboxed */
+        /* storage blocked */
       }
     }
-    if (this.activeSessionId !== id) this.selectSession(id);
     this.chatSync();
   },
 
@@ -536,49 +677,88 @@ Object.assign(CodemanApp.prototype, {
       history.back();
       return;
     }
-    this._chatPhoneScreen = 'home';
+    this._chatGoHome();
+  },
+
+  _chatGoHome() {
+    this._chatOfflineId = null;
+    if (this.activeSessionId) this.goHome?.();
+    else {
+      try {
+        localStorage.removeItem('codeman-active-session');
+      } catch {
+        /* storage blocked */
+      }
+    }
     this.chatSync();
   },
 
-  /** Decide what is on screen; called on selection changes and from the poll timer. */
+  /** Decide what is on screen. Called on selection changes and from the tick. Reads no network. */
   chatSync() {
     const view = this._chatViewEl();
     if (!view) return;
     const phone = this._chatIsPhone();
     const mode = this._chatMode();
     const root = document.documentElement;
-    const id = this.activeSessionId;
-    const home = phone ? this._chatHomeEl() : document.getElementById('chatHome');
-    if (this._chatPhoneScreen === undefined) this._chatPhoneScreen = 'home';
+    const id = this._chatDisplayId();
+    const everLoaded = this._initGeneration > 0;
+    const directorySize = Object.keys(this._chatDirectory()).length;
+    this._chatRefreshDirectory();
 
-    const showHome = phone && mode === 'chat' && (this._chatPhoneScreen === 'home' || !id || !this.sessions?.has(id));
-    const showChat = mode === 'chat' && !showHome && !!id && this._chatSupported(id);
+    // Before the server answers there is no phone home to show, so show what is saved.
+    const showHome = phone && mode === 'chat' && !everLoaded && !id && directorySize > 0;
+    const showChat = mode === 'chat' && !showHome && !!id && this._chatSupported(id) && !this._tilesOwnTerminal?.();
+    const home = showHome ? this._chatHomeEl() : document.getElementById('chatHome');
     if (home) home.hidden = !showHome;
     view.hidden = !showChat;
     root.dataset.chat = showHome ? 'home' : showChat ? 'session' : 'off';
     root.dataset.chatPhone = phone ? 'on' : 'off';
-    this._chatTerminalPill(mode === 'terminal' && !!id && this._chatSupported(id));
+    this._chatTerminalPill(mode === 'terminal' && !!id && this._chatSupported(id) && !this._tilesOwnTerminal?.());
+    if (showHome || showChat) this._chatBindViewport();
+    // The offline overlay would hide a conversation that is perfectly readable.
+    if ((showHome || showChat) && !this._offlineOverlayDismissed && !everLoaded) this.dismissOfflineOverlay?.();
 
     if (showHome) this._chatRenderHome();
-    // Keep the active session's log read in terminal mode too, for the context reading.
-    if (!showChat && id && this._chatSupported(id)) this._chatPoll(id);
     if (showChat) {
+      if (phone && everLoaded) this._chatNoteHistory(id);
       if (this._chatShownId !== id) {
         this._chatShownId = id;
         this._chatRestoreDraft(id);
-        this._chatRender(id, { toBottom: true });
+        // The saved copy first, so "Loading" never flashes over it. IndexedDB answers in
+        // milliseconds, so the old session's rows just go.
+        view.querySelector('.chat-log').replaceChildren();
+        void this._chatHydrate(id).then(() => {
+          if (this._chatShownId === id) this._chatRender(id, { toBottom: true });
+        });
+        this._chatKick();
       }
       this._chatRenderHead(id);
-      this._chatPoll(id);
-    } else if (this._chatShownId && this._chatShownId !== id) {
+      this._chatRenderDock(id);
+      this._chatRenderOutbox(id);
+    } else if (this._chatShownId) {
       this._chatShownId = null;
     }
+    this._chatRenderLink();
+    this._chatPump();
+    this._chatArm();
   },
 
-  /** Phone, terminal mode: a small floating button back to the chat view. */
+  /** Phone: Back from a conversation goes home rather than out of the app. */
+  _chatNoteHistory(id) {
+    if (this._chatHistoryId === id && history.state?.chat === 'session') return;
+    try {
+      if (history.state?.chat === 'session') history.replaceState({ chat: 'session' }, '');
+      else history.pushState({ chat: 'session' }, '');
+    } catch {
+      /* sandboxed */
+    }
+    this._chatHistoryId = id;
+  },
+
+  /** Terminal mode: a small floating button back to the chat view. */
   _chatTerminalPill(show) {
     let pill = document.getElementById('chatReturn');
-    if (!show || CHAT_PAUSED) {
+    if (!show) {
       if (pill) pill.hidden = true;
       return;
     }
@@ -594,59 +774,623 @@ Object.assign(CodemanApp.prototype, {
     pill.hidden = false;
   },
 
+  /**
+   * The keyboard shrinks the visual viewport but not the layout viewport, so a fixed
+   * full-screen view would leave its composer under the keyboard. The view takes the
+   * visual viewport's size and place.
+   */
+  _chatBindViewport() {
+    if (this._chatViewportBound) return;
+    this._chatViewportBound = true;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const root = document.documentElement;
+    const apply = () => {
+      const scroller = document.querySelector('#chatView .chat-scroll');
+      const atBottom = scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+      root.style.setProperty('--chat-vh', `${Math.round(vv.height)}px`);
+      root.style.setProperty('--chat-vtop', `${Math.round(vv.offsetTop)}px`);
+      root.classList.toggle('chat-keyboard', window.innerHeight - vv.height > 120);
+      if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+    };
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    apply();
+  },
+
+  // ── Link ────────────────────────────────────────────────────────────────
+  _chatLinkState() {
+    if (!this._chatLink) this._chatLink = { failures: 0, everOk: false, signedOut: false };
+    return this._chatLink;
+  },
+
+  _chatStreamUp() {
+    return this.eventSource?.readyState === 1;
+  },
+
+  _chatStatus(id) {
+    const link = this._chatLinkState();
+    return chatCore().linkStatus({
+      online: navigator.onLine !== false,
+      failures: link.failures,
+      signedOut: link.signedOut,
+      everOk: link.everOk || this._chatStreamUp(),
+      updatedAt: id ? this._chat(id).updatedAt : 0,
+      now: Date.now(),
+    });
+  },
+
+  _chatRenderLink() {
+    const id = this._chatShownId;
+    const status = this._chatStatus(id);
+    const signature = `${status.kind}|${status.text}|${status.detail}`;
+    for (const el of document.querySelectorAll('.chat-link')) {
+      if (el.dataset.sig === signature) continue;
+      el.dataset.sig = signature;
+      el.hidden = false;
+      el.className = `chat-link is-${status.kind}`;
+      el.replaceChildren();
+      const dot = document.createElement('span');
+      dot.className = 'chat-link-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('span');
+      text.className = 'chat-link-text';
+      text.textContent = status.text;
+      el.append(dot, text);
+      if (status.detail) {
+        const detail = document.createElement('span');
+        detail.className = 'chat-link-detail';
+        detail.textContent = status.detail;
+        el.appendChild(detail);
+      }
+      if (status.kind !== 'live') {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'chat-link-action';
+        action.dataset.chat = status.kind === 'signin' ? 'signin' : 'retry';
+        action.textContent = status.kind === 'signin' ? 'Sign in again' : 'Retry';
+        el.appendChild(action);
+      }
+    }
+  },
+
+  _chatRetryNow() {
+    for (const list of this._pendingDeliveries?.values() || []) for (const rec of list) rec.retryAt = 0;
+    this._chatKick({ force: true });
+  },
+
+  /** Past the service worker to the real page, so the login redirect can happen. */
+  _chatSignIn() {
+    const url = window.CodemanBase?.url ? window.CodemanBase.url('/?signin=1') : '/?signin=1';
+    location.assign(url);
+  },
+
   // ── Data ────────────────────────────────────────────────────────────────
-  async _chatFetch(id, params) {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/chat?${new URLSearchParams(params)}`);
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !json?.success) throw new Error(json?.error || `HTTP ${res.status}`);
-    return json.data;
+  /** One read. Resolves { kind, data } and never leaves a request running past its timeout. */
+  async _chatFetch(id, params, timeoutKind) {
+    const link = this._chatLinkState();
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), chatCore().requestTimeout(timeoutKind, link.failures));
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/chat?${new URLSearchParams(params)}`, {
+        redirect: 'manual',
+        signal: abort.signal,
+        // Ahead of the page's other requests when a slow link has them queueing.
+        priority: 'high',
+      });
+      const kind = chatCore().classifyResponse({
+        type: res.type,
+        status: res.status,
+        contentType: res.headers.get('content-type') || '',
+      });
+      if (kind !== 'ok') return { kind };
+      const json = await res.json();
+      // The envelope's error is the machine not answering, not the link to this server.
+      if (!json?.success) return { kind: 'retry', error: json?.error || 'Could not read the conversation' };
+      return { kind: 'ok', data: json.data };
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+
+  /** Saved copy into memory, once per session per page load. True if there was one. */
+  _chatHydrate(id) {
+    const s = this._chat(id);
+    if (!s.hydrating) {
+      s.hydrating = this._chatCache()
+        .load(id)
+        .then((saved) => {
+          if (!saved || s.log) return false;
+          Object.assign(s, {
+            log: saved.log,
+            start: saved.start,
+            end: saved.end,
+            entries: saved.entries,
+            loaded: true,
+            fromCache: true,
+            updatedAt: saved.updatedAt || 0,
+          });
+          const context = latestChatContext(s.entries);
+          if (context) s.context = context;
+          return true;
+        })
+        .catch(() => false);
+    }
+    return s.hydrating;
   },
 
   async _chatPoll(id) {
     const s = this._chat(id);
-    if (s.busy || document.hidden) return;
+    if (s.busy) return;
+    const link = this._chatLinkState();
     s.busy = true;
     try {
-      const fresh = !s.loaded;
-      const data = await this._chatFetch(id, fresh ? { after: -1 } : { after: s.end });
-      s.found = data.found;
-      if (!data.found) {
-        s.loaded = true;
-      } else if (fresh || data.log !== s.log) {
-        Object.assign(s, { log: data.log, start: data.start, end: data.end, entries: data.entries, loaded: true });
-        if (this._chatShownId === id) this._chatRender(id, { toBottom: true });
-      } else if (data.entries.length || data.end !== s.end) {
-        s.end = data.end;
-        s.entries.push(...data.entries);
-        if (this._chatShownId === id) this._chatRender(id);
+      await this._chatHydrate(id);
+      const fresh = !s.log;
+      const result = await this._chatFetch(id, fresh ? { after: -1 } : { after: s.end }, fresh ? 'tail' : 'delta');
+      if (result.kind === 'signin') {
+        link.signedOut = true;
+      } else if (result.kind === 'gone') {
+        link.signedOut = false;
+        link.failures = 0;
+        link.everOk = true;
+        s.gone = true;
+      } else if (result.kind !== 'ok') {
+        link.failures++;
+        link.signedOut = false;
+        s.error = result.error || null;
+      } else {
+        if (link.failures > 0 || !link.everOk) link.confirmedAt = Date.now();
+        link.failures = 0;
+        link.everOk = true;
+        link.signedOut = false;
+        s.error = null;
+        this._chatApply(id, result.data);
       }
-      const context = latestChatContext(s.entries);
-      if (context) s.context = context;
-      s.error = null;
-    } catch (err) {
-      s.error = err.message;
+    } catch {
+      // A timeout or no network. The saved copy stays up and the status line says so.
+      link.failures++;
     } finally {
       s.busy = false;
     }
+    this._chatRenderLink();
     if (this._chatShownId === id) this._chatRenderDock(id);
+    this._chatPump();
+  },
+
+  /** A good answer from the server: into memory, onto the saved copy, onto the screen. */
+  _chatApply(id, data) {
+    const s = this._chat(id);
+    const core = chatCore();
+    const now = Date.now();
+    s.found = data.found;
+    s.updatedAt = now;
+    if (!data.found) {
+      // No log yet, or the machine could not find it. A saved copy is still worth showing.
+      s.loaded = true;
+      if (this._chatShownId === id) this._chatRender(id);
+      return;
+    }
+    const merge = core.mergeChunk(s.log ? { log: s.log, start: s.start, end: s.end } : null, data);
+    const cache = this._chatCache();
+    if (merge.action === 'reset') {
+      Object.assign(s, { log: data.log, start: data.start, end: data.end, entries: data.entries, loaded: true });
+      s.nodes.clear();
+      s.visibleFrom = null;
+      void cache.write(
+        id,
+        'reset',
+        { log: data.log, start: data.start, end: data.end, entries: data.entries, updatedAt: now, forceChunk: true },
+        now
+      );
+      if (this._chatShownId === id) this._chatRender(id, { toBottom: true });
+    } else if (merge.action === 'append' || merge.action === 'touch') {
+      const chunkStart = s.end;
+      s.end = data.end;
+      s.entries.push(...data.entries);
+      s.loaded = true;
+      void cache.write(
+        id,
+        merge.action,
+        {
+          log: s.log,
+          start: s.start,
+          end: s.end,
+          chunkStart,
+          chunkEnd: data.end,
+          entries: data.entries,
+          updatedAt: now,
+          forceChunk: true,
+        },
+        now
+      );
+      s.savedAt = now;
+      if (merge.action === 'append' && this._chatShownId === id) this._chatRender(id);
+    } else if (now - (s.savedAt || 0) > 30_000) {
+      // Nothing new, which is worth remembering for "updated N ago" after a reload.
+      s.savedAt = now;
+      void cache.write(id, 'none', { log: s.log, start: s.start, end: s.end, entries: [], updatedAt: now }, now);
+    }
+    if (merge.action === 'reset' || merge.action === 'append') {
+      const context = latestChatContext(s.entries);
+      if (context) s.context = context;
+      this._chatReconcile(id, data.entries);
+    } else {
+      this._chatReconcile(id, []);
+    }
   },
 
   async _chatLoadEarlier(id) {
     const s = this._chat(id);
-    if (s.busy || !s.start) return;
-    s.busy = true;
+    // Draw what is already here first; the network only when that runs out.
+    if (s.visibleFrom > 0) {
+      s.visibleFrom = Math.max(0, s.visibleFrom - CHAT_RENDER_WINDOW);
+      this._chatRender(id, { keepFromBottom: true });
+      return;
+    }
+    if (s.earlierBusy || !s.start || this._chatStatus(id).kind !== 'live') return;
+    s.earlierBusy = true;
     try {
-      const data = await this._chatFetch(id, { before: s.start });
-      if (data.log === s.log) {
-        s.start = data.start;
-        s.entries.unshift(...data.entries);
-        this._chatRender(id, { keepFromBottom: true });
-      }
+      const result = await this._chatFetch(id, { before: s.start }, 'earlier');
+      if (result.kind !== 'ok') return;
+      const merged = chatCore().mergeEarlier(s, result.data);
+      if (!merged) return;
+      const chunkEnd = s.start;
+      s.start = merged.start;
+      s.entries.unshift(...merged.entries);
+      // Everything drawn stays put; the earlier rows join above it.
+      s.keepAll = true;
+      void this._chatCache().write(id, 'earlier', {
+        log: s.log,
+        start: s.start,
+        end: s.end,
+        chunkStart: merged.start,
+        chunkEnd,
+        entries: merged.entries,
+        forceChunk: true,
+      });
+      this._chatRender(id, { keepFromBottom: true });
     } catch (err) {
       this.showToast?.(`Could not load earlier messages: ${err.message}`, 'error');
     } finally {
-      s.busy = false;
+      s.earlierBusy = false;
     }
+  },
+
+  // ── Read loop ───────────────────────────────────────────────────────────
+  /** The session worth reading: the one on screen, or the active one for the status bar. */
+  _chatTarget() {
+    const id = this._chatShownId || this.activeSessionId;
+    return id && this._chatSupported(id) ? id : null;
+  },
+
+  /** (Re)start the timer for the next read, unless one is already due sooner. */
+  _chatArm({ fresh = false } = {}) {
+    const id = this._chatTarget();
+    const core = chatCore();
+    if (!id) {
+      clearTimeout(this._chatTimer);
+      this._chatTimer = null;
+      return;
+    }
+    if (this._chatTimer && !fresh) return;
+    const link = this._chatLinkState();
+    const delay = core.nextPollDelay({
+      hidden: document.hidden,
+      online: navigator.onLine !== false,
+      failures: link.failures,
+      signedOut: link.signedOut,
+      state: this._chatRowState(id)?.state || 'idle',
+      sse: this._chatStreamUp(),
+      background: !this._chatShownId,
+    });
+    clearTimeout(this._chatTimer);
+    this._chatTimer = null;
+    if (delay === null) return;
+    this._chatTimer = setTimeout(() => {
+      this._chatTimer = null;
+      void this._chatReadNow();
+    }, delay);
+  },
+
+  async _chatReadNow() {
+    const id = this._chatTarget();
+    if (!id) return;
+    if (this._chatReading) {
+      // Never two at once. Whatever asked gets a read straight after this one.
+      this._chatReadAgain = true;
+      return;
+    }
+    this._chatReading = true;
+    this._chatLastReadAt = Date.now();
+    try {
+      await this._chatPoll(id);
+    } finally {
+      this._chatReading = false;
+      if (this._chatReadAgain) {
+        this._chatReadAgain = false;
+        this._chatKick();
+      } else this._chatArm({ fresh: true });
+    }
+  },
+
+  /** Read soon: an event said the log grew, or the link or the screen just came back. */
+  _chatKick({ force = false } = {}) {
+    if (document.hidden && !force) return;
+    if (this._chatKickTimer) return;
+    // Several events arrive for one change, and a burst must not become a burst of reads.
+    const since = Date.now() - (this._chatLastReadAt || 0);
+    const wait = force ? 0 : Math.max(0, 800 - since);
+    this._chatKickTimer = setTimeout(() => {
+      this._chatKickTimer = null;
+      void this._chatReadNow();
+    }, wait);
+  },
+
+  // ── Outbox ──────────────────────────────────────────────────────────────
+  _chatOutbox() {
+    if (!this._chatOutboxData) {
+      let saved = null;
+      try {
+        saved = JSON.parse(localStorage.getItem(CHAT_OUTBOX_KEY) || 'null');
+      } catch {
+        /* storage blocked, or a bad value */
+      }
+      this._chatOutboxData = Array.isArray(saved)
+        ? saved.filter((e) => e && e.id && e.sessionId && typeof e.text === 'string')
+        : [];
+      // The input layer's own saved queue says how far each message got before the reload.
+      for (const entry of this._chatOutboxData) {
+        const rec = this._chatRecord(entry);
+        if (entry.state === 'queued' && rec) {
+          entry.state = 'sending';
+          entry.handed = true;
+        } else if (entry.state === 'sending' && !rec) {
+          entry.state = 'sent';
+          entry.sentAt = entry.sentAt || Date.now();
+        }
+      }
+    }
+    return this._chatOutboxData;
+  },
+
+  _chatSaveOutbox() {
+    try {
+      localStorage.setItem(CHAT_OUTBOX_KEY, JSON.stringify(this._chatOutbox()));
+    } catch {
+      /* storage blocked: messages last as long as the page */
+    }
+  },
+
+  _chatRecord(entry) {
+    return (this._pendingDeliveries?.get(entry.sessionId) || []).find((r) => r.tag === entry.id) || null;
+  },
+
+  _chatOutboxContext(id, status) {
+    const s = this._chat(id);
+    const row = this._chatRowState(id);
+    const known = this._initGeneration > 0 ? !!this.sessions?.has(id) : undefined;
+    const state = row ? (row.display === 'exited' ? 'exited' : row.state) : this._chatDirectory()[id]?.state || 'idle';
+    // Just back: the session's state comes over the event stream, so give that a moment
+    // to catch up before judging a held message by it. A stream that stays down (a proxy
+    // that buffers it) must not hold messages for ever.
+    const justBack = !this._chatStreamUp() && Date.now() - (this._chatLinkState().confirmedAt || 0) < 15_000;
+    return {
+      link: status.kind === 'live' && justBack ? 'reconnecting' : status.kind,
+      now: Date.now(),
+      sessionKnown: known,
+      state,
+      log: s.log || '',
+      end: s.log ? s.end : undefined,
+    };
+  },
+
+  /** Hand over whatever may go now. Runs after every read and every tick. */
+  _chatPump() {
+    const core = chatCore();
+    const outbox = this._chatOutbox();
+    if (!outbox.length) return;
+    let changed = false;
+    const bySession = new Map();
+    for (const entry of [...outbox].sort((a, b) => a.createdAt - b.createdAt)) {
+      if (!bySession.has(entry.sessionId)) bySession.set(entry.sessionId, []);
+      bySession.get(entry.sessionId).push(entry);
+    }
+    for (const [id, entries] of bySession) {
+      const ctx = this._chatOutboxContext(id, this._chatStatus(id));
+      for (const entry of entries) {
+        if (entry.state === 'sending') {
+          const rec = this._chatRecord(entry);
+          if (!rec) {
+            entry.state = 'sent';
+            entry.sentAt = Date.now();
+            changed = true;
+          } else if (core.recordHeld(rec, ctx.now)) {
+            entry.state = 'hold';
+            entry.reason = 'Not confirmed after 5 minutes. It may have arrived; check above before sending again.';
+            changed = true;
+          }
+          if (entry.state !== 'sent') break; // Nothing overtakes a message still on its way.
+        }
+        if (entry.state === 'sent' || entry.state === 'failed') continue;
+        if (entry.state === 'hold' && entry.handed) break;
+        if (entry.notBefore && ctx.now < entry.notBefore) break;
+        const decision = core.decideOutbox(entry, ctx);
+        if (decision.action === 'send') {
+          this._chatHandOver(entry);
+          changed = true;
+          break; // One at a time, so a refused message stops the ones behind it.
+        }
+        if (decision.action === 'fail') {
+          entry.state = 'failed';
+          entry.reason = decision.reason;
+          changed = true;
+          continue;
+        }
+        if (decision.action === 'hold') {
+          if (entry.state !== 'hold' || entry.reason !== decision.reason) changed = true;
+          entry.state = 'hold';
+          entry.reason = decision.reason;
+          entry.blocked = !!decision.blocked;
+          break;
+        }
+        if (entry.state === 'hold' && entry.blocked) {
+          entry.blocked = false;
+          entry.reason = 'Claude has moved on from that. Tap Send if you still want this sent.';
+          changed = true;
+        }
+        break; // Waiting: the ones behind it wait too, so the order holds.
+      }
+    }
+    if (changed) this._chatOutboxChanged();
+  },
+
+  /** The one way a chat message leaves: the exactly-once input layer, as one record. */
+  _chatHandOver(entry) {
+    // Another tab may have sent it. localStorage is synchronous, so read it right here.
+    try {
+      const stored = JSON.parse(localStorage.getItem(CHAT_OUTBOX_KEY) || '[]').find((e) => e.id === entry.id);
+      if (!stored || stored.state === 'sending' || stored.state === 'sent') {
+        this._chatOutboxData = null;
+        return;
+      }
+    } catch {
+      /* storage blocked: there is no other tab's copy to read */
+    }
+    // One frame, one seq, one ACK: the server pastes the text and presses Enter itself
+    // (POST + useMux), and a line break stays inside the paste.
+    const data = `${entry.text.replace(/\r\n?/g, '\n')}\r`;
+    entry.state = 'sending';
+    entry.handed = true;
+    entry.approved = false;
+    entry.reason = '';
+    entry.sentAt = Date.now();
+    this._reliableSend(entry.sessionId, data, true, { post: true, tag: entry.id });
+    // In that order: a crash between the two leaves `queued` plus a tagged record, which
+    // the next load reads as sending. The other order could read as sent and lose it.
+    this._chatSaveOutbox();
+    setTimeout(() => this._chatKick(), 900);
+  },
+
+  /** Called by the input layer when a tagged record is done with. */
+  _chatInputSettled(sessionId, rec) {
+    const entry = this._chatOutbox().find((e) => e.id === rec.tag);
+    if (!entry) return;
+    if (rec.outcome === 'rejected') {
+      entry.state = 'failed';
+      entry.handed = false;
+      entry.reason = 'The server refused this message. It was not sent.';
+    } else if (rec.outcome === 'gone') {
+      entry.state = 'failed';
+      entry.handed = false;
+      entry.reason = 'This session has ended.';
+    } else {
+      entry.state = 'sent';
+      entry.sentAt = Date.now();
+      this._chatKick();
+    }
+    this._chatOutboxChanged();
+  },
+
+  _chatReconcile(id, newEntries) {
+    const outbox = this._chatOutbox();
+    const mine = outbox.filter((e) => e.sessionId === id);
+    if (!mine.length) return;
+    const { seen, forgotten } = chatCore().reconcileOutbox(mine, newEntries, Date.now());
+    if (!seen.length && !forgotten.length) return;
+    const gone = new Set([...seen, ...forgotten]);
+    this._chatOutboxData = outbox.filter((e) => !gone.has(e.id));
+    this._chatOutboxChanged();
+  },
+
+  _chatOutboxChanged() {
+    this._chatSaveOutbox();
+    if (this._chatShownId) this._chatRenderOutbox(this._chatShownId);
+  },
+
+  _chatRemoveOutbox(entry) {
+    // A copy already handed over (a message held after 5 minutes) must not go out later.
+    const list = this._pendingDeliveries?.get(entry.sessionId);
+    const rec = list && list.find((r) => r.tag === entry.id);
+    if (rec) {
+      list.splice(list.indexOf(rec), 1);
+      if (!list.length) this._pendingDeliveries.delete(entry.sessionId);
+      this._persistReliableNow?.();
+    }
+    this._chatOutboxData = this._chatOutbox().filter((e) => e.id !== entry.id);
+    this._chatOutboxChanged();
+  },
+
+  /** The tap a held message waits for. */
+  _chatOutboxSend(entry) {
+    const rec = this._chatRecord(entry);
+    if (rec) {
+      // Same seq if nothing was sent after it, so a copy that did land is not typed twice.
+      // A later seq would make this one a "duplicate" the server drops, so it needs a new one.
+      if (this._seqCounters.get(entry.sessionId) !== rec.seq) rec.seq = this._nextSeq(entry.sessionId);
+      rec.approved = true;
+      rec.ts = Date.now();
+      rec.retryAt = 0;
+      entry.state = 'sending';
+      entry.reason = '';
+      this._persistReliableNow?.();
+      this._drainSession(entry.sessionId);
+    } else {
+      entry.state = 'queued';
+      entry.approved = true;
+      entry.reason = '';
+      entry.createdAt = Date.now();
+    }
+    this._chatOutboxChanged();
+    this._chatPump();
+  },
+
+  _chatRenderOutbox(id) {
+    const view = this._chatViewEl();
+    const box = view?.querySelector('.chat-outbox');
+    if (!box) return;
+    const core = chatCore();
+    const entries = this._chatOutbox().filter((e) => e.sessionId === id);
+    const signature = JSON.stringify(entries.map((e) => [e.id, e.state, e.reason, e.blocked, e.handed]));
+    if (box.dataset.sig === signature) return;
+    const scroller = view.querySelector('.chat-scroll');
+    const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+    box.dataset.sig = signature;
+    box.replaceChildren();
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      row.className = `chat-msg chat-user chat-outgoing is-${entry.state}`;
+      row.dataset.ob = entry.id;
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      bubble.textContent = entry.text;
+      const meta = document.createElement('div');
+      meta.className = 'chat-outgoing-meta';
+      const label = document.createElement('span');
+      label.className = 'chat-outgoing-label';
+      label.textContent = core.outboxLabel(entry);
+      meta.appendChild(label);
+      const button = (text, action) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chat-outgoing-action';
+        b.dataset.chat = action;
+        b.dataset.ob = entry.id;
+        b.textContent = text;
+        meta.appendChild(b);
+      };
+      if (entry.state === 'queued') {
+        button('Edit', 'ob-edit');
+        button('Cancel', 'ob-cancel');
+      } else if (entry.state === 'hold' || entry.state === 'failed') {
+        if (!entry.blocked && entry.state === 'hold') button('Send', 'ob-send');
+        button('Edit', 'ob-edit');
+        button('Discard', 'ob-cancel');
+      }
+      row.append(bubble, meta);
+      box.appendChild(row);
+    }
+    if (atBottom) scroller.scrollTop = scroller.scrollHeight;
   },
 
   // ── Rendering ───────────────────────────────────────────────────────────
@@ -657,16 +1401,23 @@ Object.assign(CodemanApp.prototype, {
 
   _chatRenderHead(id) {
     const view = this._chatViewEl();
-    const session = this.sessions.get(id);
-    if (!view || !session) return;
-    const row = this._chatRowState(id);
-    view.querySelector('.chat-title').textContent = row?.name || session.name || id.slice(0, 8);
-    const where = session.remote ? session.remote.label || session.remote.hostId : 'This server';
-    const folder = chatBasename(session.remote?.remotePath || session.workingDir || '');
+    if (!view) return;
+    const session = this.sessions?.get(id);
+    // Nothing from the server yet: as the page last knew it.
+    const saved = this._chatDirectory()[id];
+    if (!session && !saved) return;
+    const row = session ? this._chatRowState(id) : null;
+    view.querySelector('.chat-title').textContent = row?.name || session?.name || saved?.name || id.slice(0, 8);
+    const where = session
+      ? session.remote
+        ? session.remote.label || session.remote.hostId
+        : 'This server'
+      : saved.where;
+    const folder = chatBasename(session ? session.remote?.remotePath || session.workingDir || '' : saved.folder);
     view.querySelector('.chat-subtitle').textContent = [where, folder].filter(Boolean).join(' · ');
     view.querySelector('.chat-spinner').classList.toggle('on', row?.state === 'working');
     view.querySelector('[data-chat="mode-chat"]').setAttribute('aria-pressed', 'true');
-    const model = session.displayModel || session.model || '';
+    const model = session?.displayModel || session?.model || saved?.model || '';
     view.querySelector('.chat-model').textContent = model ? chatOneLine(String(model).replace(/^claude-/, ''), 28) : '';
   },
 
@@ -678,10 +1429,18 @@ Object.assign(CodemanApp.prototype, {
     const log = view.querySelector('.chat-log');
     const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
     const fromBottom = scroller.scrollHeight - scroller.scrollTop;
-    const open = new Set([...log.querySelectorAll('[data-open="1"]')].map((n) => n.dataset.key));
+    const scrollTop = scroller.scrollTop;
 
+    const items = buildChatItems(s.entries);
+    this._chatItems = items;
+    if (s.keepAll) {
+      s.visibleFrom = 0;
+      s.keepAll = false;
+    } else if (s.visibleFrom === null && items.length) {
+      s.visibleFrom = Math.max(0, items.length - CHAT_RENDER_WINDOW);
+    }
     const frag = document.createDocumentFragment();
-    if (s.start > 0) {
+    if (s.start > 0 || s.visibleFrom > 0) {
       const more = document.createElement('button');
       more.type = 'button';
       more.className = 'chat-earlier';
@@ -689,30 +1448,44 @@ Object.assign(CodemanApp.prototype, {
       more.textContent = 'Load earlier messages';
       frag.appendChild(more);
     }
-    if (s.loaded && !s.found) {
+    if (!s.entries.length) {
       const empty = document.createElement('div');
       empty.className = 'chat-empty';
-      empty.innerHTML =
-        '<p>No messages yet.</p><p class="chat-empty-hint">Send a message below, or open the terminal if Claude is still starting.</p>';
+      const status = this._chatStatus(id).kind;
+      if (s.loaded && !s.found) {
+        empty.innerHTML =
+          '<p>No messages yet.</p><p class="chat-empty-hint">Send a message below, or open the terminal if Claude is still starting.</p>';
+      } else if (status === 'offline' || status === 'signin') {
+        empty.textContent = 'Nothing is saved on this device for this conversation yet.';
+      } else {
+        empty.textContent = 'Loading conversation…';
+      }
       frag.appendChild(empty);
-    } else if (!s.loaded) {
-      const loading = document.createElement('div');
-      loading.className = 'chat-empty';
-      loading.textContent = 'Loading conversation…';
-      frag.appendChild(loading);
     }
-    const items = buildChatItems(s.entries);
-    this._chatItems = items;
-    for (const item of items) {
-      const node = this._chatRenderItem(id, item);
-      if (!node) continue;
-      if (open.has(item.key)) node.dataset.open = '1';
-      frag.appendChild(node);
+    // Rows are kept between renders: a markdown render is the slow part on a phone, and
+    // a log row does not change unless its signature does.
+    const kept = new Map();
+    for (let i = s.visibleFrom || 0; i < items.length; i++) {
+      const item = items[i];
+      const sig = chatItemSignature(item);
+      let cached = s.nodes.get(item.key);
+      if (!cached || cached.sig !== sig) {
+        const node = this._chatRenderItem(id, item);
+        const open = cached?.node?.dataset.open === '1';
+        if (node && open) node.dataset.open = '1';
+        cached = node ? { sig, node } : null;
+      }
+      if (!cached) continue;
+      kept.set(item.key, cached);
+      frag.appendChild(cached.node);
     }
+    s.nodes = kept;
     log.replaceChildren(frag);
     if (toBottom || nearBottom) scroller.scrollTop = scroller.scrollHeight;
     else if (keepFromBottom) scroller.scrollTop = scroller.scrollHeight - fromBottom;
+    else scroller.scrollTop = scrollTop;
     this._chatRenderDock(id);
+    this._chatRenderOutbox(id);
   },
 
   _chatRenderItem(id, item) {
@@ -729,7 +1502,9 @@ Object.assign(CodemanApp.prototype, {
           const log = this._chat(id).log || '';
           for (const img of item.images) {
             const a = document.createElement('a');
-            const src = `/api/sessions/${encodeURIComponent(id)}/chat/image?log=${encodeURIComponent(log)}&at=${img.at}&len=${img.len}&n=${img.n || 0}`;
+            const path = `/api/sessions/${encodeURIComponent(id)}/chat/image?log=${encodeURIComponent(log)}&at=${img.at}&len=${img.len}&n=${img.n || 0}`;
+            // A src attribute goes round the fetch wrapper that adds a sub-path mount.
+            const src = window.CodemanBase?.url ? window.CodemanBase.url(path) : path;
             a.href = src;
             a.target = '_blank';
             a.rel = 'noopener';
@@ -739,6 +1514,8 @@ Object.assign(CodemanApp.prototype, {
             image.alt = 'Pasted image';
             image.loading = 'lazy';
             image.decoding = 'async';
+            // Offline with no saved copy: a quiet placeholder, never a broken-image icon.
+            image.addEventListener('error', () => a.classList.add('is-missing'));
             a.appendChild(image);
             strip.appendChild(a);
           }
@@ -964,16 +1741,6 @@ Object.assign(CodemanApp.prototype, {
   },
 
   // ── Prompt card, status line, composer state ────────────────────────────
-  _chatScreenLines() {
-    const term = this.terminal;
-    const buf = term?.buffer?.active;
-    if (!buf) return [];
-    const lines = [];
-    const end = buf.baseY + term.rows;
-    for (let y = Math.max(0, end - 40); y < end; y++) lines.push(buf.getLine(y)?.translateToString(true) || '');
-    return lines;
-  },
-
   _chatPendingQuestion() {
     const items = this._chatItems || [];
     for (let i = items.length - 1; i >= 0 && i >= items.length - 6; i--) {
@@ -1004,22 +1771,40 @@ Object.assign(CodemanApp.prototype, {
     const working = state === 'working';
     const prompt = view.querySelector('.chat-prompt');
     const status = view.querySelector('.chat-status');
+    const s = this._chat(id);
+    const link = this._chatStatus(id).kind;
+    const live = link === 'live';
 
-    // A dialog waiting on you: its options come off the live screen.
-    const screen =
-      state === 'needs' && this.activeSessionId === id ? parseScreenOptions(this._chatScreenLines()) : null;
+    // A dialog waiting on you. The list re-reads the pane on the server each time.
+    if (state === 'needs' && live && Date.now() - (s.approvalAt || 0) > 4000) void this._chatRefreshApproval(id);
+    if (state !== 'needs') {
+      s.approval = null;
+      s.approvalLoaded = false;
+      s.answerError = '';
+      s.answering = null;
+    }
     const question = this._chatPendingQuestion();
-    const signature = screen ? JSON.stringify(screen) + (question?.key || '') : state === 'needs' ? 'needs' : '';
+    const signature =
+      state === 'needs'
+        ? JSON.stringify([
+            s.approval?.id,
+            s.approval?.options,
+            s.approvalLoaded,
+            question?.key,
+            link,
+            s.answering,
+            s.answerError,
+          ])
+        : '';
     if (signature !== this._chatPromptSig) {
       this._chatPromptSig = signature;
       prompt.replaceChildren();
       if (state === 'needs') {
         prompt.hidden = false;
-        prompt.appendChild(this._chatPromptCard(screen, question));
+        prompt.appendChild(this._chatPromptCard(id, s.approval, question, link));
       } else prompt.hidden = true;
     }
 
-    const s = this._chat(id);
     const bits = [];
     if (s.error) bits.push(`<span class="chat-status-err">${chatEsc(s.error)}</span>`);
     else if (working) {
@@ -1029,17 +1814,34 @@ Object.assign(CodemanApp.prototype, {
       );
     } else if (row?.display === 'exited') bits.push('<span>Claude exited in this session.</span>');
     status.hidden = !bits.length;
-    status.innerHTML = bits.join('');
+    const statusHtml = bits.join('');
+    if (status.dataset.sig !== statusHtml) {
+      status.dataset.sig = statusHtml;
+      status.innerHTML = statusHtml;
+    }
 
     const hasText = !!this._chatInputText(view) || s.uploads.some((u) => u.path);
     const send = view.querySelector('.chat-send');
+    // Stopping is a key press, so like an answer it never waits for a link.
     const stopMode = working && !hasText;
     send.classList.toggle('is-stop', stopMode);
-    send.innerHTML = stopMode ? CHAT_ICONS.stop : CHAT_ICONS.send;
+    const sendMode = stopMode ? 'stop' : 'send';
+    if (send.dataset.mode !== sendMode) {
+      send.dataset.mode = sendMode;
+      send.innerHTML = stopMode ? CHAT_ICONS.stop : CHAT_ICONS.send;
+    }
     send.setAttribute('aria-label', stopMode ? 'Stop Claude' : working ? 'Queue message' : 'Send');
-    send.title = stopMode ? 'Stop' : working ? 'Send when Claude finishes this step' : 'Send';
-    send.disabled = !stopMode && !hasText;
-    view.querySelector('.chat-sendnow').hidden = !(working && hasText);
+    send.title = stopMode
+      ? live
+        ? 'Stop'
+        : 'Stop needs a connection'
+      : working
+        ? 'Send when Claude finishes this step'
+        : 'Send';
+    send.disabled = stopMode ? !live : !hasText;
+    view.querySelector('.chat-sendnow').hidden = !(working && hasText && live);
+    view.querySelector('.chat-attach').disabled = !live;
+    view.querySelector('.chat-attach').title = live ? 'Attach' : 'Attachments need a connection';
 
     const chip = view.querySelector('.chat-context');
     const ctx = s.context;
@@ -1060,7 +1862,85 @@ Object.assign(CodemanApp.prototype, {
     }
   },
 
-  _chatPromptCard(screen, question) {
+  /** The dialog on the live screen, per the server. Null means none it could read. */
+  async _chatRefreshApproval(id) {
+    const s = this._chat(id);
+    if (s.approvalBusy) return;
+    s.approvalBusy = true;
+    s.approvalAt = Date.now();
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 10_000);
+    try {
+      const res = await fetch('/api/approvals', { redirect: 'manual', signal: abort.signal });
+      const kind = chatCore().classifyResponse({
+        type: res.type,
+        status: res.status,
+        contentType: res.headers.get('content-type') || '',
+      });
+      if (kind === 'signin') this._chatLinkState().signedOut = true;
+      if (kind === 'ok') {
+        const json = await res.json();
+        const items = Array.isArray(json?.data?.approvals) ? json.data.approvals : [];
+        s.approval = items.find((a) => a.sessionId === id && a.kind !== 'idle') || null;
+        s.approvalLoaded = true;
+      }
+    } catch {
+      /* The status line reports the link. The card stays as it is, disabled if the link is down. */
+    } finally {
+      clearTimeout(timer);
+      s.approvalBusy = false;
+    }
+    if (this._chatShownId === id) this._chatRenderDock(id);
+  },
+
+  /** One key, checked against the live pane on the server, sent once or not at all. */
+  async _chatAnswer(id, optionNumber) {
+    const s = this._chat(id);
+    const item = s.approval;
+    if (!item || s.answering || this._chatStatus(id).kind !== 'live') return;
+    s.answering = optionNumber;
+    s.answerError = '';
+    this._chatRenderDock(id);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 10_000);
+    try {
+      const res = await fetch(`/api/approvals/${encodeURIComponent(item.id)}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'option', option: optionNumber }),
+        redirect: 'manual',
+        signal: abort.signal,
+      });
+      const kind = chatCore().classifyResponse({
+        type: res.type,
+        status: res.status,
+        contentType: res.headers.get('content-type') || '',
+      });
+      if (kind === 'signin') {
+        this._chatLinkState().signedOut = true;
+        s.answerError = 'You are signed out. Nothing was pressed.';
+      } else {
+        const json = kind === 'ok' || kind === 'gone' ? await res.json().catch(() => null) : null;
+        if (json?.success) {
+          s.approval = null;
+          this._chatKick();
+        } else {
+          s.answerError = 'That question is no longer on screen. Nothing was pressed.';
+        }
+      }
+    } catch {
+      s.answerError = 'That may not have gone through. It will not be retried. Check the terminal if this card stays.';
+    } finally {
+      clearTimeout(timer);
+      s.answering = null;
+      s.approvalAt = 0;
+      if (this._chatShownId === id) this._chatRenderDock(id);
+    }
+  },
+
+  _chatPromptCard(id, item, question, link) {
+    const s = this._chat(id);
+    const live = link === 'live';
     const card = document.createElement('div');
     card.className = 'chat-card chat-prompt-card';
     const eyebrow = document.createElement('div');
@@ -1072,34 +1952,32 @@ Object.assign(CodemanApp.prototype, {
     const pending = this._chatPendingTool();
     if (question) {
       const qs = question.tool.input?.questions || [];
-      title.textContent =
-        (screen?.title && qs.find((q) => screen.title.includes(q.header || '\u0000'))?.question) ||
-        qs[0]?.question ||
-        screen?.title ||
-        '';
+      title.textContent = qs[0]?.question || item?.message || '';
+      card.appendChild(title);
     } else {
-      title.textContent = screen?.title || 'Claude is waiting for you';
-      if (pending) {
+      title.textContent = item?.message || item?.toolName || 'Claude is waiting for you';
+      card.appendChild(title);
+      const whatText = pending ? `${pending.name}: ${chatToolTitle(pending.name, pending.input)}` : item?.toolSummary;
+      if (whatText) {
         const what = document.createElement('div');
         what.className = 'chat-prompt-what';
-        what.textContent = `${pending.name}: ${chatToolTitle(pending.name, pending.input)}`;
-        card.appendChild(title);
+        what.textContent = whatText;
         card.appendChild(what);
       }
     }
-    if (!card.contains(title)) card.appendChild(title);
-    if (screen?.options?.length) {
+    if (item?.options?.length && !item.answerInTerminal) {
       const list = document.createElement('div');
       list.className = 'chat-prompt-options';
       const descByLabel = new Map();
       for (const q of question?.tool.input?.questions || [])
         for (const o of q.options || []) descByLabel.set(o.label, o.description);
-      for (const o of screen.options) {
+      for (const o of item.options) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'chat-option';
         b.dataset.chat = 'answer';
-        b.dataset.key = o.key;
+        b.dataset.option = String(o.n);
+        b.disabled = !live || !!s.answering;
         const label = document.createElement('span');
         label.className = 'chat-option-label';
         label.textContent = o.label;
@@ -1114,13 +1992,30 @@ Object.assign(CodemanApp.prototype, {
         list.appendChild(b);
       }
       card.appendChild(list);
+    } else if (live && !s.approvalLoaded) {
+      const wait = document.createElement('div');
+      wait.className = 'chat-prompt-note';
+      wait.textContent = 'Reading the question from the session…';
+      card.appendChild(wait);
     } else {
       const hint = document.createElement('button');
       hint.type = 'button';
       hint.className = 'chat-option';
       hint.dataset.chat = 'mode-terminal';
       hint.textContent = 'Answer in the terminal';
+      hint.disabled = !live;
       card.appendChild(hint);
+    }
+    const noteText =
+      s.answerError ||
+      (live
+        ? ''
+        : 'You need a connection to answer. Answers are never saved for later, because the question may have changed by then.');
+    if (noteText) {
+      const note = document.createElement('div');
+      note.className = 'chat-prompt-note';
+      note.textContent = noteText;
+      card.appendChild(note);
     }
     return card;
   },
@@ -1232,7 +2127,8 @@ Object.assign(CodemanApp.prototype, {
     const view = this._chatViewEl();
     if (!id || !view) return;
     const s = this._chat(id);
-    const row = this._chatRowState(id);
+    const core = chatCore();
+    const status = this._chatStatus(id);
     const text = this._chatInputText(view);
     if (s.uploads.some((u) => !u.path)) {
       this.showToast?.('Still uploading…', 'info');
@@ -1241,34 +2137,43 @@ Object.assign(CodemanApp.prototype, {
     const paths = s.uploads.map((u) => u.path);
     const message = [paths.join(' '), text].filter(Boolean).join(' ');
     if (!message) {
-      if (row?.state === 'working') this._chatKey(id, '\x1b');
+      if (status.kind === 'live' && this._chatRowState(id)?.state === 'working') this._chatKey(id, '\x1b');
       return;
     }
-    const deliver = () => {
-      const bar = window.KeyboardAccessoryBar;
-      if (bar?._sendComposedPrompt) bar._sendComposedPrompt(id, message);
-      else this._sendInputAsync(id, `${message}\r`, { useMux: true });
-    };
-    if (now && row?.state === 'working') {
+    const limit = window.CodemanInputLimit?.FRAME_MAX_CHARS;
+    if (limit && message.length + 1 > limit) {
+      this.showToast?.(`Too long to send (limit ${Math.floor(limit / 1024)} KB); not sent`, 'error');
+      return;
+    }
+    const ctx = this._chatOutboxContext(id, status);
+    const entry = core.newOutboxEntry({
+      id: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId: id,
+      text: message,
+      matchText: text,
+      now: Date.now(),
+      state: ctx.state,
+      log: ctx.log,
+      end: ctx.end || 0,
+    });
+    if (now && status.kind === 'live') {
+      // Interrupt, give it a moment to land, and send regardless of the state change.
       this._chatKey(id, '\x1b');
-      setTimeout(deliver, 450);
-    } else deliver();
+      entry.approved = true;
+      entry.notBefore = Date.now() + 450;
+      setTimeout(() => this._chatPump(), 500);
+    }
+    this._chatOutbox().push(entry);
+    this._chatSaveOutbox();
     for (const u of s.uploads) if (u.thumb) URL.revokeObjectURL(u.thumb);
     s.uploads = [];
     s.draft = '';
     view.querySelector('.chat-input').textContent = '';
     this._chatRenderUploads(id);
-    // Show the message at once; the log catches up on the next poll.
+    this._chatPump();
+    this._chatRenderOutbox(id);
     const scroller = view.querySelector('.chat-scroll');
-    const pending = document.createElement('div');
-    pending.className = 'chat-msg chat-user is-pending';
-    const bubble = document.createElement('div');
-    bubble.className = 'chat-bubble';
-    bubble.textContent = message;
-    pending.appendChild(bubble);
-    view.querySelector('.chat-log').appendChild(pending);
     scroller.scrollTop = scroller.scrollHeight;
-    setTimeout(() => this._chatPoll(id), 900);
   },
 
   _chatWire(view) {
@@ -1315,12 +2220,36 @@ Object.assign(CodemanApp.prototype, {
           if (id) this._chatLoadEarlier(id);
           break;
         case 'answer':
-          if (id) {
-            this._chatKey(id, target.dataset.key);
-            target.closest('.chat-prompt-card')?.classList.add('is-sent');
-            setTimeout(() => this._chatPoll(id), 700);
-          }
+          if (id) void this._chatAnswer(id, Number(target.dataset.option));
           break;
+        case 'retry':
+          this._chatRetryNow();
+          break;
+        case 'signin':
+          this._chatSignIn();
+          break;
+        case 'ob-send': {
+          const entry = this._chatOutbox().find((e) => e.id === target.dataset.ob);
+          if (entry) this._chatOutboxSend(entry);
+          break;
+        }
+        case 'ob-cancel': {
+          const entry = this._chatOutbox().find((e) => e.id === target.dataset.ob);
+          if (entry) this._chatRemoveOutbox(entry);
+          break;
+        }
+        case 'ob-edit': {
+          const entry = this._chatOutbox().find((e) => e.id === target.dataset.ob);
+          if (!entry) break;
+          this._chatRemoveOutbox(entry);
+          const box = view.querySelector('.chat-input');
+          const draft = this._chatInputText(view);
+          box.textContent = draft ? `${entry.text}\n${draft}` : entry.text;
+          this._chat(entry.sessionId).draft = box.textContent;
+          box.focus();
+          this._chatRenderDock(entry.sessionId);
+          break;
+        }
         case 'attach':
           fileInput.click();
           break;
@@ -1343,9 +2272,20 @@ Object.assign(CodemanApp.prototype, {
     view.querySelector('.chat-title').addEventListener('dblclick', () => this._chatRenameTitle());
     view.querySelector('.chat-title').title = 'Double-click to rename';
 
-    view.querySelector('.chat-scroll').addEventListener('scroll', (event) => {
-      if (event.target.scrollTop < 40 && this._chatShownId) this._chatLoadEarlier(this._chatShownId);
-    });
+    view.querySelector('.chat-scroll').addEventListener(
+      'scroll',
+      (event) => {
+        // Only a person scrolling: a redraw also scrolls, and that must not spend the link.
+        if (event.target.scrollTop >= 40 || !this._chatShownId) return;
+        if (Date.now() - (this._chatUserScrollAt || 0) < 1500) this._chatLoadEarlier(this._chatShownId);
+      },
+      { passive: true }
+    );
+    for (const name of ['wheel', 'touchmove', 'keydown']) {
+      view
+        .querySelector('.chat-scroll')
+        .addEventListener(name, () => (this._chatUserScrollAt = Date.now()), { passive: true });
+    }
 
     fileInput.addEventListener('change', () => {
       this._chatAddFiles([...fileInput.files]);
@@ -1403,11 +2343,24 @@ Object.assign(CodemanApp.prototype, {
     if (!home || home.hidden) return;
     home.querySelector('.chat-home-name').textContent = window.CodemanI18n?.displayName || 'Claude RC';
     const query = home.querySelector('input[type="search"]').value.trim().toLowerCase();
-    const rows = typeof this.buildHomeSessionRows === 'function' ? this.buildHomeSessionRows() : [];
+    const live = typeof this.buildHomeSessionRows === 'function' ? this.buildHomeSessionRows() : [];
+    // Nothing from the server yet: the sessions as they were when this page last knew them.
+    const directory = this._chatDirectory();
+    const rows = live.length
+      ? live
+      : Object.entries(directory).map(([id, d]) => ({
+          id,
+          name: d.name || id.slice(0, 8),
+          dir: d.folder,
+          display: 'saved',
+          pill: 'Saved',
+        }));
     const groups = new Map();
     for (const row of rows) {
-      const session = this.sessions.get(row.id);
-      const machine = session?.remote ? session.remote.label || session.remote.hostId : 'This server';
+      const session = this.sessions?.get(row.id);
+      const machine = session?.remote
+        ? session.remote.label || session.remote.hostId
+        : directory[row.id]?.where || 'This server';
       if (query && !`${row.name} ${row.dir} ${machine}`.toLowerCase().includes(query)) continue;
       if (!groups.has(machine)) groups.set(machine, []);
       groups.get(machine).push({ row, session });
@@ -1535,7 +2488,65 @@ Object.assign(CodemanApp.prototype, {
   const goHome = proto.goHome;
   proto.goHome = function (...args) {
     const result = goHome.apply(this, args);
+    this._chatOfflineId = null;
     this.chatSync?.();
+    return result;
+  };
+  // While chat covers the session, everything that would feed or size the main terminal
+  // stands aside, the same way these paths do for the tile grid. Switching to the
+  // terminal reloads it (setChatMode).
+  const stand = (name, answer) => {
+    const original = proto[name];
+    if (typeof original !== 'function') return;
+    proto[name] = function (...args) {
+      const id = typeof args[0] === 'string' ? args[0] : this.activeSessionId;
+      if (this._chatParksTerminal?.(id)) return answer;
+      return original.apply(this, args);
+    };
+  };
+  stand('_onSessionNeedsRefresh', false);
+  stand('_onSessionClearTerminal', undefined);
+  stand('_scheduleDroppedOutputRecovery', undefined);
+  stand('sendResize', Promise.resolve(false));
+  const connectWs = proto._connectWs;
+  proto._connectWs = function (sessionId) {
+    if (this._chatParksTerminal?.(sessionId)) {
+      this._disconnectWs();
+      // Input goes over POST while parked, which is what this state means.
+      this._wsState = 'fallback';
+      this._updateConnectionIndicator?.();
+      return undefined;
+    }
+    return connectWs.call(this, sessionId);
+  };
+  const sseFilter = proto._sseFilterSessionId;
+  proto._sseFilterSessionId = function (sessionId) {
+    if (this._chatParksTerminal?.(sessionId)) return CHAT_SSE_FILTER;
+    return sseFilter.call(this, sessionId);
+  };
+  // Events say when to read; each new stream gets the listeners once.
+  const connectSSE = proto.connectSSE;
+  proto.connectSSE = function (...args) {
+    const result = connectSSE.apply(this, args);
+    const stream = this.eventSource;
+    if (stream && stream !== this._chatNudgedStream) {
+      this._chatNudgedStream = stream;
+      const onEvent = (event) => {
+        const shown = this._chatShownId;
+        if (!shown) return;
+        let data = null;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        const id = data?.id || data?.sessionId;
+        if (id && id !== shown) return;
+        this._chatKick();
+        this._chat(shown).approvalAt = 0;
+      };
+      for (const name of CHAT_NUDGE_EVENTS) stream.addEventListener(name, onEvent);
+    }
     return result;
   };
   // Double-click a session tab or rail row to rename it (right-click still works too).
@@ -1547,19 +2558,69 @@ Object.assign(CodemanApp.prototype, {
   });
   window.addEventListener('popstate', () => {
     const app = window.app;
-    if (!app?._chatIsPhone?.()) return;
-    app._chatPhoneScreen = history.state?.chat === 'session' ? 'session' : 'home';
-    app.chatSync();
+    if (!app?._chatIsPhone?.() || app._chatMode?.() !== 'chat') return;
+    if (history.state?.chat === 'session' || !app._chatShownId) return;
+    app._chatHistoryId = null;
+    app._chatGoHome();
   });
   const start = () => {
     const app = window.app;
     if (!app) return setTimeout(start, 300);
+    // Back from the login page: the marker has done its job.
+    if (/[?&]signin=1\b/.test(location.search)) {
+      try {
+        const url = new URL(location.href);
+        url.searchParams.delete('signin');
+        history.replaceState(history.state, '', url);
+      } catch {
+        /* keep the URL */
+      }
+    }
     app.chatSync();
     setInterval(() => {
       if (document.hidden) return;
       app.chatSync();
-    }, CHAT_POLL_MS);
+    }, CHAT_TICK_MS);
     window.matchMedia?.(CHAT_PHONE_QUERY).addEventListener?.('change', () => app.chatSync());
+    // Back on the network, or back in front of the user: read now, never wait out a backoff.
+    // The link counts as live only once a read has worked; a wake only reads sooner.
+    const wake = () => {
+      for (const list of app._pendingDeliveries?.values() || []) for (const rec of list) rec.retryAt = 0;
+      app._chatRenderLink();
+      app._chatKick({ force: true });
+    };
+    window.addEventListener('online', wake);
+    // Another tab changed the outbox: read it again rather than overwrite it later.
+    window.addEventListener('storage', (event) => {
+      if (event.key !== CHAT_OUTBOX_KEY) return;
+      app._chatOutboxData = null;
+      if (app._chatShownId) app._chatRenderOutbox(app._chatShownId);
+    });
+    window.addEventListener('offline', () => {
+      const link = app._chatLinkState();
+      link.failures = Math.max(1, link.failures);
+      app._chatRenderLink();
+      if (app._chatShownId) app._chatRenderDock(app._chatShownId);
+      app._chatArm({ fresh: true });
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clearTimeout(app._chatTimer);
+        app._chatTimer = null;
+      } else wake();
+    });
+    // Everything this page loaded goes into the service worker's cache, so the next
+    // start needs no network: fonts and lazily loaded modules are not in its list.
+    const shareAssets = () => {
+      const urls = (performance.getEntriesByType?.('resource') || [])
+        .map((r) => r.name)
+        .filter((u) => u.startsWith(location.origin) && !u.includes('/api/') && !u.includes('/ws/'));
+      navigator.serviceWorker?.ready
+        .then((reg) => reg.active?.postMessage({ type: 'cache-assets', urls }))
+        .catch(() => {});
+    };
+    setTimeout(shareAssets, 4000);
+    navigator.serviceWorker?.addEventListener('controllerchange', shareAssets);
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();

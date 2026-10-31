@@ -2092,7 +2092,12 @@ export function registerSessionRoutes(
     const tagged = typeof clientId === 'string' && typeof seq === 'number';
     const duplicate = tagged && !session.shouldApplyInput(clientId as string, seq as number);
     if (duplicate && !wantsWait) {
-      return {};
+      // `duplicate` + `last` (additive) let a client whose counter rolled back lift itself
+      // out, the same as the socket's {t:'ia',dup:true,last}: to it, this is the only way
+      // to tell "that landed earlier" from "this one was dropped".
+      // Optional call for the same reason as the socket route: a structural port's session.
+      const last = (session as { lastInputSeq?: (c: string) => number }).lastInputSeq?.(clientId as string);
+      return { duplicate: true, ...(last === undefined ? {} : { last }) };
     }
 
     // Wake-on-LAN (remote-wake.ts): a wake-enabled remote host that suspended leaves
@@ -2240,8 +2245,9 @@ export function registerSessionRoutes(
         delivered = session.write(inputStr, { fromUser: true });
         if (!delivered) undoOnFailure();
       }
-    } else if (autoMux) {
-      // Awaited, unlike the explicit useMux branch below. This shape also reaches here
+    } else if (autoMux || (useMux && tagged)) {
+      // Awaited, unlike the explicit useMux branch below (a tagged write is the browser's
+      // durable queue, whose 2xx is the ACK that lets it forget the message). This shape also reaches here
       // from the browser's POST fallback, which sends its frames one at a time and
       // waits for each 2xx; answering only once Enter has gone out is what keeps the
       // next keystroke from overtaking it.

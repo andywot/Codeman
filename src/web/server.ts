@@ -1163,12 +1163,14 @@ export class WebServer extends EventEmitter {
       if (isLostWebviewRootFrame(req)) return sendLostWebviewFramePage(reply);
       return reply
         .header('Cache-Control', 'no-cache')
+        .header('X-Codeman-Shell', '1')
         .type('text/html; charset=utf-8')
         .send(await this.renderIndexHtml());
     });
     this.app.get('/index.html', async (_req, reply) => {
       return reply
         .header('Cache-Control', 'no-cache')
+        .header('X-Codeman-Shell', '1')
         .type('text/html; charset=utf-8')
         .send(await this.renderIndexHtml());
     });
@@ -1183,6 +1185,7 @@ export class WebServer extends EventEmitter {
       const { id } = req.params as { id: string };
       return reply
         .header('Cache-Control', 'no-cache')
+        .header('X-Codeman-Shell', '1')
         .type('text/html; charset=utf-8')
         .send(await this.renderIndexHtml(id));
     });
