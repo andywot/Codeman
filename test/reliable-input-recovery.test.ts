@@ -70,7 +70,7 @@ describe('the seq counter is persisted synchronously on every send', () => {
   it('_reliableSend uses the immediate writer, never the debounced one', () => {
     // The counter is precisely what must survive a crash, so it cannot ride the
     // path most likely to be lost. (The queue PAYLOAD may still be debounced.)
-    const send = appSource.slice(appSource.indexOf('_reliableSend(sessionId, data, useMux)'));
+    const send = appSource.slice(appSource.indexOf('_reliableSend(sessionId, data, useMux, extra)'));
     const body = send.slice(0, send.indexOf('_nextSeq(sessionId) {'));
     expect(body).toContain('this._persistReliableNow();');
     expect(body).not.toMatch(/list\.push\(rec\);\s*\n\s*this\._persistReliableState\(\);/);

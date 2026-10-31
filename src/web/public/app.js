@@ -102,9 +102,14 @@ try {
 _crashDiag.log('PAGE LOAD');
 
 // Heartbeat: send breadcrumbs to server every 2s so they survive tab freezes.
+let _crashDiagBeaconed = '';
 function _crashDiagBeacon() {
   try {
-    if (_crashDiag._entries.length > 0) {
+    // Only what changed. The same trail every 2 s held a connection and upload room on a
+    // slow link for nothing: 20+ beacons in 45 s, ahead of what the user was waiting for.
+    const last = _crashDiag._entries[_crashDiag._entries.length - 1] || '';
+    if (last !== _crashDiagBeaconed) {
+      _crashDiagBeaconed = last;
       navigator.sendBeacon(CodemanBase.url('/api/crash-diag'), JSON.stringify({ data: _crashDiag._entries.join('\n'), id: _crashDiag._pageId }));
     }
   } catch {}
@@ -4454,8 +4459,8 @@ class CodemanApp {
           if (rec.post) this._persistReliableNow();
           let resp = null;
           // A half-open link never answers, and this loop owns the session's queue.
-          const postAbort = new AbortController();
-          const postTimer = setTimeout(() => postAbort.abort(), 20000);
+          const postAbort = typeof AbortController === 'function' ? new AbortController() : null;
+          const postTimer = setTimeout(() => postAbort?.abort(), 20000);
           try {
             const body = { input: rec.data, seq: rec.seq, clientId: this._clientId };
             if (rec.useMux) body.useMux = true;
@@ -4467,7 +4472,7 @@ class CodemanApp {
               // A login redirect must read as "not delivered", never as a 200 from
               // the login page it leads to, which would drop the input as ACKed.
               redirect: 'manual',
-              signal: postAbort.signal,
+              signal: postAbort?.signal,
             });
           } catch {
             resp = null;

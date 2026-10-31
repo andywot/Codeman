@@ -25,23 +25,28 @@ export async function getBrowser(engine: 'chromium' | 'webkit' = 'chromium'): Pr
 
 export async function createDeviceContext(
   device: DeviceEntry,
-  engineOverride?: 'chromium' | 'webkit',
+  engineOverride?: 'chromium' | 'webkit'
 ): Promise<BrowserContext> {
   const engine = engineOverride ?? device.defaultBrowserType;
   const browser = await getBrowser(engine);
-  return browser.newContext({
+  const context = await browser.newContext({
     viewport: device.viewport,
     deviceScaleFactor: device.deviceScaleFactor,
     isMobile: device.isMobile,
     hasTouch: device.hasTouch,
     userAgent: device.userAgent,
   });
+  // This suite tests the terminal and its bars; phones now open sessions in chat by default.
+  await context.addInitScript(() => {
+    localStorage.setItem('codeman:chatMode', 'terminal');
+  });
+  return context;
 }
 
 export async function createDevicePage(
   device: DeviceEntry,
   url: string,
-  engineOverride?: 'chromium' | 'webkit',
+  engineOverride?: 'chromium' | 'webkit'
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await createDeviceContext(device, engineOverride);
   const page = await context.newPage();

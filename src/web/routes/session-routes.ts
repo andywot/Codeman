@@ -2095,7 +2095,9 @@ export function registerSessionRoutes(
       // `duplicate` + `last` (additive) let a client whose counter rolled back lift itself
       // out, the same as the socket's {t:'ia',dup:true,last}: to it, this is the only way
       // to tell "that landed earlier" from "this one was dropped".
-      return { duplicate: true, last: session.lastInputSeq(clientId as string) };
+      // Optional call for the same reason as the socket route: a structural port's session.
+      const last = (session as { lastInputSeq?: (c: string) => number }).lastInputSeq?.(clientId as string);
+      return { duplicate: true, ...(last === undefined ? {} : { last }) };
     }
 
     // Wake-on-LAN (remote-wake.ts): a wake-enabled remote host that suspended leaves

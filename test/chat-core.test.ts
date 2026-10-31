@@ -48,8 +48,8 @@ describe('pace', () => {
   });
 
   it('gives a slow link longer after each timeout, up to a limit', () => {
-    expect(core.requestTimeout('delta', 0)).toBe(10_000);
-    expect(core.requestTimeout('delta', 1)).toBe(15_000);
+    expect(core.requestTimeout('delta', 0)).toBe(15_000);
+    expect(core.requestTimeout('delta', 1)).toBe(22_500);
     expect(core.requestTimeout('delta', 20)).toBe(45_000);
     expect(core.requestTimeout('tail', 0)).toBeGreaterThan(core.requestTimeout('delta', 0));
   });
@@ -371,7 +371,7 @@ describe('service worker: what counts as the app', () => {
       caches: {},
       URL,
     });
-    vm.runInContext(`${sw};globalThis.__t={isAppShell,isCacheableAsset,assetsNamedBy};`, context);
+    vm.runInContext(`${sw};globalThis.__t={isAppShell,isCacheableAsset,assetsNamedBy,isCompleteShell};`, context);
     return (context as any).__t;
   }
   const response = (o: { ok?: boolean; type?: string; redirected?: boolean; headers?: Record<string, string> }) => ({
@@ -390,6 +390,10 @@ describe('service worker: what counts as the app', () => {
     expect(t.isAppShell(response({ redirected: true, headers: { 'x-codeman-shell': '1' } }))).toBe(false);
     expect(t.isAppShell(response({ type: 'opaqueredirect', ok: false }))).toBe(false);
     expect(t.isAppShell(response({ ok: false, headers: { 'x-codeman-shell': '1' } }))).toBe(false);
+  });
+  it('saves a page only once it arrived whole', () => {
+    expect(t.isCompleteShell('<html><body></body></html>\n')).toBe(true);
+    expect(t.isCompleteShell('<html><body><div class="event-label">Task comp')).toBe(false);
   });
   it('never saves a page as a script', () => {
     expect(t.isCacheableAsset(response({ headers: { 'content-type': 'application/javascript' } }))).toBe(true);

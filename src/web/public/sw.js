@@ -75,7 +75,7 @@ const IMAGE_CACHE = 'codeman-chat-images';
 const IMAGE_CACHE_MAX = 200;
 
 // How long a slow network is waited for when a saved copy could be shown instead.
-const NAV_WAIT_MS = 2500;
+const NAV_WAIT_MS = 1500;
 const ASSET_WAIT_MS = 4000;
 
 /**
@@ -91,6 +91,24 @@ function isAppShell(response) {
     !response.redirected &&
     response.headers.get('x-codeman-shell') === '1'
   );
+}
+
+/**
+ * Save the shell only once it has arrived whole. A cut connection can end a compressed
+ * response cleanly partway through, and half a page saved here would be what opens from
+ * then on (measured: 256 KiB of the page, ending in the middle of the settings markup).
+ */
+async function saveShell(cache, key, response) {
+  const text = await response.text();
+  if (!isCompleteShell(text)) return;
+  await cache.put(
+    key,
+    new Response(text, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'x-codeman-shell': '1' } })
+  );
+}
+
+function isCompleteShell(text) {
+  return /<\/html>\s*$/i.test(text);
 }
 
 /** Safe to keep as a static file: our own, not a redirect, and not a page in disguise. */
@@ -137,8 +155,8 @@ self.addEventListener('install', (event) => {
       try {
         const shell = await fetch(SHELL_URL);
         if (isAppShell(shell)) {
-          await cache.put(SHELL_URL, shell.clone());
-          const named = assetsNamedBy(await shell.text());
+          const named = assetsNamedBy(await shell.clone().text());
+          await saveShell(cache, SHELL_URL, shell);
           await Promise.allSettled(named.map((url) => cacheAsset(cache, url)));
         }
       } catch {
@@ -210,7 +228,8 @@ async function handleNavigation(event) {
     if (isAppShell(response)) {
       const copy = response.clone();
       const key = url.pathname.startsWith(B('/session/')) ? url.pathname : SHELL_URL;
-      event.waitUntil(cache.put(key, copy));
+      // Not waitUntil: by the time this body is whole the page may have the saved copy already.
+      saveShell(cache, key, copy).catch(() => {});
     }
     return response;
   });
@@ -234,10 +253,14 @@ async function handleAsset(event) {
   // It also makes runtime-cached entries survive an mtime change: the same
   // file re-requested under a new `?v=` still matches the copy already held.
   const saved = cache.match(request, { ignoreSearch: true });
-  // A content-hashed name never changes meaning, so its saved copy is the answer.
+  // A content-hashed name never changes meaning, and neither does an exact `?v=<mtime>`,
+  // so a saved copy of either is the answer: no reason to wait on a slow link for it.
   if (HASHED_URLS.has(url.pathname)) {
     const hit = await saved;
     if (hit) return hit;
+  } else if (url.searchParams.has('v')) {
+    const exact = await cache.match(request);
+    if (exact) return exact;
   }
   const network = fetch(request).then((response) => {
     if (isCacheableAsset(response)) {

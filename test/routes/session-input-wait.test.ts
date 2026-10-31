@@ -89,12 +89,13 @@ describe('POST /api/sessions/:id/input without wait (unchanged behavior)', () =>
     resolveWrite(true);
   });
 
-  it('a tagged duplicate still returns the bare body', async () => {
+  it('a tagged duplicate is a 200 that says so, and nothing else changes', async () => {
     const { app } = await harness();
     await send(app, { input: 'first', clientId: 'c1', seq: 1 });
     const replay = await send(app, { input: 'first', clientId: 'c1', seq: 1 });
 
-    expect(replay.json()).toEqual({});
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().duplicate).toBe(true);
     expect(sessionWaits.totalWaiterCount()).toBe(0);
   });
 

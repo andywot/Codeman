@@ -4648,6 +4648,30 @@
   <script defer src="machine-history.js"></script>
   <script defer src="shared-config.js"></script>
   <script defer src="status-bar.js"></script>
+  <script>
+    // A cut connection can leave a broken file in the service worker's cache, and a page
+    // whose scripts do not run cannot fix itself. If the app never started: once per tab,
+    // and only with a network to fetch a good copy, empty the cache and start again.
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (window.app || !navigator.onLine || !navigator.serviceWorker || !navigator.serviceWorker.controller) return;
+        try {
+          if (sessionStorage.getItem('codeman:shellRepaired')) return;
+          sessionStorage.setItem('codeman:shellRepaired', '1');
+        } catch (e) {
+          return;
+        }
+        caches
+          .keys()
+          .then(function (keys) {
+            return Promise.all(keys.filter(function (k) { return k !== 'codeman-chat-images'; }).map(function (k) { return caches.delete(k); }));
+          })
+          .then(function () {
+            location.reload();
+          });
+      }, 4000);
+    });
+  </script>
   <script defer src="chat-core.js"></script>
   <script defer src="chat-view.js"></script>
   <script defer src="git-status-ui.js"></script>

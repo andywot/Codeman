@@ -74,7 +74,8 @@
 
   /** How long one request may take. A slow link gets longer after each timeout. */
   function requestTimeout(kind, failures = 0) {
-    const base = kind === 'delta' ? 10 * SECOND : 30 * SECOND;
+    // A connection can wait its turn behind a page's start-up requests before it even goes out.
+    const base = kind === 'delta' ? 15 * SECOND : 30 * SECOND;
     const max = kind === 'delta' ? 45 * SECOND : 90 * SECOND;
     return Math.min(max, Math.round(base * 1.5 ** Math.min(failures, 8)));
   }

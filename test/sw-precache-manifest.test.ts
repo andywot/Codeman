@@ -92,7 +92,9 @@ describe('service worker precache contract', () => {
   // `/app.556be563.js` can never serve that request, and the install would be
   // downloading ~1.3MB per deploy that nothing can ever read back.
   it('falls back to the cache ignoring the cache-busting query string', () => {
-    expect(sw).toContain('caches.match(request, { ignoreSearch: true })');
+    expect(sw).toContain('cache.match(request, { ignoreSearch: true })');
+    // The one exact match is the shortcut for a file already saved under this very `?v=`;
+    // the fallback is the ignoreSearch match above.
     expect(sw, 'a bare caches.match(request) cannot match the ?v=<mtime> URLs cacheBustAssets emits').not.toMatch(
       /caches\.match\(request\)\s*\)/
     );

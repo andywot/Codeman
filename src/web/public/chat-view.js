@@ -875,6 +875,8 @@ Object.assign(CodemanApp.prototype, {
       const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/chat?${new URLSearchParams(params)}`, {
         redirect: 'manual',
         signal: abort.signal,
+        // Ahead of the page's other requests when a slow link has them queueing.
+        priority: 'high',
       });
       const kind = chatCore().classifyResponse({
         type: res.type,
