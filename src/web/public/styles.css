@@ -3142,6 +3142,33 @@ html[data-header-stats] .header-system-stats .stat-item[hidden] {
   border-radius: var(--btn-radius);
 }
 
+/* Ctrl +/-/0 note: one reused node, shown for about a second, never takes clicks. */
+.font-size-readout {
+  position: fixed;
+  left: 50%;
+  bottom: 2.5rem;
+  transform: translateX(-50%);
+  padding: 0.35rem 0.8rem;
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10000;
+  transition: opacity 0.15s;
+}
+.font-size-readout.show {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .font-size-readout {
+    transition: none;
+  }
+}
+
 .header-font-controls .font-size-display {
   font-size: var(--fs-xs);
   color: var(--text-muted);

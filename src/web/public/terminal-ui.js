@@ -855,6 +855,10 @@ Object.assign(CodemanApp.prototype, {
       // A chord the user rebound to an app action (Settings -> Shortcuts) must not also type into the PTY.
       if (ev.type === 'keydown' && this.isUserBoundShortcutEvent?.(ev)) return false;
 
+      // Ctrl +/-/0 (font size): the document handler has acted, so keep the chord out of the PTY
+      // (Ctrl+- is ^_ , readline's undo).
+      if (ev.type === 'keydown' && this.isFontSizeShortcutEvent?.(ev)) return false;
+
       // Command palette chord (COD-153): keep it out of the PTY. The document
       // CAPTURE handler has already opened the palette by the time xterm sees
       // this keydown, but its preventDefault() does NOT stop xterm — without
@@ -6502,27 +6506,75 @@ Object.assign(CodemanApp.prototype, {
   },
 
   increaseFontSize() {
-    // With the tile grid open, Ctrl +/- sizes the tiles (their own font size).
-    if (this._tilesOwnTerminal?.()) {
-      this.setTileFontSize(Math.min(this._tileGridFontSize() + 2, 24));
-      return;
-    }
-    const current = this.terminal.options.fontSize || window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType());
-    this.setFontSize(Math.min(current + 2, 24));
+    this._stepFontSize(+2);
   },
 
   decreaseFontSize() {
+    this._stepFontSize(-2);
+  },
+
+  /** Ctrl+0: back to the built-in size (drops the saved one). */
+  resetFontSize() {
     if (this._tilesOwnTerminal?.()) {
-      this.setTileFontSize(Math.max(this._tileGridFontSize() - 2, 10));
+      const size = window.CodemanTileGrid.TILE_FONT_SIZE_DEFAULT;
+      this.setTileFontSize(size);
+      try {
+        localStorage.removeItem('codeman-tile-font-size');
+      } catch {
+        /* Per-device convenience only. */
+      }
+      this._showFontSizeReadout(size);
       return;
     }
+    if (!this.terminal) return;
+    const size = window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType());
+    this.setFontSize(size);
+    try {
+      localStorage.removeItem('codeman-font-size');
+    } catch {
+      /* Per-device convenience only. */
+    }
+    this._showFontSizeReadout(size);
+  },
+
+  _stepFontSize(delta) {
+    // With the tile grid open, Ctrl +/- sizes the tiles (their own font size).
+    if (this._tilesOwnTerminal?.()) {
+      const size = Math.max(10, Math.min(this._tileGridFontSize() + delta, 24));
+      this.setTileFontSize(size);
+      this._showFontSizeReadout(size);
+      return;
+    }
+    // No terminal yet (nothing open / page still loading): nothing to size, and no throw.
+    if (!this.terminal) return;
     const current = this.terminal.options.fontSize || window.CodemanTerminalFont.defaultSize(MobileDetection.getDeviceType());
-    this.setFontSize(Math.max(current - 2, 10));
+    const size = Math.max(10, Math.min(current + delta, 24));
+    this.setFontSize(size);
+    this._showFontSizeReadout(size);
+  },
+
+  /** Brief "Text size 17" note; one reused node (a toast per key press would pile up). */
+  _showFontSizeReadout(size) {
+    let el = document.getElementById('fontSizeReadout');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fontSizeReadout';
+      el.className = 'font-size-readout';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      el.setAttribute('data-i18n-skip', '');
+      document.body.appendChild(el);
+    }
+    el.textContent = `Text size ${size}`;
+    el.classList.add('show');
+    clearTimeout(this._fontReadoutTimer);
+    this._fontReadoutTimer = setTimeout(() => el.classList.remove('show'), 1200);
   },
 
   setFontSize(size) {
     this.terminal.options.fontSize = size;
-    document.getElementById('fontSizeDisplay').textContent = size;
+    const display = document.getElementById('fontSizeDisplay');
+    if (display) display.textContent = size;
     this._refitAfterCellSizeChange();
     localStorage.setItem('codeman-font-size', size);
     // Update overlay font cache and re-render at new cell dimensions
@@ -6625,7 +6677,8 @@ Object.assign(CodemanApp.prototype, {
   loadFontSize() {
     const size = window.CodemanTerminalFont.savedSize(localStorage, MobileDetection.getDeviceType());
     if (size !== null) this.terminal.options.fontSize = size;
-    document.getElementById('fontSizeDisplay').textContent = this.terminal.options.fontSize;
+    const display = document.getElementById('fontSizeDisplay');
+    if (display) display.textContent = this.terminal.options.fontSize;
   },
 
   /**
