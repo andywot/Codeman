@@ -146,6 +146,23 @@ describe('agents and artifacts', () => {
   });
 });
 
+describe('a page touched only through its data', () => {
+  it('is pinned, stays in the activity row, and gets no card', () => {
+    const url = 'https://claude.ai/artifact/GDaZ';
+    const items = chat.buildChatItems([
+      {
+        uuid: 'a',
+        role: 'assistant',
+        timestamp: '',
+        blocks: [{ type: 'tool_use', id: 'd', name: 'ArtifactData', input: { action: 'list', url } }],
+      },
+    ]);
+    expect(chat.chatArtifacts(items)).toEqual([{ url, title: '' }]);
+    expect(items.find((i: any) => i.kind === 'activity').tools[0].id).toBe('d');
+    expect(items.find((i: any) => i.kind === 'artifact').pinOnly).toBe(true);
+  });
+});
+
 describe('the / picker', () => {
   it('matches only while a command is being typed', () => {
     expect(chat.chatSlashMatches('hello', [])).toBeNull();

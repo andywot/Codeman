@@ -428,6 +428,10 @@ function buildChatItems(entries) {
             items.push(activity);
           }
           activity.tools.push(tool);
+          // Reading or writing a page's data or comments: pinned above the log, no card of its own.
+          if ((b.name === 'ArtifactData' || b.name === 'ArtifactComments') && chatArtifactUrl(tool)) {
+            items.push({ kind: 'artifact', key: `${key}:pin`, tool, url: chatArtifactUrl(tool), pinOnly: true });
+          }
           if (CHAT_FILE_TOOLS.has(b.name)) {
             items.push({ kind: 'file', key: `${key}:file`, tool });
             activity = null;
@@ -1747,6 +1751,7 @@ Object.assign(CodemanApp.prototype, {
         return el;
       }
       case 'artifact': {
+        if (item.pinOnly) return null;
         const a = document.createElement('a');
         a.className = 'chat-file-card chat-artifact-card';
         a.dataset.key = item.key;
