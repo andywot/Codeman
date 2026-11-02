@@ -251,27 +251,44 @@ function chatRunningLabel(items) {
   return '';
 }
 
-/** Slash commands of Claude Code itself; `menu` ones open a dialog only the terminal can show. */
+/**
+ * Slash commands of Claude Code itself. `inChat` ones answer in the log, so chat can show
+ * them. The rest draw on the terminal screen and log nothing until closed, if at all.
+ */
 const CHAT_BUILTIN_COMMANDS = [
-  ['clear', 'Start a new conversation'],
-  ['compact', 'Summarize the conversation to free up context'],
-  ['context', 'Show what is using the context'],
-  ['cost', 'Show what this session has used'],
+  ['clear', 'Start a new conversation', true],
+  ['compact', 'Summarize the conversation to free up context', true],
+  ['context', 'Show what is using the context', true],
+  ['init', 'Write a CLAUDE.md for this project', true],
+  ['review', 'Review a pull request', true],
   ['usage', 'Show plan usage limits'],
-  ['init', 'Write a CLAUDE.md for this project'],
-  ['review', 'Review a pull request'],
-  ['model', 'Choose the model', true],
-  ['effort', 'Choose the effort level', true],
-  ['resume', 'Go back to a past conversation', true],
-  ['rewind', 'Go back to an earlier point', true],
-  ['config', 'Open settings', true],
-  ['permissions', 'Manage tool permissions', true],
-  ['mcp', 'Manage MCP servers', true],
-  ['agents', 'Manage agents', true],
-  ['memory', 'Edit memory files', true],
-  ['login', 'Sign in', true],
-  ['logout', 'Sign out', true],
-].map(([name, description, menu]) => ({ name, description, menu: !!menu }));
+  ['cost', 'Show what this session has used'],
+  ['status', 'Show version, model and account'],
+  ['model', 'Choose the model'],
+  ['effort', 'Choose the effort level'],
+  ['resume', 'Go back to a past conversation'],
+  ['rewind', 'Go back to an earlier point'],
+  ['config', 'Open settings'],
+  ['permissions', 'Manage tool permissions'],
+  ['mcp', 'Manage MCP servers'],
+  ['agents', 'Manage agents'],
+  ['memory', 'Edit memory files'],
+  ['login', 'Sign in'],
+  ['logout', 'Sign out'],
+].map(([name, description, inChat]) => ({ name, description, menu: !inChat }));
+
+/**
+ * Whether a sent message is a command only the terminal can show. Unknown commands count:
+ * a blank chat is worse than an extra switch, and nothing but a skill or `inChat` stays. Pure.
+ */
+function chatCommandNeedsTerminal(message, skills) {
+  const m = String(message || '')
+    .trim()
+    .match(/^\/([A-Za-z][\w:-]*)(?:\s|$)/);
+  if (!m) return false;
+  if ((skills || []).some((c) => c.name === m[1])) return false;
+  return !CHAT_BUILTIN_COMMANDS.some((c) => !c.menu && c.name === m[1]);
+}
 
 /** The picker's rows for what is typed, or null when the box is not a command being typed. Pure. */
 function chatSlashMatches(typed, skills) {
@@ -515,6 +532,7 @@ if (typeof window !== 'undefined') {
     chatArtifacts,
     chatRunningLabel,
     chatSlashMatches,
+    chatCommandNeedsTerminal,
   };
 }
 
@@ -2519,9 +2537,8 @@ Object.assign(CodemanApp.prototype, {
     this._chatRenderSlash();
     this._chatPump();
     this._chatRenderOutbox(id);
-    // A command that opens a menu has nothing to show here: the menu is on the terminal.
-    const menu = CHAT_BUILTIN_COMMANDS.find((c) => c.menu && message.trim().split(/\s/)[0] === `/${c.name}`);
-    if (menu) setTimeout(() => this.setChatMode('terminal'), 300);
+    // Its screen is on the terminal, and the next message would land in its dialog.
+    if (chatCommandNeedsTerminal(message, s.skills)) setTimeout(() => this.setChatMode('terminal'), 300);
     const scroller = view.querySelector('.chat-scroll');
     scroller.scrollTop = scroller.scrollHeight;
   },

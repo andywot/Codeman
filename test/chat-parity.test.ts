@@ -160,6 +160,19 @@ describe('the / picker', () => {
     expect(names).toContain('code-review');
   });
 
+  it('sends commands that draw on the screen to the terminal', () => {
+    const skills = [{ name: 'impeccable:impeccable', description: '' }];
+    for (const typed of ['/usage', '/cost', '/model opus', '/some-new-command']) {
+      expect(chat.chatCommandNeedsTerminal(typed, skills)).toBe(true);
+    }
+    for (const typed of ['/clear', '/compact keep the plan', '/context', '/impeccable:impeccable fix it']) {
+      expect(chat.chatCommandNeedsTerminal(typed, skills)).toBe(false);
+    }
+    for (const typed of ['/home/me/a.png look at this', 'hello /usage', '']) {
+      expect(chat.chatCommandNeedsTerminal(typed, skills)).toBe(false);
+    }
+  });
+
   it('reads the skills from the log line', () => {
     const line = JSON.stringify({
       attachment: { type: 'skill_listing', content: '- simplify: Review code\n- impeccable:impeccable: Design\nnoise' },
