@@ -37,6 +37,8 @@ export const TCP_PROBE_TIMEOUT_MS = 1_500;
 export const SSH_CHECK_TIMEOUT_MS = 10_000;
 export const AUTH_RETRY_MS = 5 * 60_000;
 export const TOOLS_CHECK_MS = 10 * 60_000;
+/** A battery is read this often; a machine found to have none is not asked again. */
+export const BATTERY_CHECK_MS = 3 * 60_000;
 /**
  * A machine with Wake-on-LAN that last gave no answer is probed again only this often
  * (unless the user asks): a NIC set to wake on directed packets would otherwise be
@@ -79,6 +81,11 @@ export interface MachineLoad {
   memTotalMB: number;
 }
 
+export interface MachineBattery {
+  percent: number;
+  charging: boolean;
+}
+
 export interface SystemStatus extends MachineVerdict {
   hostId: string;
   label: string;
@@ -102,6 +109,8 @@ export interface MachineStatus extends MachineVerdict {
   /** A Wake-on-LAN MAC or wake command is configured; the hostId to wake through. */
   wakeHostId: string | null;
   load: MachineLoad | null;
+  /** Null when the machine has no battery, or it has not been read yet. */
+  battery: MachineBattery | null;
   systems: SystemStatus[];
   checkedAt: number;
 }
@@ -280,7 +289,34 @@ export interface ProbeOutput {
   mem: string[];
   /** The kernel's boot id (`/proc/sys/kernel/random/boot_id`), when readable. */
   boot: string | null;
+  /** The last `@@bat` line: a reading, 'none' for no battery, null when none was asked for. */
+  battery: MachineBattery | 'none' | null;
 }
+
+/**
+ * `@@bat <percent> <word>`, from Linux sysfs (Charging, Discharging, Full, Not charging) or
+ * Win32_Battery's BatteryStatus number (1 is discharging). `@@bat none` means no battery.
+ */
+export function parseBatteryLine(text: string): MachineBattery | 'none' | null {
+  const t = text.trim();
+  if (t === 'none') return 'none';
+  const m = t.match(/^(\d{1,3}) (.+)$/);
+  if (!m) return null;
+  const percent = Math.min(100, Number(m[1]));
+  return { percent, charging: !/^(Discharging|1)$/i.test(m[2].trim()) };
+}
+
+/**
+ * Print the battery as an `@@bat` line. Linux first; WSL hides the battery from Linux, so
+ * then the Windows side is asked, which takes a second or two.
+ */
+export const BATTERY_PROBE = [
+  `b=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -n 1)`,
+  `ps=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`,
+  `if [ -n "$b" ]; then printf '@@bat %s %s\\n' "$(cat "$b/capacity" 2>/dev/null)" "$(cat "$b/status" 2>/dev/null)"`,
+  `elif [ -x "$ps" ]; then "$ps" -NoProfile -NonInteractive -Command '$b=Get-CimInstance Win32_Battery | Select-Object -First 1; if ($b) { "@@bat " + $b.EstimatedChargeRemaining + " " + $b.BatteryStatus } else { "@@bat none" }' 2>/dev/null </dev/null`,
+  `else echo '@@bat none'; fi`,
+].join('\n');
 
 /** A kernel boot id (a UUID), lower-cased; null for anything else (an empty read, login noise). */
 export function normalizeBootId(text: string | null | undefined): string | null {
@@ -321,7 +357,7 @@ export function readLocalBootId(): string | null {
 
 /** The `@@` marker lines of {@link buildProbeScript}'s output; anything else is login noise. */
 export function parseProbeOutput(stdout: string): ProbeOutput {
-  const out: ProbeOutput = { ok: false, tmux: null, claude: null, cpu: [], mem: [], boot: null };
+  const out: ProbeOutput = { ok: false, tmux: null, claude: null, cpu: [], mem: [], boot: null, battery: null };
   for (const raw of stdout.split('\n')) {
     const line = raw.replace(/\r$/, '');
     if (line === '@@ok') out.ok = true;
@@ -332,6 +368,7 @@ export function parseProbeOutput(stdout: string): ProbeOutput {
       if (sample) out.cpu.push(sample);
     } else if (line.startsWith('@@mem ')) out.mem.push(line.slice(6));
     else if (line.startsWith('@@boot ')) out.boot = normalizeBootId(line.slice(7));
+    else if (line.startsWith('@@bat ')) out.battery = parseBatteryLine(line.slice(6));
   }
   return out;
 }
@@ -346,6 +383,7 @@ export function buildProbeScript(opts: {
   stats: boolean;
   secondSample: boolean;
   windows: boolean;
+  battery?: boolean;
 }): string {
   const lines = ['echo @@ok'];
   if (opts.tools) {
@@ -366,6 +404,7 @@ export function buildProbeScript(opts: {
     );
     lines.push(`[ -r /proc/meminfo ] && grep -E '^(MemTotal|MemAvailable):' /proc/meminfo | sed 's/^/@@mem /'`);
   }
+  if (opts.battery) lines.push(BATTERY_PROBE);
   lines.push('true');
   return lines.join('\n');
 }
@@ -463,6 +502,8 @@ export class MachineStatusMonitor {
   private readonly loadMemo = new Map<string, MachineLoad>();
   /** Last kernel boot id read per machine. */
   private readonly bootMemo = new Map<string, string>();
+  /** Last battery read per machine. */
+  private readonly batteryMemo = new Map<string, { at: number; value: MachineBattery | 'none' }>();
   /** Last unanswered probe per address of a wakeable machine. */
   private readonly quiet = new Map<string, { at: number; outcome: TcpOutcome }>();
   private forced = false;
@@ -564,6 +605,7 @@ export class MachineStatusMonitor {
         stats,
         secondSample: !this.cpuPrev.has(name),
         windows: host.system === 'windows',
+        battery: stats && this.batteryDue(name, now),
       });
       const result = await this.deps.exec(host, script);
       const parsed = parseProbeOutput(result.stdout);
@@ -600,6 +642,7 @@ export class MachineStatusMonitor {
         loadTried = true;
         load = this.loadFrom(name, parsed);
         if (parsed.boot) this.bootMemo.set(name, parsed.boot);
+        if (parsed.battery) this.batteryMemo.set(name, { at: now, value: parsed.battery });
       }
     }
     // Keep the configured order in the answer.
@@ -610,6 +653,7 @@ export class MachineStatusMonitor {
       this.cpuPrev.delete(name);
       this.loadMemo.delete(name);
     }
+    const batteryRead = this.batteryMemo.get(name)?.value;
     const serverHost = serverHostOf(hosts, this.bootMemo.get(name) ?? null, this.deps.localBootId?.() ?? null);
     return {
       name,
@@ -620,9 +664,15 @@ export class MachineStatusMonitor {
       wakeHostId: verdict.state === 'online' ? null : (wakeHost?.id ?? null),
       ...verdict,
       load,
+      battery: verdict.state === 'online' && batteryRead && batteryRead !== 'none' ? batteryRead : null,
       systems,
       checkedAt: this.deps.now(),
     };
+  }
+
+  private batteryDue(name: string, now: number): boolean {
+    const read = this.batteryMemo.get(name);
+    return !read || (read.value !== 'none' && now - read.at >= BATTERY_CHECK_MS);
   }
 
   private loadFrom(name: string, parsed: ProbeOutput): MachineLoad | null {

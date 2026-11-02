@@ -38,6 +38,8 @@ const MIN_ENTRIES = 60;
 const MAX_BACKFILL_BYTES = 6 * 1024 * 1024;
 /** Longest line read whole (a pasted screenshot is a few MB of base64); longer ones are skipped. */
 const MAX_LINE_BYTES = 48 * 1024 * 1024;
+/** How much of a subagent's log its view reads, from the end. */
+const AGENT_TAIL_BYTES = 1536 * 1024;
 
 export interface ChatBlock {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'image';
@@ -47,6 +49,8 @@ export interface ChatBlock {
   input?: unknown;
   toolUseId?: string;
   isError?: boolean;
+  /** tool_result: the title Claude Code recorded for it (an artifact's page title). */
+  title?: string;
   /** Images: where the line holding the bytes sits in the log, and which image of it this is. */
   at?: number;
   len?: number;
@@ -144,6 +148,8 @@ export function parseChatLine(line: string): ChatEntry | null {
   const message = (raw.message ?? {}) as { content?: unknown; model?: string };
   const blocks: ChatBlock[] = [];
   let images = 0;
+  const useResult = (raw.toolUseResult ?? {}) as { title?: unknown; read?: { title?: unknown } };
+  const resultTitle = useResult.title ?? useResult.read?.title;
   if (type === 'system') {
     const text = typeof raw.content === 'string' ? raw.content : '';
     if (!text || raw.subtype === 'informational' || raw.level === 'debug') return null;
@@ -175,6 +181,7 @@ export function parseChatLine(line: string): ChatEntry | null {
             toolUseId: String(part.tool_use_id ?? ''),
             text: cut(resultText(part.content), RESULT_CAP),
             isError: part.is_error === true,
+            ...(typeof resultTitle === 'string' && resultTitle ? { title: cut(resultTitle, 200) } : {}),
           });
           break;
         case 'image':
@@ -262,9 +269,14 @@ export function buildLocateScript(muxName: string | null, claudeSessionId: strin
   const roots = '"${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "$HOME/.claude" /mnt/c/Users/*/.claude';
   const mux = muxName ? muxName.replace(/[^A-Za-z0-9_-]/g, '') : '';
   const live = mux
-    ? `best=; bt=0; for r in ${roots}; do for f in "$r"/sessions/*.json; do [ -f "$f" ] || continue; ` +
-      `grep -q '"tmux":"${mux}:' "$f" || continue; t=$(stat -c %Y "$f"); ` +
-      `[ "$t" -gt "$bt" ] && { bt=$t; best=$f; }; done; done; ` +
+    ? `best=; bt=; for r in ${roots}; do for f in "$r"/sessions/*.json; do [ -f "$f" ] || continue; ` +
+      `grep -q '"tmux":"${mux}:' "$f" || continue; ` +
+      // A `claude -p` run from inside the pane has the same tmux field: only the interactive one counts.
+      `if grep -q '"kind":"' "$f"; then grep -q '"kind":"interactive"' "$f" || continue; fi; ` +
+      `p=\${f##*/}; p=\${p%.json}; [ -d "/proc/$p" ] || continue; ` +
+      // A nested interactive claude started later than the pane's own: the oldest is the pane's.
+      `t=$(sed -n 's/.*"startedAt":\\([0-9]*\\).*/\\1/p' "$f"); t=\${t:-0}; ` +
+      `if [ -z "$bt" ] || [ "$t" -lt "$bt" ]; then bt=$t; best=$f; fi; done; done; ` +
       `if [ -n "$best" ]; then sid=$(sed -n 's/.*"sessionId":"\\([A-Za-z0-9-]*\\)".*/\\1/p' "$best"); ` +
       `root=\${best%/sessions/*}; for f in "$root"/projects/*/"$sid".jsonl; do ` +
       `[ -f "$f" ] && { printf '%s\\n' "$f"; exit 0; }; done; fi; `
@@ -433,6 +445,57 @@ export async function readTranscriptTail(
           .split('\n')
           .filter((l) => l.trim());
   return { log, lines, size };
+}
+
+/** Shell that prints the log of the subagent a tool call started, from its `.meta.json`. */
+export function buildAgentLocateScript(logPath: string, toolUseId: string): string {
+  const id = toolUseId.replace(/[^A-Za-z0-9_-]/g, '');
+  const dir = shellescape(`${logPath.slice(0, -'.jsonl'.length)}/subagents`);
+  return `for m in ${dir}/*.meta.json; do [ -f "$m" ] && grep -q '"toolUseId":"${id}"' "$m" && { printf '%s\\n' "\${m%.meta.json}.jsonl"; exit 0; }; done; true`;
+}
+
+/** The end of one subagent's log, by the tool call that started it. Null when there is none. */
+export async function readChatAgent(source: ChatSource, toolUseId: string): Promise<ChatEntry[] | null> {
+  const path = await locate(source);
+  if (!path || !toolUseId) return null;
+  const script = buildAgentLocateScript(path, toolUseId);
+  const out = source.remote
+    ? (await sshRun(source.remote, script, 64 * 1024)).toString('utf8')
+    : (await execAsync(script, { shell: '/bin/sh', timeout: 10_000 })).stdout;
+  const agentPath = out.trim().split('\n').pop()?.trim() ?? '';
+  if (!agentPath.startsWith('/') || !agentPath.endsWith('.jsonl')) return null;
+  const { size, buf } = await readLastBytes(source, agentPath, AGENT_TAIL_BYTES);
+  // Add the newline the parser looks for: the last line may be all that is there.
+  return parseChatChunk(Buffer.concat([buf, Buffer.from('\n')]), Math.max(0, size - buf.length), size > buf.length)
+    .entries;
+}
+
+/** The skills Claude was told about, from a log's `skill_listing` line. Pure. */
+export function parseSkillListing(line: string): Array<{ name: string; description: string }> {
+  let content: unknown;
+  try {
+    content = (JSON.parse(line) as { attachment?: { type?: string; content?: unknown } }).attachment?.content;
+  } catch {
+    return [];
+  }
+  if (typeof content !== 'string') return [];
+  const skills: Array<{ name: string; description: string }> = [];
+  for (const row of content.split('\n')) {
+    const m = row.match(/^- ([^\s:][^\s]*?): (.*)$/) ?? row.match(/^- ([^\s:]+)()$/);
+    if (m) skills.push({ name: m[1], description: m[2].slice(0, 200) });
+  }
+  return skills;
+}
+
+/** The session's slash-invokable skills, as its own log lists them. */
+export async function readChatSkills(source: ChatSource): Promise<Array<{ name: string; description: string }>> {
+  const path = await locate(source);
+  if (!path) return [];
+  const script = `grep -a -F '"type":"skill_listing"' ${shellescape(path)} | tail -n 1`;
+  const out = source.remote
+    ? (await sshRun(source.remote, script, 4 * 1024 * 1024)).toString('utf8')
+    : (await execAsync(script, { shell: '/bin/sh', timeout: 10_000, maxBuffer: 4 * 1024 * 1024 })).stdout;
+  return parseSkillListing(out.trim());
 }
 
 /** One image from the log: the `n`th image of the line at byte `at` (`len` bytes long). */

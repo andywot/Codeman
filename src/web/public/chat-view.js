@@ -96,6 +96,8 @@ const CHAT_ICONS = {
   file: chatIcon('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', 18),
   copy: chatIcon('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', 14),
   close: chatIcon('<path d="M18 6L6 18M6 6l12 12"/>', 14),
+  agent: chatIcon('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', 18),
+  artifact: chatIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>', 16),
 };
 
 function chatEsc(text) {
@@ -207,9 +209,92 @@ function localCommandItem(raw, key) {
 }
 
 /**
+ * Pictures attached from chat reach the log as paths in the message text. Returns the text
+ * without them and the paths, so the bubble can draw the pictures. Pure.
+ */
+function chatSplitUploads(text) {
+  const uploads = [];
+  const rest = String(text || '')
+    .replace(/(^|\s)(\S*[\\/]\.codeman-uploads[\\/]\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi, (_m, gap, path) => {
+      uploads.push(path);
+      return gap;
+    })
+    .trim();
+  return { text: rest, uploads };
+}
+
+/** A claude.ai artifact link in a tool call's input or result, or ''. Pure. */
+function chatArtifactUrl(tool) {
+  const hay = `${tool.input?.url || ''}\n${tool.result?.text || ''}`;
+  return (hay.match(/https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/) || [''])[0];
+}
+
+/** The newest title for each artifact the conversation touched, most recent first. Pure. */
+function chatArtifacts(items) {
+  const byUrl = new Map();
+  for (const item of items) {
+    if (item.kind !== 'artifact' || !item.url) continue;
+    const title = item.tool.result?.title || byUrl.get(item.url)?.title || item.tool.input?.title || '';
+    byUrl.delete(item.url);
+    byUrl.set(item.url, { url: item.url, title });
+  }
+  return [...byUrl.values()].reverse();
+}
+
+/** What a tool call is doing, for the working line. Pure. */
+function chatRunningLabel(items) {
+  for (let i = items.length - 1; i >= 0 && i >= items.length - 4; i--) {
+    const tools = items[i].tools || (items[i].tool ? [items[i].tool] : []);
+    const running = tools.filter((t) => !t.result).pop();
+    if (running) return chatToolTitle(running.name, running.input);
+  }
+  return '';
+}
+
+/** Slash commands of Claude Code itself; `menu` ones open a dialog only the terminal can show. */
+const CHAT_BUILTIN_COMMANDS = [
+  ['clear', 'Start a new conversation'],
+  ['compact', 'Summarize the conversation to free up context'],
+  ['context', 'Show what is using the context'],
+  ['cost', 'Show what this session has used'],
+  ['usage', 'Show plan usage limits'],
+  ['init', 'Write a CLAUDE.md for this project'],
+  ['review', 'Review a pull request'],
+  ['model', 'Choose the model', true],
+  ['effort', 'Choose the effort level', true],
+  ['resume', 'Go back to a past conversation', true],
+  ['rewind', 'Go back to an earlier point', true],
+  ['config', 'Open settings', true],
+  ['permissions', 'Manage tool permissions', true],
+  ['mcp', 'Manage MCP servers', true],
+  ['agents', 'Manage agents', true],
+  ['memory', 'Edit memory files', true],
+  ['login', 'Sign in', true],
+  ['logout', 'Sign out', true],
+].map(([name, description, menu]) => ({ name, description, menu: !!menu }));
+
+/** The picker's rows for what is typed, or null when the box is not a command being typed. Pure. */
+function chatSlashMatches(typed, skills) {
+  const m = String(typed || '').match(/^\/([^\s/]*)$/);
+  if (!m) return null;
+  const q = m[1].toLowerCase();
+  const seen = new Set();
+  const all = [...CHAT_BUILTIN_COMMANDS, ...(skills || [])].filter((c) => !seen.has(c.name) && seen.add(c.name));
+  const rank = (c) => {
+    const at = c.name.toLowerCase().indexOf(q);
+    return at === 0 ? 0 : at > 0 ? 1 : 2;
+  };
+  return all
+    .filter((c) => rank(c) < 2)
+    .sort((a, b) => rank(a) - rank(b))
+    .slice(0, 8);
+}
+
+/**
  * Turn log entries into display items. Pure; exported for tests.
  * Items: user, text, thinking, activity (a run of tool calls), file, question, todo, note,
- * compact (a /compact point with its summary), output (a slash command's long output).
+ * compact (a /compact point with its summary), output (a slash command's long output),
+ * agent (a subagent, opens its own log), artifact (a page Claude published or opened).
  */
 function buildChatItems(entries) {
   const results = new Map();
@@ -310,6 +395,16 @@ function buildChatItems(entries) {
         } else if (b.name === 'TodoWrite') {
           flush();
           items.push({ kind: 'todo', key, tool });
+        } else if (b.name === 'Agent' || b.name === 'Task') {
+          flush();
+          items.push({ kind: 'agent', key, tool });
+        } else if (
+          b.name === 'Artifact' &&
+          chatArtifactUrl(tool) &&
+          /^(publish|read|open|pin)?$/.test(b.input?.action || '')
+        ) {
+          flush();
+          items.push({ kind: 'artifact', key, tool, url: chatArtifactUrl(tool) });
         } else {
           if (!activity) {
             activity = { kind: 'activity', key, tools: [] };
@@ -415,6 +510,11 @@ if (typeof window !== 'undefined') {
     chatContextLimit,
     latestChatContext,
     chatTokens,
+    chatSplitUploads,
+    chatArtifactUrl,
+    chatArtifacts,
+    chatRunningLabel,
+    chatSlashMatches,
   };
 }
 
@@ -518,7 +618,7 @@ Object.assign(CodemanApp.prototype, {
         mode: session.mode,
         where: session.remote ? session.remote.label || session.remote.hostId : 'This server',
         folder: session.remote?.remotePath || session.workingDir || '',
-        model: session.displayModel || session.model || '',
+        model: session.displayModel?.model || session.model || '',
         state: this._chatRowState(id)?.state || 'idle',
       };
     }
@@ -589,11 +689,20 @@ Object.assign(CodemanApp.prototype, {
         <button type="button" class="chat-icon-btn" data-chat="options" aria-label="Session options" title="Session options">${CHAT_ICONS.more}</button>
       </header>
       <div class="chat-link" role="status" hidden></div>
+      <div class="chat-pins" hidden></div>
       <div class="chat-scroll">
         <div class="chat-log" role="log" aria-live="polite"></div>
         <div class="chat-outbox" aria-live="polite"></div>
       </div>
+      <div class="chat-agent-sheet" hidden>
+        <header class="chat-agent-head">
+          <button type="button" class="chat-icon-btn" data-chat="close-agent" aria-label="Back to the conversation">${CHAT_ICONS.back}</button>
+          <div class="chat-agent-title"></div>
+        </header>
+        <div class="chat-agent-scroll"><div class="chat-log chat-agent-log"></div></div>
+      </div>
       <div class="chat-dock">
+        <div class="chat-slash" hidden role="listbox" aria-label="Commands"></div>
         <div class="chat-prompt" hidden></div>
         <div class="chat-status" hidden></div>
         <div class="chat-composer">
@@ -867,12 +976,12 @@ Object.assign(CodemanApp.prototype, {
 
   // ── Data ────────────────────────────────────────────────────────────────
   /** One read. Resolves { kind, data } and never leaves a request running past its timeout. */
-  async _chatFetch(id, params, timeoutKind) {
+  async _chatFetch(id, params, timeoutKind, route = 'chat') {
     const link = this._chatLinkState();
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), chatCore().requestTimeout(timeoutKind, link.failures));
     try {
-      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/chat?${new URLSearchParams(params)}`, {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/${route}?${new URLSearchParams(params)}`, {
         redirect: 'manual',
         signal: abort.signal,
         // Ahead of the page's other requests when a slow link has them queueing.
@@ -1363,7 +1472,9 @@ Object.assign(CodemanApp.prototype, {
       row.dataset.ob = entry.id;
       const bubble = document.createElement('div');
       bubble.className = 'chat-bubble';
-      bubble.textContent = entry.text;
+      const split = chatSplitUploads(entry.text);
+      bubble.textContent = split.text;
+      if (split.uploads.length) row.appendChild(this._chatUploadStrip(id, split.uploads));
       const meta = document.createElement('div');
       meta.className = 'chat-outgoing-meta';
       const label = document.createElement('span');
@@ -1387,7 +1498,8 @@ Object.assign(CodemanApp.prototype, {
         button('Edit', 'ob-edit');
         button('Discard', 'ob-cancel');
       }
-      row.append(bubble, meta);
+      if (split.text) row.appendChild(bubble);
+      row.appendChild(meta);
       box.appendChild(row);
     }
     if (atBottom) scroller.scrollTop = scroller.scrollHeight;
@@ -1417,7 +1529,7 @@ Object.assign(CodemanApp.prototype, {
     view.querySelector('.chat-subtitle').textContent = [where, folder].filter(Boolean).join(' · ');
     view.querySelector('.chat-spinner').classList.toggle('on', row?.state === 'working');
     view.querySelector('[data-chat="mode-chat"]').setAttribute('aria-pressed', 'true');
-    const model = session?.displayModel || session?.model || saved?.model || '';
+    const model = session?.displayModel?.model || session?.model || saved?.model || '';
     view.querySelector('.chat-model').textContent = model ? chatOneLine(String(model).replace(/^claude-/, ''), 28) : '';
   },
 
@@ -1462,6 +1574,10 @@ Object.assign(CodemanApp.prototype, {
       }
       frag.appendChild(empty);
     }
+    // Moving a row resets the sideways scroll of what is inside it.
+    const sideways = [...log.querySelectorAll('.chat-table-wrap, pre')]
+      .filter((n) => n.scrollLeft > 0)
+      .map((n) => [n, n.scrollLeft]);
     // Rows are kept between renders: a markdown render is the slow part on a phone, and
     // a log row does not change unless its signature does.
     const kept = new Map();
@@ -1481,11 +1597,13 @@ Object.assign(CodemanApp.prototype, {
     }
     s.nodes = kept;
     log.replaceChildren(frag);
+    for (const [n, left] of sideways) n.scrollLeft = left;
     if (toBottom || nearBottom) scroller.scrollTop = scroller.scrollHeight;
     else if (keepFromBottom) scroller.scrollTop = scroller.scrollHeight - fromBottom;
     else scroller.scrollTop = scrollTop;
     this._chatRenderDock(id);
     this._chatRenderOutbox(id);
+    this._chatRenderPins(id);
   },
 
   _chatRenderItem(id, item) {
@@ -1521,8 +1639,10 @@ Object.assign(CodemanApp.prototype, {
           }
           el.appendChild(strip);
         }
-        if (item.text) {
-          bubble.textContent = item.text;
+        const split = chatSplitUploads(item.text);
+        if (split.uploads.length) el.appendChild(this._chatUploadStrip(id, split.uploads));
+        if (split.text) {
+          bubble.textContent = split.text;
           el.appendChild(bubble);
         }
         if (item.queued) {
@@ -1536,6 +1656,13 @@ Object.assign(CodemanApp.prototype, {
       case 'text': {
         el.className = 'chat-msg chat-assistant rv-text';
         el.innerHTML = this._renderMarkdown ? this._renderMarkdown(item.text) : chatEsc(item.text);
+        // A wide table scrolls by itself; the page beside it stays put.
+        el.querySelectorAll('table').forEach((table) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'chat-table-wrap';
+          table.replaceWith(wrap);
+          wrap.appendChild(table);
+        });
         el.querySelectorAll('a.rv-path').forEach((a) => (a.dataset.sessionId = id));
         this._linkifyFilePaths?.(el);
         el.querySelectorAll('a.rv-path').forEach((a) => (a.dataset.sessionId = id));
@@ -1581,6 +1708,38 @@ Object.assign(CodemanApp.prototype, {
         el.appendChild(ul);
         return el;
       }
+      case 'agent': {
+        const input = item.tool.input || {};
+        el.className = `chat-file-card chat-agent-card${item.tool.result ? '' : ' is-running'}`;
+        el.dataset.chat = 'open-agent';
+        el.dataset.tool = item.tool.id;
+        el.setAttribute('role', 'button');
+        el.tabIndex = 0;
+        el.innerHTML = `<span class="chat-file-icon">${CHAT_ICONS.agent}</span><span class="chat-file-text"><span class="chat-file-name"></span><span class="chat-file-detail"></span></span>${CHAT_ICONS.chevron}`;
+        const title = input.description || chatOneLine(input.prompt, 70) || 'Agent';
+        el.dataset.title = title;
+        el.querySelector('.chat-file-name').textContent = title;
+        el.querySelector('.chat-file-detail').textContent = [
+          'Agent',
+          input.subagent_type && input.subagent_type !== 'general-purpose' ? input.subagent_type : '',
+          item.tool.result?.isError ? 'failed' : item.tool.result ? '' : 'starting',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return el;
+      }
+      case 'artifact': {
+        const a = document.createElement('a');
+        a.className = 'chat-file-card chat-artifact-card';
+        a.dataset.key = item.key;
+        a.href = item.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = `<span class="chat-file-icon">${CHAT_ICONS.artifact}</span><span class="chat-file-text"><span class="chat-file-name"></span><span class="chat-file-detail">Artifact</span></span>${CHAT_ICONS.chevron}`;
+        a.querySelector('.chat-file-name').textContent =
+          item.tool.result?.title || item.tool.input?.title || chatBasename(item.tool.input?.file_path) || 'Open page';
+        return a;
+      }
       case 'note': {
         el.className = 'chat-note';
         el.textContent = item.text;
@@ -1604,6 +1763,192 @@ Object.assign(CodemanApp.prototype, {
       default:
         return null;
     }
+  },
+
+  /** Pictures from their upload paths, read through the session's own file route. */
+  _chatUploadStrip(id, paths) {
+    const strip = document.createElement('div');
+    strip.className = 'chat-images';
+    for (const path of paths) {
+      const route = `/api/sessions/${encodeURIComponent(id)}/file-raw?path=${encodeURIComponent(path)}`;
+      const src = window.CodemanBase?.url ? window.CodemanBase.url(route) : route;
+      const a = document.createElement('a');
+      a.href = src;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.className = 'chat-image';
+      const image = document.createElement('img');
+      image.src = src;
+      image.alt = chatBasename(path);
+      image.loading = 'lazy';
+      image.decoding = 'async';
+      image.addEventListener('error', () => a.classList.add('is-missing'));
+      a.appendChild(image);
+      strip.appendChild(a);
+    }
+    return strip;
+  },
+
+  /** Artifacts this conversation touched, kept in reach above the log. */
+  _chatRenderPins(id) {
+    const view = this._chatViewEl();
+    const box = view?.querySelector('.chat-pins');
+    if (!box) return;
+    const pins = chatArtifacts(this._chatItems || []);
+    const sig = JSON.stringify([id, pins]);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.hidden = !pins.length;
+    box.replaceChildren(
+      ...pins.map((pin) => {
+        const a = document.createElement('a');
+        a.className = 'chat-pin';
+        a.href = pin.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = CHAT_ICONS.artifact;
+        a.append(chatOneLine(pin.title || 'Artifact', 40));
+        return a;
+      })
+    );
+  },
+
+  // ── A subagent's own log ────────────────────────────────────────────────
+  chatOpenAgent(id, tool, title) {
+    const view = this._chatViewEl();
+    const sheet = view?.querySelector('.chat-agent-sheet');
+    if (!sheet || !tool) return;
+    this._chatAgentOpen = { id, tool };
+    sheet.hidden = false;
+    sheet.querySelector('.chat-agent-title').textContent = title || 'Agent';
+    const log = sheet.querySelector('.chat-agent-log');
+    log.dataset.sig = '';
+    log.replaceChildren();
+    const wait = document.createElement('div');
+    wait.className = 'chat-empty';
+    wait.textContent = 'Loading agent…';
+    log.appendChild(wait);
+    void this._chatPollAgent();
+  },
+
+  chatCloseAgent() {
+    this._chatAgentOpen = null;
+    clearTimeout(this._chatAgentTimer);
+    const sheet = this._chatViewEl()?.querySelector('.chat-agent-sheet');
+    if (sheet) sheet.hidden = true;
+  },
+
+  async _chatPollAgent() {
+    const open = this._chatAgentOpen;
+    if (!open) return;
+    clearTimeout(this._chatAgentTimer);
+    let data = null;
+    try {
+      const got = await this._chatFetch(open.id, { tool: open.tool }, 'read', 'chat/agent');
+      if (got.kind === 'ok') data = got.data;
+    } catch {
+      /* The next read tries again; what is on screen stays. */
+    }
+    if (this._chatAgentOpen !== open) return;
+    if (data) this._chatRenderAgent(open, data);
+    this._chatAgentTimer = setTimeout(() => this._chatPollAgent(), 4000);
+  },
+
+  _chatRenderAgent(open, data) {
+    const sheet = this._chatViewEl().querySelector('.chat-agent-sheet');
+    const log = sheet.querySelector('.chat-agent-log');
+    const scroller = sheet.querySelector('.chat-agent-scroll');
+    const entries = (data.entries || []).map((e) => ({ ...e, sidechain: false }));
+    const sig = `${data.found}:${entries.length}:${entries.at(-1)?.uuid || ''}`;
+    if (log.dataset.sig === sig) return;
+    log.dataset.sig = sig;
+    const atBottom = !log.childElementCount || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+    const open_ = new Set([...log.querySelectorAll('[data-open="1"]')].map((n) => n.dataset.key));
+    const nodes = buildChatItems(entries)
+      .map((item) => {
+        const node = this._chatRenderItem(open.id, item);
+        if (node && open_.has(item.key)) node.dataset.open = '1';
+        return node;
+      })
+      .filter(Boolean);
+    if (!nodes.length) {
+      const empty = document.createElement('div');
+      empty.className = 'chat-empty';
+      empty.textContent = data.found ? 'Nothing from this agent yet.' : 'This agent has no log on that machine.';
+      nodes.push(empty);
+    }
+    log.replaceChildren(...nodes);
+    if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+  },
+
+  // ── The / picker ────────────────────────────────────────────────────────
+  _chatSlashSkills(id) {
+    const s = this._chat(id);
+    if (s.skillsLog === (s.log || '') && s.skills) return s.skills;
+    if (!s.skillsLoading) {
+      s.skillsLoading = true;
+      this._chatFetch(id, {}, 'read', 'chat/skills')
+        .then((got) => {
+          if (got.kind !== 'ok') return;
+          s.skills = got.data.skills || [];
+          s.skillsLog = s.log || '';
+          this._chatRenderSlash();
+        })
+        .catch(() => {})
+        .finally(() => {
+          s.skillsLoading = false;
+        });
+    }
+    return s.skills || [];
+  },
+
+  _chatRenderSlash() {
+    const view = this._chatViewEl();
+    const box = view?.querySelector('.chat-slash');
+    const id = this._chatShownId;
+    if (!box || !id) return;
+    const typed = view.querySelector('.chat-input').innerText.replace(/\n+$/, '');
+    const rows = /^\/[^\s/]*$/.test(typed) ? chatSlashMatches(typed, this._chatSlashSkills(id)) : null;
+    this._chatSlashRows = rows || [];
+    if (!rows?.length) {
+      box.hidden = true;
+      box.replaceChildren();
+      this._chatSlashAt = 0;
+      return;
+    }
+    this._chatSlashAt = Math.min(this._chatSlashAt || 0, rows.length - 1);
+    box.hidden = false;
+    box.replaceChildren(
+      ...rows.map((c, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `chat-slash-row${i === this._chatSlashAt ? ' is-on' : ''}`;
+        b.dataset.chat = 'slash';
+        b.dataset.name = c.name;
+        const name = document.createElement('span');
+        name.className = 'chat-slash-name';
+        name.textContent = `/${c.name}`;
+        const desc = document.createElement('span');
+        desc.className = 'chat-slash-desc';
+        desc.textContent = c.menu ? `${c.description} (opens the terminal)` : c.description;
+        b.append(name, desc);
+        return b;
+      })
+    );
+  },
+
+  _chatSlashPick(name) {
+    const view = this._chatViewEl();
+    const input = view.querySelector('.chat-input');
+    input.textContent = `/${name} `;
+    input.focus();
+    document.getSelection()?.selectAllChildren(input);
+    document.getSelection()?.collapseToEnd();
+    if (this._chatShownId) {
+      this._chat(this._chatShownId).draft = input.textContent;
+      this._chatRenderDock(this._chatShownId);
+    }
+    this._chatRenderSlash();
   },
 
   _chatRenderTool(tool, groupKey) {
@@ -1808,9 +2153,10 @@ Object.assign(CodemanApp.prototype, {
     const bits = [];
     if (s.error) bits.push(`<span class="chat-status-err">${chatEsc(s.error)}</span>`);
     else if (working) {
-      const watch = row?.watching ? ` · ${chatEsc(row.watching)}` : '';
+      const doing = chatRunningLabel(this._chatItems || []);
+      const detail = [doing, row?.watching].filter(Boolean).map((t) => ` · ${chatEsc(chatOneLine(t, 80))}`);
       bits.push(
-        `<span class="chat-working"><span class="chat-dots" aria-hidden="true"><i></i><i></i><i></i></span>Working…${watch}</span>`
+        `<span class="chat-working"><span class="chat-dots" aria-hidden="true"><i></i><i></i><i></i></span>Working…${detail.join('')}</span>`
       );
     } else if (row?.display === 'exited') bits.push('<span>Claude exited in this session.</span>');
     status.hidden = !bits.length;
@@ -2170,8 +2516,12 @@ Object.assign(CodemanApp.prototype, {
     s.draft = '';
     view.querySelector('.chat-input').textContent = '';
     this._chatRenderUploads(id);
+    this._chatRenderSlash();
     this._chatPump();
     this._chatRenderOutbox(id);
+    // A command that opens a menu has nothing to show here: the menu is on the terminal.
+    const menu = CHAT_BUILTIN_COMMANDS.find((c) => c.menu && message.trim().split(/\s/)[0] === `/${c.name}`);
+    if (menu) setTimeout(() => this.setChatMode('terminal'), 300);
     const scroller = view.querySelector('.chat-scroll');
     scroller.scrollTop = scroller.scrollHeight;
   },
@@ -2215,6 +2565,15 @@ Object.assign(CodemanApp.prototype, {
         }
         case 'open-file':
           if (target.dataset.path) this.openFilePreview?.(target.dataset.path, target.dataset.sessionId || id);
+          break;
+        case 'open-agent':
+          if (id) this.chatOpenAgent(id, target.dataset.tool, target.dataset.title);
+          break;
+        case 'close-agent':
+          this.chatCloseAgent();
+          break;
+        case 'slash':
+          this._chatSlashPick(target.dataset.name);
           break;
         case 'earlier':
           if (id) this._chatLoadEarlier(id);
@@ -2327,8 +2686,28 @@ Object.assign(CodemanApp.prototype, {
         this._chat(this._chatShownId).draft = input.innerText;
         this._chatRenderDock(this._chatShownId);
       }
+      this._chatRenderSlash();
     });
     input.addEventListener('keydown', (event) => {
+      const rows = this._chatSlashRows || [];
+      if (rows.length && !event.isComposing) {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          this._chatSlashAt = (this._chatSlashAt + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length;
+          this._chatRenderSlash();
+          return;
+        }
+        if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !this._chatIsPhone())) {
+          event.preventDefault();
+          this._chatSlashPick(rows[this._chatSlashAt].name);
+          return;
+        }
+        if (event.key === 'Escape') {
+          this._chatSlashRows = [];
+          view.querySelector('.chat-slash').hidden = true;
+          return;
+        }
+      }
       // Desktop: Enter sends, Shift+Enter is a new line. Phone: Enter is a new line, like the app.
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !this._chatIsPhone()) {
         event.preventDefault();

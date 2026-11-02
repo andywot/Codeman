@@ -4,6 +4,8 @@
  * - GET /api/sessions/:id/chat?after=<offset>   lines appended since `after` (-1 or absent = the tail)
  * - GET /api/sessions/:id/chat?before=<offset>  the chunk ending at `before` ("load earlier")
  * - GET /api/sessions/:id/chat/image?log&at&len&n  one pasted image, by its line in the log
+ * - GET /api/sessions/:id/chat/agent?tool=<id>   one subagent's log, by the tool call that started it
+ * - GET /api/sessions/:id/chat/skills            the skills the session's log lists, for the / picker
  *
  * Works for local and remote (ssh) Claude sessions; see src/chat-transcript.ts. Other CLIs
  * answer `found: false` and the page stays on the terminal.
@@ -12,7 +14,7 @@
 import { FastifyInstance } from 'fastify';
 import { ApiErrorCode, createErrorResponse } from '../../types.js';
 import { findSessionOrFail } from '../route-helpers.js';
-import { readChat, readChatImage, type ChatSource } from '../../chat-transcript.js';
+import { readChat, readChatAgent, readChatImage, readChatSkills, type ChatSource } from '../../chat-transcript.js';
 import { getCli } from '../../config/cli-registry/registry.js';
 import { remoteTmuxSessionName } from '../../tmux-manager.js';
 import type { ConfigPort, SessionPort } from '../ports/index.js';
@@ -54,6 +56,34 @@ export function registerChatRoutes(app: FastifyInstance, ctx: SessionPort & Conf
         `Could not read the conversation: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+  });
+
+  app.get('/api/sessions/:id/chat/agent', async (req) => {
+    const { id } = req.params as { id: string };
+    const session = findSessionOrFail(ctx, id, req);
+    const tool = String((req.query as Record<string, unknown>).tool ?? '');
+    try {
+      const entries =
+        getCli(session.mode)?.capabilities.transcript === 'claude-jsonl'
+          ? await readChatAgent(chatSource(session, ctx), tool)
+          : null;
+      return { success: true, data: { found: !!entries, entries: entries ?? [] } };
+    } catch (err) {
+      return createErrorResponse(
+        ApiErrorCode.OPERATION_FAILED,
+        `Could not read the agent: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  });
+
+  app.get('/api/sessions/:id/chat/skills', async (req) => {
+    const { id } = req.params as { id: string };
+    const session = findSessionOrFail(ctx, id, req);
+    if (getCli(session.mode)?.capabilities.transcript !== 'claude-jsonl')
+      return { success: true, data: { skills: [] } };
+    // A list the machine could not give is an empty list: the built-in commands still show.
+    const skills = await readChatSkills(chatSource(session, ctx)).catch(() => []);
+    return { success: true, data: { skills } };
   });
 
   app.get('/api/sessions/:id/chat/image', async (req, reply) => {

@@ -113,6 +113,7 @@ Object.assign(CodemanApp.prototype, {
         `CPU ${m.load.cpu == null ? '…' : `${m.load.cpu}%`} · MEM ${m.load.memPercent}% (${used} of ${total} GB)`
       );
     }
+    if (m.battery) lines.push(`Battery ${m.battery.percent}%${m.battery.charging ? ', plugged in' : ''}`);
     if (m.hint) lines.push(m.hint);
     return lines.join('\n');
   },
@@ -122,7 +123,8 @@ Object.assign(CodemanApp.prototype, {
     const m = this.machineStatusFor(name);
     if (!m) return null;
     if (m.state === 'online' && !m.issue && m.load) {
-      return `cpu ${m.load.cpu == null ? '…' : `${m.load.cpu}%`} · mem ${m.load.memPercent}%`;
+      const battery = m.battery ? ` · bat ${m.battery.percent}%${m.battery.charging ? '+' : ''}` : '';
+      return `cpu ${m.load.cpu == null ? '…' : `${m.load.cpu}%`} · mem ${m.load.memPercent}%${battery}`;
     }
     return machineStateWord(m);
   },
@@ -240,6 +242,12 @@ Object.assign(CodemanApp.prototype, {
       }
       if (m.state === 'online' && !m.issue && m.load) {
         this._appendMachineRings(item, m.load);
+        if (m.battery) {
+          const bat = document.createElement('span');
+          bat.className = `rc-ring-key hm-battery${m.battery.percent <= 20 && !m.battery.charging ? ' hm-battery--low' : ''}`;
+          bat.textContent = `${m.battery.charging ? '⚡' : '🔋'}${m.battery.percent}%`;
+          item.append(bat);
+        }
       } else if (m.state !== 'online' || m.issue) {
         const word = document.createElement('span');
         word.className = 'rc-ring-key';

@@ -41,6 +41,9 @@ import { isAdmin } from '../route-helpers.js';
 import { RemoteHostSchema } from '../schemas.js';
 import { readRemoteCases, readRemoteHosts, writeRemoteCases, writeRemoteHosts } from '../../remote-hosts.js';
 import { MachineStatusMonitor, classifySshFailure, createDefaultMachineStatusDeps } from '../../machine-status.js';
+import { getCli } from '../../config/cli-registry/registry.js';
+import { startKeepAwake } from '../../machine-keep-awake.js';
+import { remoteExecIfIdle } from '../../remote-shell-pool.js';
 import { discoverTarget, discoveryTargets, knownForTarget, loginKey } from '../../claude-discovery.js';
 import { ClaudeHistoryService, historyPaging } from '../../claude-history.js';
 import { resolveTmuxSocketName } from '../../config/instance.js';
@@ -156,6 +159,21 @@ export function registerFleetRoutes(
   const machineStatus =
     options.machineStatus ??
     new MachineStatusMonitor(createDefaultMachineStatusDeps(() => readRemoteHosts(CONFIG_DIR)));
+
+  // Off for tests and side-by-side instances: this acts on the real machines.
+  if (ctx && !process.env.VITEST && !process.env.CODEMAN_INSTANCE) {
+    const stop = startKeepAwake({
+      readHosts: () => readRemoteHosts(CONFIG_DIR),
+      activeHostIds: () =>
+        [...ctx.sessions.values()]
+          .filter(
+            (s) => getCli(s.mode)?.capabilities.transcript === 'claude-jsonl' && s.status === 'busy' && s.remote?.hostId
+          )
+          .map((s) => s.remote!.hostId),
+      exec: (host, script) => remoteExecIfIdle(host, script, { timeout: 15_000, maxBuffer: 64 * 1024 }),
+    });
+    app.addHook('onClose', async () => stop());
+  }
 
   app.get('/api/fleet/status', async (req, reply) => {
     const no = denied(req, reply);

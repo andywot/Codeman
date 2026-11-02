@@ -314,6 +314,8 @@
       // A message nothing was sent for cannot be in the log.
       if (!message.handed && message.state !== 'sending' && message.state !== 'sent') continue;
       const want = normalizeText(message.matchText);
+      // A message with attachments is logged with their paths in front of what was typed.
+      const whole = normalizeText(message.text);
       const hit = pool.findIndex((e, i) => {
         if (used.has(i)) return false;
         const at = Date.parse(e.timestamp);
@@ -321,8 +323,10 @@
         const text = logEntryText(e);
         // The server cuts very long text, so a long message matches on what is left.
         const cut = /… \([\d,.\s]+ more characters\)$/.test(text);
+        if (text === whole) return true;
         if (want === '') return (e.blocks || []).some((b) => b.type === 'image');
-        return cut ? want.startsWith(text.replace(/\s*… \([\d,.\s]+ more characters\)$/, '')) : text === want;
+        const kept = text.replace(/\s*… \([\d,.\s]+ more characters\)$/, '');
+        return cut ? want.startsWith(kept) || whole.startsWith(kept) : text === want;
       });
       if (hit >= 0) {
         used.add(hit);
